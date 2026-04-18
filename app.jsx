@@ -1522,18 +1522,19 @@ function App(){
     return(
       <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
         <div style={mCard}>
-          {/* Floating close button - top right corner of sheet */}
-          <button onClick={()=>setSel(null)} style={{position:"absolute",top:14,right:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:14,cursor:"pointer",zIndex:5,lineHeight:1}}>✕</button>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-            <div>
+          {/* Header: back arrow top-left, title centre, action buttons below */}
+          <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
+            <button onClick={()=>setSel(null)} style={{background:"none",border:"none",color:C.muted,fontSize:20,cursor:"pointer",padding:"0 10px 0 0",lineHeight:1,flexShrink:0}}>←</button>
+            <div style={{flex:1}}>
               <div style={{fontWeight:800,fontSize:17,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
               <div style={{fontSize:12,color:C.muted}}>{h.name}</div>
-              <div style={{fontSize:10,color:C.mutedLight,marginTop:2}}>{m.index} · YTD {m.idxYtd>=0?"+":""}{m.idxYtd}%</div>
+              <div style={{fontSize:10,color:C.mutedLight,marginTop:1}}>{m.index} · YTD {m.idxYtd>=0?"+":""}{m.idxYtd}%</div>
             </div>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              <button onClick={()=>openEditHolding(h)} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:`1px solid ${C.accent}`,background:C.accent+"12",color:C.accent,cursor:"pointer",fontWeight:700}}>Edit</button>
-              <button onClick={()=>{setSel(null);confirmDeleteHolding(h.id);}} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:`1px solid ${C.red}55`,background:C.red+"12",color:C.red,cursor:"pointer",fontWeight:700}}>Delete</button>
-            </div>
+          </div>
+          {/* Action buttons in their own row - well separated */}
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <button onClick={()=>openEditHolding(h)} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.accent}`,background:C.accent+"12",color:C.accent,cursor:"pointer",fontWeight:700,fontSize:12}}>✏️ Edit</button>
+            <button onClick={()=>{setSel(null);confirmDeleteHolding(h.id);}} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.red}55`,background:C.red+"12",color:C.red,cursor:"pointer",fontWeight:700,fontSize:12}}>🗑 Delete</button>
           </div>
 
           {/* Avg Cost / Price / Intrinsic */}
@@ -1641,10 +1642,25 @@ function App(){
           <div style={card}><div style={cardT}>Key Stats</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>{[["P/E",fmt(h.peRatio)],["Div Yield",fmt(h.divYield)+"%"],["Sector",h.sector],["MS Style",h.msStyle],["Market",`${h.mkt} (${m.code})`],["Benchmark",m.index]].map(([l,v])=>(<div key={l}><div style={{fontSize:9,color:C.muted}}>{l}</div><div style={{fontSize:12,fontWeight:600}}>{v}</div></div>))}</div></div>
 
           <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}30`}}>
-            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:16}}>AI</span><div style={cardT}>AI Analysis (Buffett Style)</div></div>
-            {loading&&<div style={{textAlign:"center",padding:"14px 0",color:C.muted,fontSize:13}}>Analyzing {h.ticker}...<div style={{width:100,height:2,background:C.border,borderRadius:1,margin:"8px auto 0",overflow:"hidden"}}><div style={{width:"55%",height:"100%",background:C.accent,animation:"pulse 1s ease-in-out infinite",borderRadius:1}}/></div></div>}
-            {!loading&&analysis&&<div style={{fontSize:13,color:C.mutedLight,lineHeight:1.75,whiteSpace:"pre-wrap"}}>{analysis}</div>}
-            {!loading&&!analysis&&<div style={{textAlign:"center",padding:"8px 0"}}><button style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"8px 20px",fontSize:13,fontWeight:700,cursor:"pointer"}} onClick={()=>analyse(h)}>Generate Analysis</button></div>}
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:16}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
+            {(()=>{
+              const bs=buffettScore(h);
+              const gainPctAI=((h.price-h.avgCost)/h.avgCost)*100;
+              const upsideAI=((h.intrinsic-h.price)/h.price)*100;
+              const divOk=h.divYield>0;
+              const moatStr=h.moat==="Wide"?"a wide economic moat — strong competitive advantages":h.moat==="Narrow"?"a narrow moat — some competitive advantages":"no significant moat";
+              const valuation=upsideAI>15?"trading below intrinsic value — a margin of safety exists":upsideAI>0?"near fair value — limited margin of safety":"trading above intrinsic value — caution warranted";
+              const rec=bs.score>=65?"a BUY candidate":bs.score>=35?"worth monitoring but wait for better entry":"not meeting Buffett criteria at current price";
+              const divText=divOk?`pays a ${h.divYield.toFixed(1)}% dividend yield, providing income while you wait`:"pays no dividend, so returns depend entirely on price appreciation";
+              const perfText=gainPctAI>=0?`currently up ${fmt(gainPctAI,1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`:`currently down ${fmt(Math.abs(gainPctAI),1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`;
+              return(
+                <div style={{fontSize:12,color:C.mutedLight,lineHeight:1.8}}>
+                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
+                  <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. At a P/E of {fmt(h.peRatio,1)}x, it is {h.peRatio>0&&h.peRatio<20?"reasonably valued":h.peRatio>=20&&h.peRatio<35?"moderately priced":"expensively priced"} relative to earnings.</p>
+                  <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({bs.score}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
+                </div>
+              );
+            })()}
           </div>
           <div style={{height:24}}/>
         </div>
