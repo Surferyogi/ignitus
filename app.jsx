@@ -129,38 +129,47 @@ function Sparkline({data,color=C.accent,height=44,period="6m"}){
   const area=path+` L${W},${H} L0,${H} Z`;
   const gid="g"+color.replace(/[^a-zA-Z0-9]/g,"");
 
-  // Generate X-axis date markers based on period
+  // Generate X-axis markers based on period
   const now=new Date();
   function getMarkers(){
     const n=data.length;
     if(period==="30d"){
-      // Weekly markers: 4 weeks
-      return [0,1,2,3].map(w=>({
-        pos:Math.round((w/4)*n),
-        label:w===0?"4w ago":w===1?"3w":w===2?"2w":"1w"
-      }));
+      return [0,1,2,3,4].map(w=>({pos:Math.round((w/4)*n),label:w===0?"4w":w===1?"3w":w===2?"2w":w===3?"1w":"",tick:true}));
     } else if(period==="6m"){
-      // Monthly markers: 6 months
-      return [0,1,2,3,4,5].map(m=>({
-        pos:Math.round((m/6)*n),
-        label:new Date(now.getFullYear(),now.getMonth()-5+m,1).toLocaleString("default",{month:"short"})
+      return Array.from({length:7},(_,i)=>({
+        pos:Math.round((i/6)*n),
+        label:new Date(now.getFullYear(),now.getMonth()-6+i,1).toLocaleString("default",{month:"short"}),
+        tick:true
       }));
     } else if(period==="1y"){
-      // Quarterly: Q1-Q4
-      return [0,1,2,3].map(q=>({
-        pos:Math.round((q/4)*n),
-        label:["Jan","Apr","Jul","Oct"][(now.getMonth()-9+q*3+12)%12>=0?(now.getMonth()-9+q*3+12)%12:0]||["Jan","Apr","Jul","Oct"][q]
+      // Quarterly labels + monthly ticks
+      const quarters=Array.from({length:5},(_,i)=>({
+        pos:Math.round((i/4)*n),
+        label:new Date(now.getFullYear()-1+Math.floor((now.getMonth()+i*3)/12),((now.getMonth()+i*3)%12),1).toLocaleString("default",{month:"short"}),
+        tick:true,major:true
       }));
+      // Monthly minor ticks
+      const monthTicks=Array.from({length:13},(_,i)=>({pos:Math.round((i/12)*n),label:"",tick:true,major:false}));
+      return [...monthTicks,...quarters];
     } else {
-      // 5y/all: yearly markers
+      // 5y/all: year labels + monthly minor ticks
       const years=period==="5y"?5:10;
-      return Array.from({length:years+1},(_,i)=>({
-        pos:Math.round((i/years)*n),
-        label:String(now.getFullYear()-years+i)
+      const yearMarks=Array.from({length:years+1},(_,i)=>({
+        pos:Math.min(Math.round((i/years)*n),n-1),
+        label:String(now.getFullYear()-years+i),
+        tick:true,major:true
       }));
+      // Quarterly minor ticks
+      const quarters=years*4;
+      const qTicks=Array.from({length:quarters+1},(_,i)=>({
+        pos:Math.min(Math.round((i/quarters)*n),n-1),
+        label:"",tick:true,major:false
+      }));
+      return [...qTicks,...yearMarks];
     }
   }
-  const markers=getMarkers().filter(m=>m.pos<data.length);
+  const allMarkers=getMarkers();
+  const markers=allMarkers.filter(m=>m.pos>=0&&m.pos<data.length);
 
   return(
     <svg width="100%" viewBox={`0 0 ${W} ${TH}`} style={{display:"block"}}>
@@ -175,14 +184,18 @@ function Sparkline({data,color=C.accent,height=44,period="6m"}){
       <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
       {/* X-axis baseline */}
       <line x1="0" y1={H} x2={W} y2={H} stroke={C.border} strokeWidth="0.5"/>
-      {/* Date markers */}
-      {markers.map((m,i)=>{
-        const x=(m.pos/(data.length-1))*W;
-        const anchor=i===0?"start":i===markers.length-1?"end":"middle";
+      {/* X-axis markers — minor ticks and labeled major markers */}
+      {markers.map((m,idx)=>{
+        const x=data.length>1?(m.pos/(data.length-1))*W:0;
+        const hasLabel=m.label&&m.label.length>0;
+        // Anchor: first labeled→start, last labeled→end, rest→middle
+        const labeledMarkers=markers.filter(mk=>mk.label);
+        const labelIdx=labeledMarkers.indexOf(m);
+        const anchor=labelIdx===0?"start":labelIdx===labeledMarkers.length-1?"end":"middle";
         return(
-          <g key={i}>
-            <line x1={x} y1={H} x2={x} y2={H+4} stroke={C.border} strokeWidth="0.5"/>
-            <text x={x} y={H+14} textAnchor={anchor} fontSize="9" fill={C.muted}>{m.label}</text>
+          <g key={idx}>
+            <line x1={x} y1={H} x2={x} y2={m.major===false?H+3:H+5} stroke={C.border} strokeWidth={m.major===false?0.4:0.7}/>
+            {hasLabel&&<text x={x} y={H+15} textAnchor={anchor} fontSize="9" fill={C.muted}>{m.label}</text>}
           </g>
         );
       })}
@@ -226,7 +239,17 @@ function PerfChart({mktFilter,period,holdings}){
     },0)
   );
   const p0=pH[0]||1,i0=iN[0]||1;
-  const pN=pH.map(v=>(v/p0)*100),iNorm=iN.map(v=>(v/i0)*100);
+  // Fix final point: scale so last value = today's actual portfolio value
+  const pLast=pH[pH.length-1]||p0;
+  const actualLast=subset.reduce((s,h)=>s+toSGD(h.price*h.shares,h.mkt),0);
+  const scale=actualLast/(pLast||1);
+  const pNRaw=pH.map(v=>(v/p0)*100);
+  // Apply gentle scale correction so endpoint matches current value exactly
+  const pN=pNRaw.map((v,i)=>{
+    const t=i/(pH.length-1);
+    return v*(1-t)+v*scale*t;
+  });
+  const iNorm=iN.map(v=>(v/i0)*100);
   const W=300,H=130;
   const allV=[...pN,...iNorm],mn=Math.min(...allV)-3,mx=Math.max(...allV)+3;
   const toY=v=>H-((v-mn)/(mx-mn))*H*0.88-H*0.06;
@@ -243,22 +266,55 @@ function PerfChart({mktFilter,period,holdings}){
         <span style={{color:C.accent}}>Portfolio <b style={{color:+pR>=0?C.green:C.red}}>{+pR>=0?"+":""}{pR}%</b></span>
         <span style={{color:C.mutedLight}}>{idxName} <b style={{color:+iR>=0?C.green:C.red}}>{+iR>=0?"+":""}{iR}%</b></span>
       </div>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block"}}>
-        <defs>
-          <linearGradient id="pGrMain" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.accent} stopOpacity="0.22"/><stop offset="100%" stopColor={C.accent} stopOpacity="0"/></linearGradient>
-          <linearGradient id="iGrMain" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.mutedLight} stopOpacity="0.1"/><stop offset="100%" stopColor={C.mutedLight} stopOpacity="0"/></linearGradient>
-        </defs>
-        {[25,50,75].map(p=>{const y=toY(mn+(mx-mn)*(p/100));return <line key={p} x1={0} y1={y} x2={W} y2={y} stroke={C.border} strokeWidth="0.5" strokeDasharray="4,4"/>;})}
-        <path d={ip+` L${W},${H} L0,${H} Z`} fill="url(#iGrMain)"/>
-        <path d={ip} fill="none" stroke={C.mutedLight} strokeWidth="1" strokeDasharray="5,3" opacity="0.6"/>
-        <path d={pp+` L${W},${H} L0,${H} Z`} fill="url(#pGrMain)"/>
-        <path d={pp} fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round"/>
-        <circle cx={toX(days)} cy={toY(pL)} r="3.5" fill={C.accent}/>
-        <circle cx={toX(days)} cy={toY(iL)} r="3" fill={C.mutedLight} opacity="0.7"/>
-      </svg>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,marginTop:3}}>
-        <span>{PLBL[period]||period} ago</span><span>Today</span>
-      </div>
+      {(()=>{
+        // Date markers for PerfChart
+        const AXIS=18;
+        const perfMarkers=(()=>{
+          const n=days;
+          const now2=new Date();
+          if(period==="30d") return [0,1,2,3,4].map(w=>({pos:Math.round((w/4)*n),label:w===0?"4w":w===1?"3w":w===2?"2w":w===3?"1w":"",major:true}));
+          if(period==="6m")  return Array.from({length:7},(_,i)=>({pos:Math.round((i/6)*n),label:new Date(now2.getFullYear(),now2.getMonth()-6+i,1).toLocaleString("default",{month:"short"}),major:true}));
+          if(period==="1y"){
+            const q=Array.from({length:5},(_,i)=>({pos:Math.round((i/4)*n),label:new Date(now2.getFullYear()-1+Math.floor((now2.getMonth()+i*3)/12),((now2.getMonth()+i*3)%12),1).toLocaleString("default",{month:"short"}),major:true}));
+            const mt=Array.from({length:13},(_,i)=>({pos:Math.round((i/12)*n),label:"",major:false}));
+            return [...mt,...q];
+          }
+          const yrs=period==="5y"?5:10;
+          const ym=Array.from({length:yrs+1},(_,i)=>({pos:Math.min(Math.round((i/yrs)*n),n),label:String(now2.getFullYear()-yrs+i),major:true}));
+          const qt=Array.from({length:yrs*4+1},(_,i)=>({pos:Math.min(Math.round((i/(yrs*4))*n),n),label:"",major:false}));
+          return [...qt,...ym];
+        })();
+        return(
+          <svg width="100%" viewBox={`0 0 ${W} ${H+AXIS}`} style={{display:"block"}}>
+            <defs>
+              <linearGradient id="pGrMain" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.accent} stopOpacity="0.22"/><stop offset="100%" stopColor={C.accent} stopOpacity="0"/></linearGradient>
+              <linearGradient id="iGrMain" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.mutedLight} stopOpacity="0.1"/><stop offset="100%" stopColor={C.mutedLight} stopOpacity="0"/></linearGradient>
+            </defs>
+            {[25,50,75].map(p=>{const y=toY(mn+(mx-mn)*(p/100));return <line key={p} x1={0} y1={y} x2={W} y2={y} stroke={C.border} strokeWidth="0.5" strokeDasharray="4,4"/>;} )}
+            <path d={ip+` L${W},${H} L0,${H} Z`} fill="url(#iGrMain)"/>
+            <path d={ip} fill="none" stroke={C.mutedLight} strokeWidth="1" strokeDasharray="5,3" opacity="0.6"/>
+            <path d={pp+` L${W},${H} L0,${H} Z`} fill="url(#pGrMain)"/>
+            <path d={pp} fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round"/>
+            <circle cx={toX(days)} cy={toY(pL)} r="3.5" fill={C.accent}/>
+            <circle cx={toX(days)} cy={toY(iL)} r="3" fill={C.mutedLight} opacity="0.7"/>
+            {/* X-axis baseline */}
+            <line x1="0" y1={H} x2={W} y2={H} stroke={C.border} strokeWidth="0.5"/>
+            {/* Date markers */}
+            {perfMarkers.map((mk,i)=>{
+              const x=(mk.pos/days)*W;
+              const labeled=perfMarkers.filter(m=>m.label);
+              const li=labeled.indexOf(mk);
+              const anchor=li===0?"start":li===labeled.length-1?"end":"middle";
+              return(
+                <g key={i}>
+                  <line x1={x} y1={H} x2={x} y2={mk.major?H+5:H+3} stroke={C.border} strokeWidth={mk.major?0.7:0.4}/>
+                  {mk.label&&<text x={x} y={H+14} textAnchor={anchor} fontSize="9" fill={C.muted}>{mk.label}</text>}
+                </g>
+              );
+            })}
+          </svg>
+        );
+      })()}
     </div>
   );
 }
