@@ -632,6 +632,7 @@ function App(){
     }catch(e){console.warn('Senate auto-update failed:',e.message);}
   }
 
+  const [perfChartData,setPerfChartData]=useState({});
   const [perfChartLoading,setPerfChartLoading]=useState({});
 
   // Index ETF tickers for each market (used in PerfChart)
