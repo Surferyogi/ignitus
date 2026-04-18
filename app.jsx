@@ -1179,20 +1179,25 @@ function App(){
             </div>
             {senateLoading&&<div style={{textAlign:"center",padding:16,color:C.gold,fontSize:11}}>↻ Loading live senate trades...</div>}
             {!senateLoading&&senateData.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:11}}>No senate trades in database.<br/>Add entries via the Supabase dashboard.</div>}
-            {!senateLoading&&senateData.map((s,i)=>{
+            {!senateLoading&&senateData.filter((s,i,arr)=>arr.findIndex(x=>x.ticker===s.ticker&&x.name===s.name&&x.action===s.action&&x.date===s.date)===i).map((s,i,arr)=>{
               const inPort=holdings.find(h=>h.ticker===s.ticker);
-              const sinceGain=s.estPrice>0?((s.priceNow-s.estPrice)/s.estPrice*100):null;
-              const isProfit=s.action==="BUY"?sinceGain>=0:sinceGain<=0;
+              const livePrice=inPort?inPort.price:s.priceNow||0;
+              const intrinsic=inPort?inPort.intrinsic:0;
+              const avgCost=inPort?inPort.avgCost:0;
+              const mkt=inPort?inPort.mkt:"US";
+              const gainPct=avgCost>0?((livePrice-avgCost)/avgCost*100):null;
+              const upside=intrinsic>0&&livePrice>0?((intrinsic-livePrice)/livePrice*100):null;
               return(
-                <div key={i} style={{marginBottom:14,paddingBottom:14,borderBottom:i<senateData.length-1?`1px solid ${C.border}`:"none"}}>
+                <div key={i} style={{marginBottom:14,paddingBottom:14,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
+                  {/* Header row: senator name + ticker/action */}
                   <div style={{...row,marginBottom:6}}>
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
                         <span style={{fontWeight:700,fontSize:13}}>{s.name}</span>
                         <Bdg label={s.party} bg={s.party==="D"?"#1e3a5f":"#3d1515"} color={s.party==="D"?"#60a5fa":"#f87171"}/>
+                        {inPort&&<span style={{fontSize:8,color:C.accent,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.accent+"18"}}>IN PORTFOLIO</span>}
                       </div>
                       <div style={{fontSize:10,color:C.muted}}>{s.date} · {s.sector}</div>
-                      <div style={{fontSize:9,color:C.mutedLight,marginTop:1}}>via {s.source}</div>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"flex-end",marginBottom:2}}>
@@ -1202,41 +1207,24 @@ function App(){
                       <div style={{fontSize:10,color:C.gold,fontWeight:600}}>{s.amount}</div>
                     </div>
                   </div>
-                  {/* Price strip - show if we have est price data */}
-                  {s.estPrice>0&&(
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,background:C.surface,borderRadius:7,padding:"7px 10px",marginBottom:inPort?6:0}}>
+                  {/* Price strip — always show */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,background:inPort?C.accent+"0D":C.surface,borderRadius:7,padding:"7px 10px",border:inPort?`1px solid ${C.accent}22`:"none"}}>
                     <div>
-                      <div style={{fontSize:8,color:C.muted}}>Est. Trade Price</div>
-                      <div style={{fontSize:12,fontWeight:700,color:C.gold}}>${fmt(s.estPrice)}</div>
-                      <div style={{fontSize:8,color:C.muted}}>USD (est.)</div>
+                      <div style={{fontSize:8,color:C.muted}}>Live Price</div>
+                      <div style={{fontSize:12,fontWeight:700}}>{livePrice>0?fmtL(livePrice,mkt):"—"}</div>
+                      {gainPct!=null&&<div style={{fontSize:9,fontWeight:700,color:gainPct>=0?C.green:C.red}}>{gainPct>=0?"+":""}{fmt(gainPct,1)}% vs cost</div>}
                     </div>
                     <div style={{textAlign:"center"}}>
-                      <div style={{fontSize:8,color:C.muted}}>Current Price</div>
-                      <div style={{fontSize:12,fontWeight:700}}>${fmt(s.priceNow)}</div>
-                      <div style={{fontSize:8,color:C.muted}}>as of today</div>
+                      <div style={{fontSize:8,color:C.muted}}>Avg Cost</div>
+                      <div style={{fontSize:12,fontWeight:700,color:avgCost>0?C.mutedLight:C.border}}>{avgCost>0?fmtL(avgCost,mkt):"—"}</div>
+                      {avgCost>0&&<div style={{fontSize:8,color:C.muted}}>your cost</div>}
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:8,color:C.muted}}>Since Trade</div>
-                      <div style={{fontSize:12,fontWeight:700,color:isProfit?C.green:C.red}}>
-                        {sinceGain!=null?(sinceGain>=0?"+":"")+fmt(sinceGain,1)+"%":"--"}
-                      </div>
-                      <div style={{fontSize:8,color:isProfit?C.green:C.red}}>{isProfit?"Profitable":"Losing"}</div>
+                      <div style={{fontSize:8,color:C.muted}}>Intrinsic</div>
+                      <div style={{fontSize:12,fontWeight:700,color:upside!=null?(upside>=0?C.green:C.red):C.border}}>{intrinsic>0?fmtL(intrinsic,mkt):"—"}</div>
+                      {upside!=null&&<div style={{fontSize:9,fontWeight:700,color:upside>=0?C.green:C.red}}>{upside>=0?"+":""}{fmt(upside,1)}% upside</div>}
                     </div>
                   </div>
-                  )}
-                  {inPort&&(
-                    <div style={{background:C.accent+"0D",borderRadius:6,padding:"6px 8px",fontSize:10}}>
-                      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
-                        <span style={{color:C.accent,fontWeight:700}}>In your portfolio</span>
-                        <span style={{color:((inPort.price-inPort.avgCost)/inPort.avgCost*100)>=0?C.green:C.red,fontWeight:700}}>{fmtPct((inPort.price-inPort.avgCost)/inPort.avgCost*100)}</span>
-                      </div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
-                        <div><div style={{fontSize:8,color:C.muted}}>Price</div><div style={{fontSize:11,fontWeight:700}}>{fmtL(inPort.price,inPort.mkt)}</div></div>
-                        <div><div style={{fontSize:8,color:C.muted}}>Avg Cost</div><div style={{fontSize:11,fontWeight:700,color:C.mutedLight}}>{fmtL(inPort.avgCost,inPort.mkt)}</div></div>
-                        <div style={{textAlign:"right"}}><div style={{fontSize:8,color:C.muted}}>Intrinsic</div><div style={{fontSize:11,fontWeight:700,color:((inPort.intrinsic-inPort.price)/inPort.price*100)>=0?C.green:C.red}}>{fmtL(inPort.intrinsic,inPort.mkt)}</div></div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               );
             })}
