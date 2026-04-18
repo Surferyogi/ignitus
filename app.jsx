@@ -393,6 +393,11 @@ function App(){
           if(!fb[t.ticker]||t.date<fb[t.ticker])fb[t.ticker]=t.date;
         });
         FIRST_BUY=fb;
+        // Load senate data
+        if(data.senate&&data.senate.length>0){
+          SENATE.length=0;
+          data.senate.forEach(s=>SENATE.push(s));
+        }
         // Fetch live prices and FX rates after data loads
         fetchLivePrices(data.holdings);
         fetchLiveFx();
