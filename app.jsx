@@ -369,6 +369,10 @@ function App(){
   const [lastRefresh,setLastRefresh]=useState(null);
   const [refreshAnim,setRefreshAnim]=useState(false);
   const [pendingChanges,setPendingChanges]=useState(0);
+  const [senateData,setSenateData]=useState([]);
+  const [senatePrices,setSenatePrices]=useState({});
+  const [senateLoading,setSenateLoading]=useState(false);
+  const [senateUpdating,setSenateUpdating]=useState(false);
 
   // ── DB persistence ────────────────────────────────────────────────────────────
   const [dbStatus,setDbStatus]=useState('ready'); // 'ready' | 'saving' | 'saved' | 'error'
