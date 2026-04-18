@@ -402,8 +402,7 @@ function App(){
         fetchLivePrices(data.holdings);
         fetchLiveFx();
         fetchSenateTrades();
-        // Auto-fetch latest senate trades from Quiver in background
-        setTimeout(()=>updateSenateDataSilent(),3000);
+
       } else {
         setLoadMsg('WARNING: holdings empty. data='+JSON.stringify(data).slice(0,200));
       }
@@ -413,6 +412,16 @@ function App(){
       setIsLoading(false);
     });
   },[]);
+
+  // ── Auto-fetch senate on startup (after holdings load) ───────────────────────
+  const senateAutoFetched=React.useRef(false);
+  useEffect(()=>{
+    if(holdings.length>0&&!senateAutoFetched.current){
+      senateAutoFetched.current=true;
+      console.log("Auto-fetching senate data on launch...");
+      updateSenateDataSilent();
+    }
+  },[holdings.length]);
 
   // ── Live price updater — Supabase Edge Function → Yahoo Finance ─────────────
   async function fetchLivePrices(currentHoldings) {
@@ -500,49 +509,36 @@ function App(){
   }
 
   async function fetchSenatePrices(trades){
-    // Fetch live prices for senate tickers NOT in portfolio
+    // Fetch live price + Graham Number intrinsic for non-portfolio senate tickers
     const portTickers=new Set(holdings.map(h=>h.ticker));
-    const missing=[...new Set((trades||[]).map(t=>t.ticker))].filter(tk=>tk&&tk.length<=6&&!portTickers.has(tk));
+    const missing=[...new Set((trades||[]).map(t=>t.ticker))]
+      .filter(tk=>tk&&tk.length<=6&&!portTickers.has(tk));
     if(missing.length===0) return;
     try{
       const res=await fetch('https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({action:'prices',tickers:missing}),
+        body:JSON.stringify({action:'senate_prices',tickers:missing}),
       });
       if(!res.ok) return;
       const d=await res.json();
       const map={};
       (d.prices||[]).forEach(p=>{
-        if(p.ticker&&p.price>0) map[p.ticker]={price:p.price,intrinsic:+(p.price*1.2).toFixed(2)};
+        if(p.ticker&&p.price>0) map[p.ticker]={
+          price:p.price,
+          intrinsic:p.intrinsic||0,
+          pe:p.pe||0,
+          eps:p.eps||0,
+          bvps:p.bvps||0,
+          div:p.div||0,
+        };
       });
-      if(Object.keys(map).length>0) setSenatePrices(prev=>({...prev,...map}));
-      console.log('Senate ext prices:',Object.keys(map).join(', '));
+      if(Object.keys(map).length>0){
+        setSenatePrices(prev=>({...prev,...map}));
+        console.log('Senate prices fetched:',Object.keys(map).join(', '));
+      }
     }catch(e){console.warn('Senate prices err:',e.message);}
   }
 
-
-  // ── Real historical price data  // ── Real historical price data  // ── Real historical price data  // ── Real historical price data — Finnhub via Edge Function ──────────────────
-  const [realHist,setRealHist]=useState({});
-  const [perfChartData,setPerfChartData]=useState({});
-  const [senateData,setSenateData]=useState([]); // live senate trades
-  const [senateLoading,setSenateLoading]=useState(false);
-  const [senateUpdating,setSenateUpdating]=useState(false);
-  const [senatePrices,setSenatePrices]=useState({}); // {TICKER: {price, intrinsic}}
-
-  // Hardcoded top senate traders — most active senators 2023-2026
-  // Sources: MarketBeat, Benzinga, Quiver Quant, Newsweek, CNN (public STOCK Act disclosures)
-  const SENATE_MASTER=[
-  {name:"Tommy Tuberville",party:"R",ticker:"XLU",action:"BUY",amount:"$15,001 - $50,000",date:"2025-12-17",sector:"Utilities",est_price:0,price_now:43.39,source:"STOCK Act / MarketBeat"},
-  {name:"Tommy Tuberville",party:"R",ticker:"AAPL",action:"SELL",amount:"$50,001 - $100,000",date:"2025-12-17",sector:"Technology",est_price:0,price_now:270.23,source:"STOCK Act / MarketBeat"},
-  {name:"Markwayne Mullin",party:"R",ticker:"NVDA",action:"BUY",amount:"$100,001 - $250,000",date:"2025-12-29",sector:"Technology",est_price:0,price_now:100.21,source:"STOCK Act / Newsweek"},
-  {name:"Markwayne Mullin",party:"R",ticker:"MSFT",action:"BUY",amount:"$100,001 - $250,000",date:"2025-12-29",sector:"Technology",est_price:0,price_now:388.01,source:"STOCK Act / Benzinga"},
-  {name:"Markwayne Mullin",party:"R",ticker:"MPWR",action:"BUY",amount:"$15,001 - $50,000",date:"2026-03-03",sector:"Technology",est_price:0,price_now:0,source:"STOCK Act / Quiver Quant"},
-  {name:"Markwayne Mullin",party:"R",ticker:"GS",action:"SELL",amount:"$15,001 - $50,000",date:"2026-03-03",sector:"Financials",est_price:0,price_now:0,source:"STOCK Act / Quiver Quant"},
-  {name:"Cleo Fields",party:"D",ticker:"GOOGL",action:"BUY",amount:"$100,001 - $250,000",date:"2026-01-20",sector:"Technology",est_price:0,price_now:155.74,source:"STOCK Act / AInvest"},
-  {name:"Cleo Fields",party:"D",ticker:"META",action:"BUY",amount:"$50,001 - $100,000",date:"2026-01-20",sector:"Technology",est_price:0,price_now:554.36,source:"STOCK Act / AInvest"},
-  {name:"John Fetterman",party:"D",ticker:"MSFT",action:"BUY",amount:"$1,001 - $15,000",date:"2026-03-27",sector:"Technology",est_price:0,price_now:388.01,source:"STOCK Act / MarketBeat"},
-  {name:"Bill Hagerty",party:"R",ticker:"PANW",action:"BUY",amount:"$15,001 - $50,000",date:"2026-01-15",sector:"Technology",est_price:0,price_now:0,source:"STOCK Act / CNN"}
-];
 
   async function updateSenateData(){
     setSenateUpdating(true);
@@ -1284,7 +1280,7 @@ function App(){
                       {avgCost>0&&<div style={{fontSize:8,color:C.muted}}>your cost</div>}
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:8,color:C.muted}}>Intrinsic</div>
+                      <div style={{fontSize:8,color:C.muted}}>{inPort?"Intrinsic":"Graham №"}</div>
                       <div style={{fontSize:12,fontWeight:700,color:upside!=null?(upside>=0?C.green:C.red):C.border}}>{intrinsic>0?fmtL(intrinsic,mkt):"—"}</div>
                       {upside!=null&&<div style={{fontSize:9,fontWeight:700,color:upside>=0?C.green:C.red}}>{upside>=0?"+":""}{fmt(upside,1)}% upside</div>}
                     </div>
