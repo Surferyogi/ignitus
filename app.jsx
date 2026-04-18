@@ -307,54 +307,75 @@ function App(){
     });
   },[]);
 
-  // ── Live price updater — Yahoo Finance ───────────────────────────────────────
+  // ── Live price updater — Yahoo Finance v7 quote API ─────────────────────────
   async function fetchLivePrices(currentHoldings) {
     if (!currentHoldings || currentHoldings.length === 0) return;
     setPriceStatus('fetching');
 
-    // Yahoo Finance v8 API — works from browser, no API key needed
-    // Use a CORS proxy since Yahoo blocks direct browser requests
-    const YF_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
-    const PROXY   = 'https://api.allorigins.win/raw?url=';
+    // Yahoo Finance v7 quote endpoint — most reliable, supports batch queries
+    // We use corsproxy.io which is reliable and fast
+    const PROXIES = [
+      'https://corsproxy.io/?',
+      'https://api.allorigins.win/raw?url=',
+      'https://proxy.cors.sh/',
+    ];
 
-    // Fetch price for a single ticker
-    async function fetchOne(ticker) {
+    async function fetchBatch(tickers, proxyIdx) {
+      const proxy = PROXIES[proxyIdx % PROXIES.length];
+      const syms  = tickers.join(',');
+      const yurl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(syms)}&fields=regularMarketPrice,previousClose`;
       try {
-        const url = encodeURIComponent(YF_BASE + ticker + '?interval=1d&range=1d');
-        const res = await fetch(PROXY + url);
-        if (!res.ok) return null;
+        const res = await fetch(proxy + encodeURIComponent(yurl), {
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const d = await res.json();
-        const meta = d?.chart?.result?.[0]?.meta;
-        if (!meta) return null;
-        // Use regularMarketPrice, fall back to previousClose
-        const price = meta.regularMarketPrice || meta.previousClose || null;
-        return price ? { ticker, price: parseFloat(price.toFixed(4)) } : null;
-      } catch { return null; }
+        const quotes = d?.quoteResponse?.result || [];
+        if (quotes.length === 0) throw new Error('Empty response');
+        const out = {};
+        quotes.forEach(q => {
+          // preferr regularMarketPrice, fall back to previousClose
+          const p = q.regularMarketPrice || q.previousClose;
+          if (p && p > 0) out[q.symbol] = parseFloat(p.toFixed(4));
+        });
+        return out;
+      } catch(e) {
+        console.warn(`Proxy ${proxyIdx} failed for ${syms}:`, e.message);
+        // Try next proxy if not last
+        if (proxyIdx < PROXIES.length - 1) return fetchBatch(tickers, proxyIdx + 1);
+        return {};
+      }
     }
 
-    // Fetch in batches of 8 with small delay to avoid rate limiting
+    // Fetch in batches of 20 (Yahoo v7 supports large batches)
     const tickers = currentHoldings.map(h => h.ticker);
     const results = {};
-    const BATCH = 8;
+    const BATCH   = 20;
 
     for (let i = 0; i < tickers.length; i += BATCH) {
-      const batch = tickers.slice(i, i + BATCH);
-      const fetched = await Promise.all(batch.map(fetchOne));
-      fetched.forEach(r => { if (r) results[r.ticker] = r.price; });
-      // Small delay between batches
-      if (i + BATCH < tickers.length) await new Promise(r => setTimeout(r, 400));
+      const batch   = tickers.slice(i, i + BATCH);
+      const fetched = await fetchBatch(batch, 0);
+      Object.assign(results, fetched);
+      if (i + BATCH < tickers.length) await new Promise(r => setTimeout(r, 300));
     }
 
     const successCount = Object.keys(results).length;
-    if (successCount === 0) { setPriceStatus('error'); return; }
+    console.log(`Price fetch: ${successCount}/${tickers.length} tickers OK`);
+    console.log('Sample prices:', Object.entries(results).slice(0,5).map(([k,v])=>k+'='+v).join(', '));
 
-    // Update holdings with fresh prices
+    if (successCount === 0) {
+      setPriceStatus('error');
+      setLoadMsg('Price fetch failed — all proxies returned 0 results. Check console.');
+      return;
+    }
+
+    // Update holdings state with fresh prices
     setHoldings(prev => {
       const updated = prev.map(h => {
         const newPrice = results[h.ticker];
         return newPrice ? { ...h, price: newPrice } : h;
       });
-      // Persist updated prices to Supabase in background
+      // Persist to Supabase in background
       if (window.portfolioDB) {
         window.portfolioDB.updateHoldings(updated).catch(e => console.warn('Price save failed:', e));
       }
@@ -363,8 +384,7 @@ function App(){
 
     setPriceUpdated(new Date());
     setPriceStatus('done');
-    setRefreshKey(k => k + 1); // force all memos to recompute
-    console.log(`Prices updated: ${successCount}/${tickers.length} tickers`);
+    setRefreshKey(k => k + 1);
   }
 
   // Auto-persist holdings to SQLite whenever they change (debounced 600ms)
@@ -1670,6 +1690,30 @@ function App(){
           {priceStatus==='error'&&(
             <div style={{fontSize:9,color:C.red,padding:"4px 8px",fontWeight:700}}>Price err</div>
           )}
+          <button onClick={async()=>{
+            // Quick test: fetch just AAPL via each proxy and alert result
+            const proxies=[
+              'https://corsproxy.io/?',
+              'https://api.allorigins.win/raw?url=',
+            ];
+            const yurl='https://query1.finance.yahoo.com/v7/finance/quote?symbols=AAPL&fields=regularMarketPrice';
+            let msg='AAPL price test:\n';
+            for(const p of proxies){
+              try{
+                const r=await fetch(p+encodeURIComponent(yurl),{headers:{Accept:'application/json'}});
+                const d=await r.json();
+                const price=d?.quoteResponse?.result?.[0]?.regularMarketPrice;
+                msg+=`${p.slice(8,25)}: $${price||'null'} (${r.status})\n`;
+              }catch(e){msg+=`${p.slice(8,25)}: ERROR ${e.message}\n`;}
+            }
+            alert(msg);
+          }} title="Test price fetch" style={{
+            padding:"6px 8px",borderRadius:8,cursor:"pointer",flexShrink:0,
+            border:`1px solid ${C.purple}44`,background:C.purple+"12",color:C.purple,
+            fontSize:10,fontWeight:700,whiteSpace:"nowrap"
+          }}>
+            Test$
+          </button>
           <button onClick={()=>fetchLivePrices(holdings)} title="Update live prices" style={{
             padding:"6px 8px",borderRadius:8,cursor:"pointer",flexShrink:0,
             border:`1px solid ${C.gold}44`,background:C.gold+"12",color:C.gold,
