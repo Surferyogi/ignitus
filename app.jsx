@@ -115,27 +115,77 @@ function ScoreBar({score,max=10,color}){
 }
 
 // Sparkline — no bare < in this component
-function Sparkline({data,color=C.accent,height=44}){
+function Sparkline({data,color=C.accent,height=44,period="6m"}){
   if(!data||data.length<2)return null;
   const mn=Math.min(...data),mx=Math.max(...data),range=mx-mn||1;
   const W=300,H=height;
+  const AXIS=20; // space for x-axis labels
+  const TH=H+AXIS; // total svg height
   const pts=data.map((v,i)=>[
     (i/(data.length-1))*W,
-    H-((v-mn)/range)*H*0.82-H*0.09
+    H-((v-mn)/range)*(H-8)-4
   ]);
   const path=pts.map((p,i)=>`${i===0?"M":"L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
   const area=path+` L${W},${H} L0,${H} Z`;
   const gid="g"+color.replace(/[^a-zA-Z0-9]/g,"");
+
+  // Generate X-axis date markers based on period
+  const now=new Date();
+  function getMarkers(){
+    const n=data.length;
+    if(period==="30d"){
+      // Weekly markers: 4 weeks
+      return [0,1,2,3].map(w=>({
+        pos:Math.round((w/4)*n),
+        label:w===0?"4w ago":w===1?"3w":w===2?"2w":"1w"
+      }));
+    } else if(period==="6m"){
+      // Monthly markers: 6 months
+      return [0,1,2,3,4,5].map(m=>({
+        pos:Math.round((m/6)*n),
+        label:new Date(now.getFullYear(),now.getMonth()-5+m,1).toLocaleString("default",{month:"short"})
+      }));
+    } else if(period==="1y"){
+      // Quarterly: Q1-Q4
+      return [0,1,2,3].map(q=>({
+        pos:Math.round((q/4)*n),
+        label:["Jan","Apr","Jul","Oct"][(now.getMonth()-9+q*3+12)%12>=0?(now.getMonth()-9+q*3+12)%12:0]||["Jan","Apr","Jul","Oct"][q]
+      }));
+    } else {
+      // 5y/all: yearly markers
+      const years=period==="5y"?5:10;
+      return Array.from({length:years+1},(_,i)=>({
+        pos:Math.round((i/years)*n),
+        label:String(now.getFullYear()-years+i)
+      }));
+    }
+  }
+  const markers=getMarkers().filter(m=>m.pos<data.length);
+
   return(
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block"}}>
+    <svg width="100%" viewBox={`0 0 ${W} ${TH}`} style={{display:"block"}}>
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.25"/>
           <stop offset="100%" stopColor={color} stopOpacity="0"/>
         </linearGradient>
       </defs>
+      {/* Chart area */}
       <path d={area} fill={`url(#${gid})`}/>
       <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      {/* X-axis baseline */}
+      <line x1="0" y1={H} x2={W} y2={H} stroke={C.border} strokeWidth="0.5"/>
+      {/* Date markers */}
+      {markers.map((m,i)=>{
+        const x=(m.pos/(data.length-1))*W;
+        const anchor=i===0?"start":i===markers.length-1?"end":"middle";
+        return(
+          <g key={i}>
+            <line x1={x} y1={H} x2={x} y2={H+4} stroke={C.border} strokeWidth="0.5"/>
+            <text x={x} y={H+14} textAnchor={anchor} fontSize="9" fill={C.muted}>{m.label}</text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -709,7 +759,7 @@ function App(){
   const smPill=a=>({padding:"3px 8px",borderRadius:14,fontSize:10,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
   const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:50};
-  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"92vh",overflowY:"auto"};
+  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"92vh",overflowY:"auto",position:"relative"};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
@@ -1379,6 +1429,8 @@ function App(){
     return(
       <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
         <div style={mCard}>
+          {/* Floating close button - top right corner of sheet */}
+          <button onClick={()=>setSel(null)} style={{position:"absolute",top:14,right:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:14,cursor:"pointer",zIndex:5,lineHeight:1}}>✕</button>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
             <div>
               <div style={{fontWeight:800,fontSize:17,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
@@ -1388,7 +1440,6 @@ function App(){
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <button onClick={()=>openEditHolding(h)} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:`1px solid ${C.accent}`,background:C.accent+"12",color:C.accent,cursor:"pointer",fontWeight:700}}>Edit</button>
               <button onClick={()=>{setSel(null);confirmDeleteHolding(h.id);}} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:`1px solid ${C.red}55`,background:C.red+"12",color:C.red,cursor:"pointer",fontWeight:700}}>Delete</button>
-              <button onClick={()=>setSel(null)} style={{background:"none",border:"none",color:C.muted,fontSize:22,cursor:"pointer",lineHeight:1,marginLeft:2}}>x</button>
             </div>
           </div>
 
@@ -1425,7 +1476,7 @@ function App(){
               const isLoading=histLoading[h.ticker+'_'+detailPeriod];
               return(
                 <div style={{position:"relative"}}>
-                  <Sparkline data={hData} color={pos?C.green:C.red} height={60}/>
+                  <Sparkline data={hData} color={pos?C.green:C.red} height={60} period={detailPeriod}/>
                   {isLoading&&<div style={{position:"absolute",top:2,right:2,fontSize:9,color:C.gold,animation:"pulse 1s ease-in-out infinite"}}>↻ live data</div>}
                   {isReal&&!isLoading&&<div style={{position:"absolute",top:2,right:2,fontSize:9,color:C.green}}>● live</div>}
                   {!isReal&&!isLoading&&<div onClick={()=>fetchRealHistory(h.ticker,h.mkt,detailPeriod)} style={{position:"absolute",top:2,right:2,fontSize:9,color:C.muted,cursor:"pointer"}}>↻ reload</div>}
