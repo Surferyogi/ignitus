@@ -1486,9 +1486,181 @@ function App(){
   }
 
   // ── Summary tab ──────────────────────────────────────────────────────────────
+  // ── Excel Export ───────────────────────────────────────────────────────────
+  const [exporting,setExporting]=useState(false);
+
+  async function exportToExcel(){
+    setExporting(true);
+    try{
+      // Load SheetJS dynamically
+      if(!window.XLSX){
+        await new Promise((resolve,reject)=>{
+          const s=document.createElement('script');
+          s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+          s.onload=resolve; s.onerror=reject;
+          document.head.appendChild(s);
+        });
+      }
+      const XL=window.XLSX;
+
+      // FX rates in use
+      const FX={
+        US:{ccy:'USD',rate:fxRates.USD||1.27,pair:'USD/SGD'},
+        SG:{ccy:'SGD',rate:1.0,pair:'SGD/SGD'},
+        CN:{ccy:'HKD',rate:fxRates.HKD||0.163,pair:'HKD/SGD'},
+        JP:{ccy:'JPY',rate:fxRates.JPY||0.0080,pair:'JPY/SGD'},
+        EU:{ccy:'EUR',rate:fxRates.EUR||1.49,pair:'EUR/SGD'},
+        GB:{ccy:'GBP',rate:fxRates.GBP||1.68,pair:'GBP/SGD'},
+        AU:{ccy:'AUD',rate:fxRates.AUD||0.81,pair:'AUD/SGD'},
+      };
+      const MKT_NAMES={US:'United States',SG:'Singapore',CN:'China/HK',JP:'Japan',EU:'Europe',GB:'United Kingdom',AU:'Australia'};
+      const MKT_ORDER=['US','SG','CN','JP','EU','GB','AU'];
+
+      // Group holdings by market
+      const byMkt={};
+      holdings.forEach(h=>{
+        if(!byMkt[h.mkt])byMkt[h.mkt]=[];
+        byMkt[h.mkt].push(h);
+      });
+      Object.keys(byMkt).forEach(m=>{
+        byMkt[m].sort((a,b)=>toSGDlive(b.price*b.shares,m)-toSGDlive(a.price*a.shares,m));
+      });
+
+      const wb=XL.utils.book_new();
+      const today=new Date().toLocaleDateString('en-SG',{day:'2-digit',month:'short',year:'numeric'});
+
+      // ── Summary sheet ─────────────────────────────────────────────────────
+      const sumRows=[];
+      sumRows.push(['IGNITUS PORTFOLIO — Holdings Export','','','','','','','','']);
+      sumRows.push([`As of: ${today}   |   Base Currency: SGD`,'','','','','','','','']);
+      sumRows.push(['','','','','','','','','']);
+      sumRows.push(['FX RATES APPLIED (to SGD) — Source: Yahoo Finance','','','','','','','','']);
+      sumRows.push(['Pair','Rate (×SGD)','','Pair','Rate (×SGD)','','Pair','Rate (×SGD)','']);
+      const fxItems=Object.values(FX);
+      for(let i=0;i<Math.ceil(fxItems.length/3);i++){
+        const row=[];
+        for(let j=0;j<3;j++){
+          const fx=fxItems[i*3+j];
+          if(fx){row.push(fx.pair,fx.rate,'');}else{row.push('','','');}
+        }
+        sumRows.push(row);
+      }
+      sumRows.push(['','','','','','','','','']);
+      sumRows.push(['Market','Currency','Holdings','Value (Local Ccy)','Value (SGD)','Ann. Div (Local)','Ann. Div (SGD)','Div Yield %','Weight %']);
+
+      let grandSGD=0,grandDivSGD=0;
+      const mktTotals={};
+      MKT_ORDER.forEach(mkt=>{
+        if(!byMkt[mkt])return;
+        const fx=FX[mkt]||{rate:1.27,ccy:'USD'};
+        const localVal=byMkt[mkt].reduce((s,h)=>s+h.price*h.shares,0);
+        const sgdVal=localVal*fx.rate;
+        const localDiv=byMkt[mkt].reduce((s,h)=>s+(h.divYield||0)/100*h.price*h.shares,0);
+        const sgdDiv=localDiv*fx.rate;
+        const divYield=localVal>0?localDiv/localVal*100:0;
+        mktTotals[mkt]={localVal,sgdVal,localDiv,sgdDiv,divYield,ccy:fx.ccy};
+        grandSGD+=sgdVal; grandDivSGD+=sgdDiv;
+      });
+
+      MKT_ORDER.forEach(mkt=>{
+        if(!mktTotals[mkt])return;
+        const t=mktTotals[mkt];
+        const pct=grandSGD>0?t.sgdVal/grandSGD*100:0;
+        sumRows.push([
+          MKT_NAMES[mkt]||mkt, t.ccy, byMkt[mkt]?.length||0,
+          +t.localVal.toFixed(2), +t.sgdVal.toFixed(2),
+          +t.localDiv.toFixed(2), +t.sgdDiv.toFixed(2),
+          +(t.divYield/100).toFixed(4), +(pct/100).toFixed(4)
+        ]);
+      });
+      sumRows.push([
+        'GRAND TOTAL','SGD',holdings.length,'—',
+        +grandSGD.toFixed(2),'—',+grandDivSGD.toFixed(2),
+        +(grandDivSGD/grandSGD).toFixed(4),1
+      ]);
+
+      const wsSummary=XL.utils.aoa_to_sheet(sumRows);
+      wsSummary['!cols']=[{wch:22},{wch:10},{wch:10},{wch:18},{wch:18},{wch:18},{wch:18},{wch:12},{wch:10}];
+      XL.utils.book_append_sheet(wb,wsSummary,'Portfolio Summary');
+
+      // ── Per-market sheets ─────────────────────────────────────────────────
+      MKT_ORDER.forEach(mkt=>{
+        if(!byMkt[mkt])return;
+        const fx=FX[mkt]||{rate:1.27,ccy:'USD',pair:'USD/SGD'};
+        const hlist=byMkt[mkt];
+
+        const rows=[];
+        rows.push([`${MKT_NAMES[mkt]||mkt} Holdings — ${fx.ccy} → SGD @ ${fx.rate} (${fx.pair})`]);
+        rows.push([`FX Rate: 1 ${fx.ccy} = ${fx.rate} SGD | Source: Yahoo Finance, ${today}`]);
+        rows.push(['#','Ticker','Name','Sector','Qty','Price','Intrinsic Value',
+          `Value (${fx.ccy})`,'Value (SGD)',`Ann.Div (${fx.ccy})`,'Ann.Div (SGD)','Div Yield %','Upside %','P/E Ratio']);
+
+        let locTot=0,sgdTot=0,divLocTot=0,divSgdTot=0;
+        hlist.forEach((h,i)=>{
+          const localVal=h.price*h.shares;
+          const sgdVal=localVal*fx.rate;
+          const divLoc=(h.divYield||0)/100*localVal;
+          const divSgd=divLoc*fx.rate;
+          const upside=h.price>0?((h.intrinsic||h.price)-h.price)/h.price*100:0;
+          locTot+=localVal; sgdTot+=sgdVal; divLocTot+=divLoc; divSgdTot+=divSgd;
+          rows.push([
+            i+1, h.ticker, h.name||h.ticker, h.sector||'',
+            h.shares,
+            +h.price.toFixed(4),
+            +(h.intrinsic||0).toFixed(4),
+            +localVal.toFixed(2),
+            +sgdVal.toFixed(2),
+            +divLoc.toFixed(2),
+            +divSgd.toFixed(2),
+            +((h.divYield||0)/100).toFixed(4),
+            +(upside/100).toFixed(4),
+            +(h.peRatio||0).toFixed(1)
+          ]);
+        });
+
+        // Total row
+        const divYieldTot=locTot>0?divLocTot/locTot:0;
+        rows.push([
+          `TOTAL — ${mkt} (${fx.ccy})`, '', '', '', hlist.length, '', '',
+          +locTot.toFixed(2), +sgdTot.toFixed(2),
+          +divLocTot.toFixed(2), +divSgdTot.toFixed(2),
+          +divYieldTot.toFixed(4), '', ''
+        ]);
+
+        const ws=XL.utils.aoa_to_sheet(rows);
+        ws['!cols']=[{wch:5},{wch:12},{wch:28},{wch:16},{wch:8},{wch:12},{wch:14},
+                     {wch:16},{wch:16},{wch:16},{wch:16},{wch:11},{wch:10},{wch:8}];
+        ws['!freeze']={xSplit:0,ySplit:3};
+        XL.utils.book_append_sheet(wb,ws,`${mkt} — ${fx.ccy}`);
+      });
+
+      // Download
+      const date=new Date().toISOString().slice(0,10);
+      XL.writeFile(wb,`Ignitus_Holdings_${date}.xlsx`);
+    }catch(e){
+      console.error('Export failed:',e);
+      alert('Export failed: '+e.message);
+    }
+    setExporting(false);
+  }
+
   function SummaryView(){
     return(
       <>
+        {/* Export button */}
+        <button onClick={exportToExcel} disabled={exporting} style={{
+          width:'100%',padding:'12px',borderRadius:10,border:'none',
+          background:exporting?C.border:`linear-gradient(135deg,#1A7A4A,#00D4FF22)`,
+          borderColor:C.green,borderWidth:1,borderStyle:'solid',
+          color:exporting?C.muted:C.green,fontSize:13,fontWeight:700,
+          cursor:exporting?'not-allowed':'pointer',marginBottom:12,
+          display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+        }}>
+          {exporting
+            ? <><span style={{animation:'spin 1s linear infinite',display:'inline-block'}}>↻</span> Generating Excel...</>
+            : <>📊 Export Holdings to Excel</>
+          }
+        </button>
         <div style={card}>
           <div style={cardT}>Portfolio Overview (SGD)</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
