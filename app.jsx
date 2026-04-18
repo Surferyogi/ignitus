@@ -402,6 +402,8 @@ function App(){
         fetchLivePrices(data.holdings);
         fetchLiveFx();
         fetchSenateTrades();
+        // Auto-fetch latest senate trades from Quiver in background
+        setTimeout(()=>updateSenateDataSilent(),3000);
       } else {
         setLoadMsg('WARNING: holdings empty. data='+JSON.stringify(data).slice(0,200));
       }
@@ -585,6 +587,43 @@ function App(){
     }
     setSenateUpdating(false);
   } // {period: {portfolio:[],index:[]}}
+
+  async function updateSenateDataSilent(){
+    // Auto-runs on startup — fetches Quiver data silently (no alert)
+    const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
+    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+    const sbHeaders={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
+    try{
+      // Try Quiver via Edge Function
+      let trades=[];
+      const res=await fetch('https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'senate_trades'}),
+      });
+      if(res.ok){
+        const d=await res.json();
+        if(d.trades&&d.trades.length>0) trades=d.trades;
+      }
+      if(trades.length===0) return; // keep existing data if Quiver fails
+      // Save to Supabase
+      await fetch(SB+'/rest/v1/senate',{method:'DELETE',headers:{...sbHeaders,'Prefer':'return=minimal'}});
+      for(const trade of trades){
+        await fetch(SB+'/rest/v1/senate',{
+          method:'POST',headers:{...sbHeaders,'Prefer':'return=minimal'},
+          body:JSON.stringify({name:trade.name,party:trade.party,ticker:trade.ticker,
+            action:trade.action,amount:trade.amount,date:trade.date,sector:trade.sector,
+            est_price:trade.est_price||0,price_now:trade.price_now||0,source:trade.source}),
+        });
+      }
+      // Update UI silently
+      setSenateData(trades);
+      fetchSenatePrices(trades);
+      console.log('Senate auto-updated on launch:',trades.length,'trades from Quiver');
+    }catch(e){
+      console.warn('Silent senate update failed:',e.message);
+    }
+  }
+
   const [perfChartLoading,setPerfChartLoading]=useState({});
 
   // Index ETF tickers for each market (used in PerfChart)
