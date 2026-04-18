@@ -489,21 +489,59 @@ function App(){
   // ── Live Senate trades — fetched on app open ──────────────────────────────
   async function fetchSenateTrades(){
     setSenateLoading(true);
+    // Try multiple public sources directly from browser
+    const SOURCES=[
+      // Senate Stock Watcher GitHub Pages API - has CORS headers
+      "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json",
+      // Fallback: senatestockwatcher.com API
+      "https://senatestockwatcher.com/api/transactions",
+    ];
+    for(const url of SOURCES){
+      try{
+        const res=await fetch(url,{headers:{"Accept":"application/json"}});
+        if(!res.ok){console.warn("Senate source failed:",url,res.status);continue;}
+        const all=await res.json();
+        if(!Array.isArray(all)||all.length===0){continue;}
+        const trades=all
+          .filter(t=>t.ticker&&t.ticker!=="--"&&t.ticker.length<=6&&
+            (t.type==="Purchase"||t.type?.startsWith("Sale"))&&
+            t.asset_type==="Stock")
+          .sort((a,b)=>new Date(b.transaction_date)-new Date(a.transaction_date))
+          .slice(0,10)
+          .map(t=>({
+            name:`${t.first_name||""} ${t.last_name||""}`.trim(),
+            ticker:t.ticker.trim().toUpperCase(),
+            action:t.type?.startsWith("Sale")?"SELL":"BUY",
+            amount:t.amount||"N/A",
+            date:t.transaction_date,
+            sector:t.asset_description||"",
+            source:"Senate Stock Watcher",
+            party:t.party||"?",
+          }));
+        if(trades.length>0){
+          setSenateData(trades);
+          console.log("Senate trades loaded:",trades.length,"from",url);
+          setSenateLoading(false);
+          return;
+        }
+      }catch(e){
+        console.warn("Senate source error:",url,e.message);
+      }
+    }
+    // All failed - try Edge Function as last resort
     try{
       const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({action:"senate_trades"}),
       });
-      const text=await res.text();
-      alert("Senate raw response (status "+res.status+"): "+text.slice(0,300));
-      if(!res.ok) throw new Error("HTTP "+res.status);
-      const d=JSON.parse(text);
-      if(d.trades&&d.trades.length>0){
-        setSenateData(d.trades.slice(0,10));
+      if(res.ok){
+        const d=await res.json();
+        if(d.trades&&d.trades.length>0){
+          setSenateData(d.trades);
+          console.log("Senate trades from Edge Fn:",d.trades.length);
+        }
       }
-    }catch(e){
-      alert("Senate error: "+e.message);
-    }
+    }catch(e){console.warn("Edge fn senate failed:",e.message);}
     setSenateLoading(false);
   }
 
