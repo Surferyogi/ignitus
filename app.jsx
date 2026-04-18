@@ -307,65 +307,42 @@ function App(){
     });
   },[]);
 
-  // ── Live price updater ────────────────────────────────────────────────────────
-  // Uses Claude AI (Anthropic API) to fetch prices — reliable, no CORS issues
+  // ── Live price updater — uses Claude AI (same API as analyse()) ───────────────
   async function fetchLivePrices(currentHoldings) {
     if (!currentHoldings || currentHoldings.length === 0) return;
     setPriceStatus('fetching');
-
-    const tickers = currentHoldings.map(h => h.ticker);
     const results = {};
+    const tickers = currentHoldings.map(h=>h.ticker);
 
-    // Split into batches of 30 for the AI prompt
-    const BATCH = 30;
+    // Split into batches of 25
+    const BATCH = 25;
     for (let i = 0; i < tickers.length; i += BATCH) {
       const batch = tickers.slice(i, i + BATCH);
+      const prompt = "You are a stock price data service. Return ONLY a JSON object with no markdown, no explanation, no code fences. Keys are ticker symbols, values are the latest closing prices as numbers. Use the most recent closing price you have for each ticker. Tickers: " + batch.join(",") + ". Example format: {"AAPL":270.23,"MSFT":411.50}";
       try {
-        const prompt = `Return ONLY a JSON object (no markdown, no explanation) with the latest stock closing prices for these tickers: ${batch.join(', ')}
-Use the most recent available closing price for each ticker.
-Format: {"TICKER": price, "TICKER2": price2, ...}
-Use numeric values only. If a ticker is unknown, omit it.`;
-
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 1000,
-            messages: [{ role: 'user', content: prompt }]
-          })
-        });
+        const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,messages:[{role:"user",content:prompt}]})});
         const d = await res.json();
-        const text = d.content?.map(c => c.text || '').join('').trim();
-        const clean = text.replace(/```json|```/g, '').trim();
+        const text = d.content?.map(c=>c.text||"").join("").trim();
+        // Strip any markdown fences just in case
+        const clean = text.replace(/```[a-z]*\n?/g,"").replace(/```/g,"").trim();
         const prices = JSON.parse(clean);
-        Object.assign(results, prices);
-      } catch(e) {
-        console.warn('Price batch failed:', e.message);
-      }
-      if (i + BATCH < tickers.length) await new Promise(r => setTimeout(r, 200));
+        Object.entries(prices).forEach(([k,v])=>{ if(v&&v>0) results[k]=parseFloat((+v).toFixed(4)); });
+      } catch(e) { console.warn("Price batch error:",e.message); }
+      if (i + BATCH < tickers.length) await new Promise(r=>setTimeout(r,200));
     }
 
-    const successCount = Object.keys(results).length;
-    console.log(`Prices fetched: ${successCount}/${tickers.length}`);
-    console.log('Sample:', Object.entries(results).slice(0,5).map(([k,v])=>k+'='+v).join(', '));
+    const n = Object.keys(results).length;
+    console.log("Prices fetched:",n+"/"+tickers.length, Object.entries(results).slice(0,3).map(([k,v])=>k+"="+v).join(", "));
+    if (n === 0) { setPriceStatus('error'); return; }
 
-    if (successCount === 0) { setPriceStatus('error'); return; }
-
-    setHoldings(prev => {
-      const updated = prev.map(h => {
-        const newPrice = results[h.ticker];
-        return newPrice && newPrice > 0 ? { ...h, price: parseFloat(newPrice.toFixed(4)) } : h;
-      });
-      if (window.portfolioDB) {
-        window.portfolioDB.updateHoldings(updated).catch(e => console.warn('DB save failed:', e));
-      }
+    setHoldings(prev=>{
+      const updated = prev.map(h=>{ const p=results[h.ticker]; return p&&p>0?{...h,price:p}:h; });
+      if (window.portfolioDB) window.portfolioDB.updateHoldings(updated).catch(e=>console.warn("DB:",e));
       return updated;
     });
-
     setPriceUpdated(new Date());
     setPriceStatus('done');
-    setRefreshKey(k => k + 1);
+    setRefreshKey(k=>k+1);
   }
 
   // Auto-persist holdings to SQLite whenever they change (debounced 600ms)
