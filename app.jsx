@@ -13,13 +13,13 @@ let FIRST_BUY = {};
 
 const C={bg:"#0A0D14",surface:"#111620",card:"#161C2A",border:"#1E2A3E",accent:"#00D4FF",accentDim:"#0099BB",green:"#00E5A0",red:"#FF4D6A",gold:"#FFB547",purple:"#9B6DFF",text:"#E8EDF5",muted:"#6B7A99",mutedLight:"#8B97B3"};
 const MKT={
-  US:{symbol:"$",  code:"USD",r:1.36, index:"S&P 500",   idxVal:5463.2,  idxYtd:14.8, idxChange:1.24},
-  JP:{symbol:"¥",  code:"JPY",r:0.0087,index:"Nikkei 225",idxVal:35808,   idxYtd:-4.2, idxChange:0.78},
-  EU:{symbol:"€",  code:"EUR",r:1.60, index:"CAC 40",    idxVal:7842.3,  idxYtd:4.1,  idxChange:0.62},
-  CN:{symbol:"HK$",code:"HKD",r:0.17, index:"HSI",       idxVal:18042.7, idxYtd:8.3,  idxChange:0.54},
-  GB:{symbol:"£",  code:"GBP",r:1.69, index:"FTSE 100",  idxVal:8218.3,  idxYtd:5.1,  idxChange:-0.31},
-  AU:{symbol:"A$", code:"AUD",r:0.87, index:"ASX 200",   idxVal:7834.1,  idxYtd:3.7,  idxChange:-0.12},
-  SG:{symbol:"S$", code:"SGD",r:1.0,  index:"STI",       idxVal:3892.4,  idxYtd:6.2,  idxChange:0.41},
+  US:{symbol:"$",  code:"USD",r:1.27,  index:"S&P 500",   idxVal:7126.1,  idxYtd:14.8, idxChange:1.24},
+  JP:{symbol:"¥",  code:"JPY",r:0.0080,index:"Nikkei 225",idxVal:35808,   idxYtd:-4.2, idxChange:0.78},
+  EU:{symbol:"€",  code:"EUR",r:1.49,  index:"CAC 40",    idxVal:7842.3,  idxYtd:4.1,  idxChange:0.62},
+  CN:{symbol:"HK$",code:"HKD",r:0.163, index:"HSI",       idxVal:21395,   idxYtd:8.3,  idxChange:0.54},
+  GB:{symbol:"£",  code:"GBP",r:1.68,  index:"FTSE 100",  idxVal:8218.3,  idxYtd:5.1,  idxChange:-0.31},
+  AU:{symbol:"A$", code:"AUD",r:0.81,  index:"ASX 200",   idxVal:7834.1,  idxYtd:3.7,  idxChange:-0.12},
+  SG:{symbol:"S$", code:"SGD",r:1.0,   index:"STI",       idxVal:3892.4,  idxYtd:6.2,  idxChange:0.41},
 };
 const fmt=(n,d=2)=>n==null?"--":n.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtPct=n=>n==null?"--":(n>=0?"+":"")+fmt(n)+"%";
@@ -374,7 +374,7 @@ function App(){
   const [dbStatus,setDbStatus]=useState('ready'); // 'ready' | 'saving' | 'saved' | 'error'
   const [isLoading,setIsLoading]=useState(true);
   const [priceStatus,setPriceStatus]=useState('idle');
-  const [fxRates,setFxRates]=useState({USD:1.36,JPY:0.0087,EUR:1.60,HKD:0.17,GBP:1.69,AUD:0.87,CNY:0.19,TWD:0.042,SGD:1.0});
+  const [fxRates,setFxRates]=useState({USD:1.27,JPY:0.0080,EUR:1.49,HKD:0.163,GBP:1.68,AUD:0.81,CNY:0.175,TWD:0.039,SGD:1.0});
   const [fxUpdated,setFxUpdated]=useState(null); // 'idle'|'fetching'|'done'|'error'
   const [priceUpdated,setPriceUpdated]=useState(null); // timestamp of last price update
 
@@ -615,15 +615,15 @@ function App(){
   // Currencies separate from exchange/market
   // CCY uses live FX rates — updates automatically when fxRates changes
   const CCY=useMemo(()=>({
-    USD:{symbol:"$",  r:fxRates.USD||1.36},
+    USD:{symbol:"$",  r:fxRates.USD||1.27},
     SGD:{symbol:"S$", r:1.0},
-    HKD:{symbol:"HK$",r:fxRates.HKD||0.17},
-    JPY:{symbol:"¥",  r:fxRates.JPY||0.0087},
-    EUR:{symbol:"€",  r:fxRates.EUR||1.60},
-    GBP:{symbol:"£",  r:fxRates.GBP||1.69},
-    AUD:{symbol:"A$", r:fxRates.AUD||0.87},
-    CNY:{symbol:"¥",  r:fxRates.CNY||0.19},
-    TWD:{symbol:"NT$",r:fxRates.TWD||0.042},
+    HKD:{symbol:"HK$",r:fxRates.HKD||0.163},
+    JPY:{symbol:"¥",  r:fxRates.JPY||0.0080},
+    EUR:{symbol:"€",  r:fxRates.EUR||1.49},
+    GBP:{symbol:"£",  r:fxRates.GBP||1.68},
+    AUD:{symbol:"A$", r:fxRates.AUD||0.81},
+    CNY:{symbol:"¥",  r:fxRates.CNY||0.175},
+    TWD:{symbol:"NT$",r:fxRates.TWD||0.039},
   }),[fxRates]);
   const ccySymbol=ccy=>(CCY[ccy]?.symbol||"$");
   const ccyToSGD=(v,ccy)=>v*(CCY[ccy]?.r??1.36);
@@ -631,12 +631,12 @@ function App(){
   // Live MKT rates — overrides hardcoded values with real FX rates
   const liveMKT=useMemo(()=>({
     ...MKT,
-    US:{...MKT.US, r:fxRates.USD||MKT.US.r},
-    JP:{...MKT.JP, r:fxRates.JPY||MKT.JP.r},
-    EU:{...MKT.EU, r:fxRates.EUR||MKT.EU.r},
-    CN:{...MKT.CN, r:fxRates.HKD||MKT.CN.r},
-    GB:{...MKT.GB, r:fxRates.GBP||MKT.GB.r},
-    AU:{...MKT.AU, r:fxRates.AUD||MKT.AU.r},
+    US:{...MKT.US, r:fxRates.USD||1.27},
+    JP:{...MKT.JP, r:fxRates.JPY||0.0080},
+    EU:{...MKT.EU, r:fxRates.EUR||1.49},
+    CN:{...MKT.CN, r:fxRates.HKD||0.163},
+    GB:{...MKT.GB, r:fxRates.GBP||1.68},
+    AU:{...MKT.AU, r:fxRates.AUD||0.81},
     SG:{...MKT.SG, r:1.0},
   }),[fxRates]);
 
