@@ -489,63 +489,24 @@ function App(){
   // ── Live Senate trades — fetched on app open ──────────────────────────────
   async function fetchSenateTrades(){
     setSenateLoading(true);
-    // Try multiple public sources directly from browser
-    const SOURCES=[
-      // Senate Stock Watcher GitHub Pages API - has CORS headers
-      "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json",
-      // Fallback: senatestockwatcher.com API
-      "https://senatestockwatcher.com/api/transactions",
-    ];
-    for(const url of SOURCES){
-      try{
-        const res=await fetch(url,{headers:{"Accept":"application/json"}});
-        if(!res.ok){console.warn("Senate source failed:",url,res.status);continue;}
-        const all=await res.json();
-        if(!Array.isArray(all)||all.length===0){continue;}
-        const trades=all
-          .filter(t=>t.ticker&&t.ticker!=="--"&&t.ticker.length<=6&&
-            (t.type==="Purchase"||t.type?.startsWith("Sale"))&&
-            t.asset_type==="Stock")
-          .sort((a,b)=>new Date(b.transaction_date)-new Date(a.transaction_date))
-          .slice(0,10)
-          .map(t=>({
-            name:`${t.first_name||""} ${t.last_name||""}`.trim(),
-            ticker:t.ticker.trim().toUpperCase(),
-            action:t.type?.startsWith("Sale")?"SELL":"BUY",
-            amount:t.amount||"N/A",
-            date:t.transaction_date,
-            sector:t.asset_description||"",
-            source:"Senate Stock Watcher",
-            party:t.party||"?",
-          }));
-        if(trades.length>0){
-          setSenateData(trades);
-          console.log("Senate trades loaded:",trades.length,"from",url);
-          setSenateLoading(false);
-          return;
-        }
-      }catch(e){
-        console.warn("Senate source error:",url,e.message);
-      }
-    }
-    // All failed - try Edge Function as last resort
     try{
       const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({action:"senate_trades"}),
       });
-      if(res.ok){
-        const d=await res.json();
-        if(d.trades&&d.trades.length>0){
-          setSenateData(d.trades);
-          console.log("Senate trades from Edge Fn:",d.trades.length);
-        }
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const d=await res.json();
+      if(d.trades&&d.trades.length>0){
+        setSenateData(d.trades);
+        console.log("Senate trades loaded:",d.trades.length);
       }
-    }catch(e){console.warn("Edge fn senate failed:",e.message);}
+    }catch(e){
+      console.warn("Senate fetch failed:",e.message);
+    }
     setSenateLoading(false);
   }
 
-  // ── Real historical price data — Finnhub via Edge Function ──────────────────
+  // ── Real historical price data  // ── Real historical price data  // ── Real historical price data — Finnhub via Edge Function ──────────────────
   const [realHist,setRealHist]=useState({});
   const [perfChartData,setPerfChartData]=useState({});
   const [senateData,setSenateData]=useState([]); // live senate trades
@@ -1162,10 +1123,10 @@ function App(){
 
 
             <div style={{fontSize:10,color:C.muted,marginBottom:12,padding:"6px 10px",background:C.surface,borderRadius:6}}>
-              Live data from Senate Stock Watcher (senatestockwatcher.com) via official STOCK Act filings. Updated daily. Senators must report within 30–45 days of trade.
+              US Senate STOCK Act disclosures. Senators must report within 30–45 days of trade. Data sourced from official Senate EFD filings.
             </div>
             {senateLoading&&<div style={{textAlign:"center",padding:16,color:C.gold,fontSize:11}}>↻ Loading live senate trades...</div>}
-            {!senateLoading&&senateData.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:11}}>No senate data loaded yet.<br/>Reload the app to fetch.</div>}
+            {!senateLoading&&senateData.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:11}}>No senate trade data available.<br/>Data will appear here when senators file disclosures.</div>}
             {!senateLoading&&senateData.map((s,i)=>{
               const inPort=holdings.find(h=>h.ticker===s.ticker);
               const sinceGain=s.estPrice>0?((s.priceNow-s.estPrice)/s.estPrice*100):null;
