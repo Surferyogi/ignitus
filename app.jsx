@@ -37,17 +37,6 @@ const SECTORS=["Technology","Healthcare","Financials","Consumer Disc.","Industri
 const MS_STYLES=["Large Growth","Large Blend","Large Value","Mid Growth","Mid Blend","Mid Value","Small Growth","Small Blend","Small Value"];
 const SCOL=[C.accent,C.green,C.gold,C.purple,"#FF8C42","#FF4D6A","#62D2E8","#C084FC","#FDE68A","#A3E635","#FB923C"];
 
-  {"name":"Nancy Pelosi","party":"D","ticker":"NVDA","action":"BUY","amount":"$1M-5M","date":"2025-01-15","sector":"Technology","estPrice":134.25,"priceNow":109.02,"source":"Unusual Whales"},
-  {"name":"Dan Sullivan","party":"R","ticker":"AAPL","action":"BUY","amount":"$500K-1M","date":"2025-02-03","sector":"Technology","estPrice":232.48,"priceNow":202.52,"source":"Quiver Quant"},
-  {"name":"Tommy Tuberville","party":"R","ticker":"GOOGL","action":"SELL","amount":"$250K-500K","date":"2025-02-10","sector":"Technology","estPrice":195.10,"priceNow":155.74,"source":"Unusual Whales"},
-  {"name":"Shelley Capito","party":"R","ticker":"MSFT","action":"BUY","amount":"$50K-100K","date":"2025-02-14","sector":"Technology","estPrice":407.50,"priceNow":388.01,"source":"Quiver Quant"},
-  {"name":"John Hoeven","party":"R","ticker":"META","action":"BUY","amount":"$100K-250K","date":"2025-02-20","sector":"Technology","estPrice":703.82,"priceNow":554.36,"source":"Unusual Whales"},
-  {"name":"Mark Warner","party":"D","ticker":"AMZN","action":"SELL","amount":"$1M-5M","date":"2025-02-28","sector":"Cons. Disc.","estPrice":222.64,"priceNow":185.98,"source":"Quiver Quant"},
-  {"name":"Rick Scott","party":"R","ticker":"JPM","action":"BUY","amount":"$50K-100K","date":"2025-03-05","sector":"Financials","estPrice":245.22,"priceNow":230.14,"source":"Unusual Whales"},
-  {"name":"Mitt Romney","party":"R","ticker":"UNH","action":"SELL","amount":"$250K-500K","date":"2025-03-10","sector":"Healthcare","estPrice":456.80,"priceNow":284.93,"source":"Quiver Quant"},
-  {"name":"Ron Wyden","party":"D","ticker":"TSLA","action":"SELL","amount":"$100K-250K","date":"2025-03-18","sector":"Cons. Disc.","estPrice":238.01,"priceNow":247.16,"source":"Unusual Whales"},
-  {"name":"Josh Hawley","party":"R","ticker":"PLTR","action":"BUY","amount":"$15K-50K","date":"2025-03-25","sector":"Technology","estPrice":92.44,"priceNow":95.12,"source":"Quiver Quant"}
-];
 
 // Seeded RNG - no < operators
 const sr=seed=>{let s=seed%2147483647;return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646;};};
@@ -1647,6 +1636,9 @@ function App(){
 (function mountApp() {
   const loading = document.getElementById('loading');
   if (loading) loading.style.display = 'none';
-  const root = ReactDOM.createRoot(document.getElementById('root'));
-  root.render(React.createElement(App));
+  const RD = window.ReactDOM;
+  if (RD && document.getElementById('root')) {
+    const root = RD.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  }
 })();
