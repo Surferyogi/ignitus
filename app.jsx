@@ -324,7 +324,7 @@ function App(){
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ tickers, holdings: sorted.map(h=>({ticker:h.ticker,mkt:h.mkt})) }),
+        body: JSON.stringify({ action:'prices', tickers, holdings: sorted.map(h=>({ticker:h.ticker,mkt:h.mkt})) }),
       });
 
       if (!res.ok) {
@@ -359,6 +359,36 @@ function App(){
       console.error('fetchLivePrices failed:', e.message);
       setPriceStatus('error');
     }
+  }
+
+  // ── Real historical price data — Finnhub via Edge Function ──────────────────
+  const [realHist,setRealHist]=useState({}); // cache: {ticker: {period: [closes]}}
+  const [histLoading,setHistLoading]=useState({});
+
+  async function fetchRealHistory(ticker, mkt, period){
+    const cacheKey=ticker+'_'+period;
+    if(realHist[ticker]?.[period]) return; // already cached
+    if(histLoading[cacheKey]) return;       // already fetching
+
+    setHistLoading(prev=>({...prev,[cacheKey]:true}));
+    try{
+      const res=await fetch('https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'history',ticker,mkt,period}),
+      });
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const d=await res.json();
+      if(d.closes && d.closes.length>1){
+        setRealHist(prev=>({
+          ...prev,
+          [ticker]:{...(prev[ticker]||{}), [period]:d.closes}
+        }));
+      }
+    }catch(e){
+      console.warn('History fetch failed:',ticker,period,e.message);
+    }
+    setHistLoading(prev=>({...prev,[cacheKey]:false}));
   }
 
   // Auto-persist holdings to SQLite whenever they change (debounced 600ms)
@@ -1326,6 +1356,11 @@ function App(){
   // ── Holding detail modal ─────────────────────────────────────────────────────
   function HoldingDetail(){
     const h=sel;if(!h)return null;
+    // Fetch real history for all periods when holding is opened
+    useEffect(()=>{
+      if(!h)return;
+      ['30d','6m','1y','5y'].forEach(p=>fetchRealHistory(h.ticker,h.mkt,p));
+    },[h?.ticker]);
     const m=MKT[h.mkt]||MKT.US,sc=scoreH(h),r=getRec(h),bs=buffettScore(h);
     const gainPct=((h.price-h.avgCost)/h.avgCost)*100,upside=((h.intrinsic-h.price)/h.price)*100;
     const localVal=h.price*h.shares,localCost=h.avgCost*h.shares,localGain=localVal-localCost,localDiv=(h.divYield/100)*localVal;
@@ -1377,7 +1412,18 @@ function App(){
                 {PERIODS.map(p=><button key={p} style={smPill(detailPeriod===p)} onClick={()=>setDetailPeriod(p)}>{PLBL[p]}</button>)}
               </div>
             </div>
-            <Sparkline data={HIST[h.ticker]?.[detailPeriod]||[]} color={pos?C.green:C.red} height={60}/>
+            {(()=>{
+              const hData=realHist[h.ticker]?.[detailPeriod]||HIST[h.ticker]?.[detailPeriod]||[];
+              const isReal=!!(realHist[h.ticker]?.[detailPeriod]);
+              const isLoading=histLoading[h.ticker+'_'+detailPeriod];
+              return(
+                <div style={{position:"relative"}}>
+                  <Sparkline data={hData} color={pos?C.green:C.red} height={60}/>
+                  {isLoading&&<div style={{position:"absolute",top:2,right:2,fontSize:9,color:C.gold}}>loading...</div>}
+                  {isReal&&!isLoading&&<div style={{position:"absolute",top:2,right:2,fontSize:9,color:C.green}}>● live</div>}
+                </div>
+              );
+            })()}
             <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,marginTop:3}}>
               <span>{detailPeriod==="all"&&FIRST_BUY[h.ticker]?"First buy: "+FIRST_BUY[h.ticker]:{"30d":"30 days ago","6m":"6 months ago","1y":"1 year ago","5y":"5 years ago","all":"Start"}[detailPeriod]}</span>
               <span>{fmtL(h.price,h.mkt)}</span>
