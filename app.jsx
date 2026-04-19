@@ -640,8 +640,9 @@ function App(){
       if(res.ok){const d=await res.json();if(d.trades?.length>0)trades=d.trades;}
       if(trades.length===0){console.log('Senate auto: Quiver returned no data, keeping existing Supabase data');return;}
 
-      // 2. Save to Supabase — DELETE requires a filter (Supabase safety), use date filter to match all rows
-      await fetch(SB+'/rest/v1/senate?date=not.is.null',{method:'DELETE',headers:{...SBH,'Prefer':'return=minimal'}});
+      // 2. Save to Supabase — DELETE requires a WHERE filter (Supabase safety)
+      // Use ticker filter to match all rows (every row has a ticker)
+      await fetch(SB+"/rest/v1/senate?ticker=neq.__NEVER__",{method:'DELETE',headers:{...SBH,'Prefer':'return=minimal'}});
       for(const t of trades){
         await fetch(SB+'/rest/v1/senate',{method:'POST',headers:{...SBH,'Prefer':'return=minimal'},
           body:JSON.stringify({name:t.name,party:t.party,ticker:t.ticker,action:t.action,
@@ -732,6 +733,7 @@ function App(){
     }
     setPerfChartLoading(prev=>({...prev,[key]:false}));
   } // cache: {ticker: {period: [closes]}}
+  const [realHist,setRealHist]=useState({});
   const [histLoading,setHistLoading]=useState({});
 
   async function fetchRealHistory(ticker, mkt, period){
