@@ -346,8 +346,6 @@ function MktSelector({mktFilter,setMktFilter,holdings}){
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function App(){
-  // IGNITUS VERSION: v2026.04.19-02 (SENATE_MASTER removed, prices throttled)
-  useEffect(()=>{console.log("IGNITUS v2026.04.19-02 LOADED");},[]);
   const [tab,setTab]=useState("portfolio");
   const [holdings,setHoldings]=useState(ALL_H);
   const [trades,setTrades]=useState(ALL_T);
@@ -458,7 +456,11 @@ function App(){
       const n = Object.keys(results).length;
       console.log('Edge fn OK:', n, 'prices');
 
-      if (n === 0) { setPriceStatus('error'); return; }
+      if (n === 0) { 
+        setPriceStatus('error'); 
+        setTimeout(()=>setPriceStatus('idle'),10000);
+        return; 
+      }
 
       setHoldings(prev => {
         const updated = prev.map(h => {
@@ -477,6 +479,7 @@ function App(){
     } catch(e) {
       console.error('fetchLivePrices failed:', e.message);
       setPriceStatus('error');
+      setTimeout(()=>setPriceStatus('idle'),10000);
     }
   }
 
@@ -595,45 +598,13 @@ function App(){
   }
 
   async function updateSenateData(){
+    // SIMPLIFIED v2026.04.19-02: just calls updateSenateDataSilent + alert
     setSenateUpdating(true);
-    const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const sbHeaders={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
     try{
-      // 1. Try Quiver Quantitative via Edge Function for live data
-      let trades=[];
-      try{
-        const res=await fetch('https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api',{
-          method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({action:'senate_trades'}),
-        });
-        if(res.ok){
-          const d=await res.json();
-          if(d.trades&&d.trades.length>0){trades=d.trades;console.log('Senate from Quiver:',trades.length);}
-        }
-      }catch(e){console.warn('Quiver failed:',e.message);}
-      // 2. Fall back to hardcoded master if Quiver failed
-      if(trades.length===0){alert('⚠️ Quiver returned no data. Keeping existing senate data.');setSenateUpdating(false);return;}
-      // 3. Save to Supabase
-      await fetch(SB+'/rest/v1/senate',{method:'DELETE',headers:{...sbHeaders,'Prefer':'return=minimal'}});
-      let ok=0;
-      for(const trade of trades){
-        const res=await fetch(SB+'/rest/v1/senate',{
-          method:'POST',headers:{...sbHeaders,'Prefer':'return=minimal'},
-          body:JSON.stringify({name:trade.name,party:trade.party,ticker:trade.ticker,
-            action:trade.action,amount:trade.amount,date:trade.date,sector:trade.sector,
-            est_price:trade.est_price||0,price_now:trade.price_now||0,source:trade.source}),
-        });
-        if(res.ok||res.status===201)ok++;
-      }
-      // 4. Update UI
-      setSenateData(trades);
-      fetchSenatePrices(trades);
-      const src2=trades[0]?.source?.includes('Quiver')?'Quiver API':'hardcoded data';
-      alert('✅ Senate updated! '+ok+'/'+trades.length+' trades from '+src2+'.');
+      await updateSenateDataSilent(holdings);
+      alert('OK: Senate data refreshed from Quiver API');
     }catch(e){
-      console.error('Senate update failed:',e);
-      alert('❌ Update failed: '+e.message);
+      alert('ERROR: '+e.message);
     }
     setSenateUpdating(false);
   } // {period: {portfolio:[],index:[]}}
@@ -2394,7 +2365,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:9,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO <span style={{color:C.green,fontWeight:400}}>v2026.04.19-02</span></div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
             </div>
             <div style={{fontSize:30,fontWeight:800,letterSpacing:"-1px",lineHeight:1}}>{fmtS(totalValSGD)}</div>
