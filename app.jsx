@@ -2129,12 +2129,13 @@ function App(){
             const avail=v.dataAvailability||{};
             const priceLive=v.currentPrice||h.price;
             const growthUsed=inp.growthUsed||5;
+            const growthSrc=inp.growthSource||'default 5%';
             const sources=[
-              {label:"Your Input",val:h.intrinsic,note:"Manual entry"},
-              {label:"Analyst Target",val:vals.analystTarget,note:vals.numAnalysts>0?(vals.numAnalysts+" analysts · $"+fmt(vals.analystLow)+"–$"+fmt(vals.analystHigh)):"premium endpoint"},
-              {label:"DCF Model",val:vals.dcf,note:growthUsed+"% growth, 10% disc."},
-              {label:"Graham Number",val:vals.graham,note:"Benjamin Graham formula"},
-              {label:"PE × 18 Fair",val:vals.peFair,note:"EPS × 18x industry"},
+              {label:"Your Input",       val:h.intrinsic,          note:"Manual entry"},
+              {label:"Analyst Target",   val:vals.analystTarget,   note:vals.numAnalysts>0?(vals.numAnalysts+" analysts · $"+fmt(vals.analystLow)+"–$"+fmt(vals.analystHigh)):"premium endpoint"},
+              {label:"DCF (FCF-based)",  val:vals.dcfFCF,          note:"FCF/sh × "+growthUsed+"% growth · 10% disc."},
+              {label:"DCF (EPS-based)",  val:vals.dcfEPS,          note:"EPS × "+growthUsed+"% growth · 10% disc."},
+              {label:"Peter Lynch",      val:vals.peterLynch,      note:"EPS × "+growthUsed+"% = PEG 1.0"},
             ].filter(s=>s.val>0);
             if(sources.length===0){
               return(
@@ -2150,9 +2151,6 @@ function App(){
             const avgUpside=priceLive>0?((avg-priceLive)/priceLive*100):0;
             const recText=rec.score>=0.7?"Strong Buy":rec.score>=0.3?"Buy":rec.score>=-0.3?"Hold":rec.score>=-0.7?"Sell":"Strong Sell";
             const recCol=rec.score>=0.3?C.green:rec.score>=-0.3?C.gold:C.red;
-            // Check if some sources are missing (premium-gated)
-            const missingAnalyst=!avail.analystTargetAvailable;
-            const missingDCF=!avail.dcfAvailable;
             return(
               <div style={{...card,background:C.purple+"0A",border:`1px solid ${C.purple}40`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -2160,7 +2158,7 @@ function App(){
                   {rec.totalAnalysts>0&&<span style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:4,background:recCol+"22",color:recCol}}>{recText} ({rec.totalAnalysts} analysts)</span>}
                 </div>
                 <div style={{fontSize:10,color:C.mutedLight,marginBottom:10}}>
-                  Current: <b style={{color:C.text}}>${fmt(priceLive)}</b> · EPS ${fmt(inp.eps)} · FCF/sh ${fmt(inp.fcfPerShare)} · PE {fmt(inp.pe,1)}x
+                  Current: <b style={{color:C.text}}>${fmt(priceLive)}</b> · EPS ${fmt(inp.eps)} · FCF/sh ${fmt(inp.fcfPerShare)} · Growth <b style={{color:C.gold}}>{growthUsed}%</b> <span style={{color:C.muted}}>({growthSrc})</span>
                 </div>
 
                 {/* Valuation sources */}
@@ -2187,8 +2185,9 @@ function App(){
 
                 {/* Disclaimer */}
                 <div style={{fontSize:9,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
-                  <b style={{color:C.gold}}>Caveats:</b> DCF uses {growthUsed}% growth / 10% discount / 2.5% terminal — adjust mentally for hypergrowth (NVDA) or distressed stocks. Graham works best for established value stocks, not tech. Analyst targets are anchored to recent prices. <b>Treat the spread as your margin of safety range, not a prediction.</b>
-                  {(missingAnalyst||missingDCF)&&<><br/><b style={{color:C.red}}>Missing:</b> {missingAnalyst?"Wall St analyst target (Finnhub premium). ":""}{missingDCF?"DCF needs Free Cash Flow data (may be premium). ":""}</>}
+                  <b style={{color:C.gold}}>How to read this:</b> Each model uses a different lens. <b>DCF FCF</b> values the actual cash the business generates. <b>DCF EPS</b> values reported earnings — historically correlates better with price. <b>Peter Lynch</b> says fair P/E = growth rate (PEG=1): fast growers deserve higher multiples. <b>Analyst Target</b> is consensus of Wall St professionals. The wider the spread between models, the more uncertain the valuation — treat the range as your margin of safety, not a single "right" answer. Growth rate of {growthUsed}% sourced from: {growthSrc}, capped 2–15% for stability.
+                  {(!avail.analystTargetAvailable)&&<><br/><b style={{color:C.red}}>Note:</b> Wall St analyst target unavailable (may require Finnhub premium).</>}
+                  {(!avail.dcfFCFAvailable&&!avail.dcfEPSAvailable)&&<><br/><b style={{color:C.red}}>Note:</b> DCF models unavailable — Finnhub returned no EPS or FCF data for this ticker.</>}
                 </div>
               </div>
             );
