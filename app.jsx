@@ -550,34 +550,26 @@ function App(){
   }
 
   async function fetchSenatePrices(trades){
-    // Throttled: fetch one ticker at a time with small delay to avoid Finnhub rate limits
-    const FH='d7hji19r01qhiu0brkigd7hji19r01qhiu0brkj0';
+    // Routes via Edge Function which uses Yahoo Finance primary (no rate limits)
     const portSet=new Set(holdings.map(h=>h.ticker));
     const missing=[...new Set((trades||[]).map(t=>t.ticker))].filter(tk=>tk&&tk.length<=6&&!portSet.has(tk));
     if(missing.length===0)return;
-    const map={};
-    // Sequential fetch with 200ms gap — avoids slamming Finnhub when combined with portfolio price fetch
-    for(const tk of missing){
-      try{
-        const [qr,mr]=await Promise.all([
-          fetch(`https://finnhub.io/api/v1/quote?symbol=${tk}&token=${FH}`),
-          fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${tk}&metric=all&token=${FH}`)
-        ]);
-        const q=qr.ok?await qr.json():{};
-        const m=mr.ok?await mr.json():{};
-        const price=q.c||0;
-        const mt=m.metric||{};
-        const eps=mt.epsBasicExclExtraItemsTTM||mt.epsTTM||0;
-        const bvps=mt.bookValuePerShareAnnual||0;
-        const intrinsic=eps>0&&bvps>0?+Math.sqrt(22.5*eps*bvps).toFixed(2):0;
-        if(price>0)map[tk]={price,intrinsic};
-      }catch(e){}
-      await new Promise(r=>setTimeout(r,200));
-    }
-    if(Object.keys(map).length>0){
-      setSenatePrices(p=>({...p,...map}));
-      console.log('Senate prices (throttled):',Object.keys(map).join(', '));
-    }
+    try{
+      const res=await fetch('https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'senate_prices',tickers:missing}),
+      });
+      if(!res.ok){console.warn('senate_prices HTTP',res.status);return;}
+      const d=await res.json();
+      const map={};
+      (d.prices||[]).forEach(p=>{
+        if(p.ticker&&p.price>0) map[p.ticker]={price:p.price,intrinsic:p.intrinsic||0,pe:p.pe||0,div:p.div||0};
+      });
+      if(Object.keys(map).length>0){
+        setSenatePrices(prev=>({...prev,...map}));
+        console.log('Senate prices (Yahoo):',Object.keys(map).join(', '));
+      }
+    }catch(e){console.warn('fetchSenatePrices:',e.message);}
   }
 
 
@@ -610,7 +602,7 @@ function App(){
   } // {period: {portfolio:[],index:[]}}
 
   async function updateSenateDataSilent(passedHoldings){
-    // Called on launch with data.holdings passed directly (no stale closure)
+    // Called on launch - fetches Quiver, saves to Supabase, gets prices via Yahoo (Edge fn)
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
     const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
     const SBH={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
@@ -622,7 +614,7 @@ function App(){
         body:JSON.stringify({action:'senate_trades'}),
       });
       if(res.ok){const d=await res.json();if(d.trades?.length>0)trades=d.trades;}
-      if(trades.length===0){console.log('Senate auto: no Quiver data, keeping existing');return;}
+      if(trades.length===0){console.log('Senate auto: Quiver returned no data, keeping existing Supabase data');return;}
 
       // 2. Save to Supabase
       await fetch(SB+'/rest/v1/senate',{method:'DELETE',headers:{...SBH,'Prefer':'return=minimal'}});
@@ -635,33 +627,26 @@ function App(){
 
       // 3. Update UI
       setSenateData(trades);
-      console.log('Senate auto-updated:',trades.length,'trades from Quiver');
+      console.log('Senate auto-updated:',trades.length,'trades');
 
-      // 4. Fetch prices+intrinsic for non-portfolio tickers directly via Finnhub
-      const FH='d7hji19r01qhiu0brkigd7hji19r01qhiu0brkj0';
+      // 4. Fetch prices+intrinsic via Edge Function (Yahoo primary)
       const portSet=new Set((passedHoldings||[]).map(h=>h.ticker));
       const missing=[...new Set(trades.map(t=>t.ticker))].filter(tk=>tk&&tk.length<=6&&!portSet.has(tk));
       if(missing.length>0){
-        const map={};
-        await Promise.allSettled(missing.map(async(tk)=>{
-          try{
-            const [qr,mr]=await Promise.all([
-              fetch(`https://finnhub.io/api/v1/quote?symbol=${tk}&token=${FH}`),
-              fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${tk}&metric=all&token=${FH}`)
-            ]);
-            const q=qr.ok?await qr.json():{};
-            const m=mr.ok?await mr.json():{};
-            const price=q.c||0;
-            const mt=m.metric||{};
-            const eps=mt.epsBasicExclExtraItemsTTM||mt.epsTTM||0;
-            const bvps=mt.bookValuePerShareAnnual||0;
-            const intrinsic=eps>0&&bvps>0?+Math.sqrt(22.5*eps*bvps).toFixed(2):0;
-            if(price>0)map[tk]={price,intrinsic};
-          }catch(e){}
-        }));
-        if(Object.keys(map).length>0){
-          setSenatePrices(p=>({...p,...map}));
-          console.log('Senate prices fetched:',Object.keys(map).join(', '));
+        const pr=await fetch(SB+'/functions/v1/smart-api',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'senate_prices',tickers:missing}),
+        });
+        if(pr.ok){
+          const pd=await pr.json();
+          const map={};
+          (pd.prices||[]).forEach(p=>{
+            if(p.ticker&&p.price>0) map[p.ticker]={price:p.price,intrinsic:p.intrinsic||0};
+          });
+          if(Object.keys(map).length>0){
+            setSenatePrices(p=>({...p,...map}));
+            console.log('Senate prices (Yahoo):',Object.keys(map).length,'tickers');
+          }
         }
       }
     }catch(e){console.warn('Senate auto-update failed:',e.message);}
