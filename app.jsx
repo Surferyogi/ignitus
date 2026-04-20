@@ -1078,9 +1078,7 @@ function App(){
   const hdrNetDivSGD=useMemo(()=>
     hdrHoldings.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0),
   [hdrHoldings,refreshKey]);
-  const hdrShares=useMemo(()=>
-    hdrHoldings.reduce((s,h)=>s+h.shares,0),
-  [hdrHoldings,refreshKey]);
+
 
   const wt=h=>filteredTotalSGD?(toSGDlive(h.price*h.shares,h.mkt)/filteredTotalSGD)*100:0;
   const wtTotal=h=>totalValSGD?(toSGDlive(h.price*h.shares,h.mkt)/totalValSGD)*100:0;
@@ -2278,10 +2276,10 @@ function App(){
           <div style={cardT}>Portfolio Overview (SGD)</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
             <div style={sbox(C.accent)}><div style={{fontSize:9,color:C.muted}}>Total Value</div><div style={{fontSize:17,fontWeight:800}}>{fmtS(totalValSGD)}</div><div style={{fontSize:9,color:C.muted}}>{holdings.length} stocks</div></div>
-            <div style={sbox()}><div style={{fontSize:9,color:C.muted}}>Total Cost</div><div style={{fontSize:17,fontWeight:800}}>{fmtS(totalCostSGD)}</div><div style={{fontSize:9,color:C.muted}}>{totalShares.toLocaleString()} shares</div></div>
+            <div style={sbox()}><div style={{fontSize:9,color:C.muted}}>Total Cost</div><div style={{fontSize:17,fontWeight:800}}>{fmtS(totalCostSGD)}</div></div>
             <div style={sbox(unrealSGD>=0?C.green:C.red)}><div style={{fontSize:9,color:C.muted}}>Unrealized P&amp;L</div><div style={{fontSize:15,fontWeight:800,color:unrealSGD>=0?C.green:C.red}}>{unrealSGD>=0?"+":"-"}{fmtS(Math.abs(unrealSGD))}</div><div style={{fontSize:11,fontWeight:700,color:unrealSGD>=0?C.green:C.red}}>{fmtPct(unrealPct)}</div></div>
             <div style={sbox(realizedSGD>=0?C.gold:C.red)}><div style={{fontSize:9,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:15,fontWeight:800,color:realizedSGD>=0?C.gold:C.red}}>{realizedSGD>=0?"+":"-"}{fmtS(Math.abs(realizedSGD))}</div><div style={{fontSize:9,color:C.muted}}>Closed trades</div></div>
-            <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:9,color:C.muted}}>Stocks</div><div style={{fontSize:22,fontWeight:800,color:C.purple}}>{holdings.length}</div><div style={{fontSize:9,color:C.muted}}>{totalShares.toLocaleString()} sh</div></div>
+            <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:9,color:C.muted}}>Stocks</div><div style={{fontSize:22,fontWeight:800,color:C.purple}}>{holdings.length}</div></div>
             <div style={{...sbox(C.gold),textAlign:"center"}}><div style={{fontSize:9,color:C.muted}}>Annual Div</div><div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGD)}</div><div style={{fontSize:9,color:C.muted}}>{fmt(totalValSGD?totalDivSGD/totalValSGD*100:0)}% yield</div></div>
           </div>
         </div>
@@ -2912,7 +2910,7 @@ function App(){
 }}>···</button>
             </div>
             <div style={{fontSize:30,fontWeight:800,letterSpacing:"-1px",lineHeight:1}}>{showValue?fmtS(hdrValSGD):"S$ ••••••"}</div>
-            <div style={{fontSize:10,color:C.muted,marginTop:3}}>{hdrHoldings.length} stocks{mktFilter!=="ALL"?<span style={{color:C.accent,fontSize:9,marginLeft:4}}>· {mktFilter==="CN"?"HK":mktFilter}</span>:""} · {hdrShares.toLocaleString()} shares{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:3}}>{hdrHoldings.length} stocks{mktFilter!=="ALL"?<span style={{color:C.accent,fontSize:9,marginLeft:4}}>· {mktFilter==="CN"?"HK":mktFilter}</span>:""}{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:13,fontWeight:700,background:hdrUnrealSGD>=0?C.green+"18":C.red+"18",color:hdrUnrealSGD>=0?C.green:C.red}}>{hdrUnrealSGD>=0?"UP":"DN"} {showValue?fmtPct(hdrUnrealPct):"• •%"}</div>
