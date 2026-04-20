@@ -265,10 +265,14 @@ function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fet
 
   return(
     <div>
-      <div style={{display:"flex",gap:16,marginBottom:8,fontSize:11}}>
+      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:6,fontSize:11}}>
         <span style={{color:C.accent}}>Portfolio <b style={{color:+pR>=0?C.green:C.red}}>{+pR>=0?"+":""}{pR}%</b></span>
         <span style={{color:C.mutedLight}}>{idxName} <b style={{color:+iR>=0?C.green:C.red}}>{+iR>=0?"+":""}{iR}%</b></span>
-        <span style={{color:C.muted,fontSize:9,marginLeft:"auto"}}>● live</span>
+        <span style={{
+          marginLeft:"auto",fontSize:8,fontWeight:700,color:C.green,
+          background:C.green+"18",border:`1px solid ${C.green}40`,
+          borderRadius:10,padding:"2px 7px",letterSpacing:"0.05em",flexShrink:0
+        }}>● LIVE</span>
       </div>
       <svg width="100%" viewBox={`0 0 ${W} ${H+AXIS}`} style={{display:"block"}}>
         <defs>
@@ -2588,24 +2592,45 @@ function App(){
           {buyHist.length>0&&(
             <div style={card}>
               <div style={cardT}>Buy History ({buyHist.length} lots)</div>
-              {buyHist.slice(0,10).map((bt,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:5,paddingBottom:5,borderBottom:i<Math.min(buyHist.length,10)-1?`1px solid ${C.border}`:"none"}}>
-                  <span style={{color:C.muted}}>{bt.date}</span>
-                  <div style={{display:"flex",gap:12}}><span style={{color:C.mutedLight}}>{bt.shares.toLocaleString()} sh</span><span style={{fontWeight:700,color:C.green}}>{fmtL(bt.price,h.mkt)}</span></div>
-                </div>
-              ))}
+              {buyHist.slice(0,10).map((bt,i)=>{
+                const total=bt.price*bt.shares;
+                return(
+                  <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<Math.min(buyHist.length,10)-1?`1px solid ${C.border}`:"none"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
+                      <span style={{color:C.muted,fontSize:11}}>{bt.date}</span>
+                      <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
+                        <span style={{color:C.mutedLight,fontSize:11}}>{bt.shares.toLocaleString()} sh @ {fmtL(bt.price,h.mkt)}</span>
+                        <span style={{fontWeight:700,color:C.green,fontSize:12}}>= {fmtL(total,h.mkt,0)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
               {buyHist.length>10&&<div style={{fontSize:10,color:C.muted,textAlign:"center"}}>+{buyHist.length-10} more lots</div>}
             </div>
           )}
           {sellHist.length>0&&(
             <div style={card}>
               <div style={cardT}>Sell History ({sellHist.length} trades)</div>
-              {sellHist.slice(0,5).map((st,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:5,paddingBottom:5,borderBottom:i<Math.min(sellHist.length,5)-1?`1px solid ${C.border}`:"none"}}>
-                  <span style={{color:C.muted}}>{st.date}</span>
-                  <div style={{display:"flex",gap:10}}><span style={{color:C.mutedLight}}>{st.shares.toLocaleString()} sh</span><span style={{fontWeight:700,color:C.red}}>{fmtL(st.price,h.mkt)}</span>{st.profit!=null&&<span style={{fontWeight:700,color:st.profit>=0?C.green:C.red}}>{st.profit>=0?"+":"-"}{fmtL(Math.abs(st.profit),h.mkt,0)}</span>}</div>
-                </div>
-              ))}
+              {sellHist.slice(0,5).map((st,i)=>{
+                const received=st.price*st.shares;
+                return(
+                  <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<Math.min(sellHist.length,5)-1?`1px solid ${C.border}`:"none"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
+                      <span style={{color:C.muted,fontSize:11}}>{st.date}</span>
+                      <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
+                        <span style={{color:C.mutedLight,fontSize:11}}>{st.shares.toLocaleString()} sh @ {fmtL(st.price,h.mkt)}</span>
+                        <span style={{fontWeight:700,color:C.red,fontSize:12}}>= {fmtL(received,h.mkt,0)}</span>
+                      </div>
+                    </div>
+                    {st.profit!=null&&(
+                      <div style={{textAlign:"right",fontSize:10,fontWeight:700,color:st.profit>=0?C.green:C.red,marginTop:2}}>
+                        P&L {st.profit>=0?"+":"-"}{fmtL(Math.abs(st.profit),h.mkt,0)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -2821,7 +2846,14 @@ function App(){
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
-              <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{background:"none",border:`1px solid ${C.border}`,cursor:"pointer",padding:"1px 5px",borderRadius:4,fontSize:9,color:C.muted,lineHeight:1,letterSpacing:2,opacity:0.6}}>{showValue?"···":"···"}</button>
+              <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
+  background:showValue?"none":C.accent+"20",
+  border:`1px solid ${showValue?C.border:C.accent}`,
+  cursor:"pointer",padding:"3px 8px",borderRadius:5,
+  fontSize:11,color:showValue?C.mutedLight:C.accent,
+  lineHeight:1,letterSpacing:3,fontWeight:700,
+  transition:"all 0.2s"
+}}>···</button>
             </div>
             <div style={{fontSize:30,fontWeight:800,letterSpacing:"-1px",lineHeight:1}}>{showValue?fmtS(totalValSGD):"S$ ••••••"}</div>
             <div style={{fontSize:10,color:C.muted,marginTop:3}}>{holdings.length} stocks · {totalShares.toLocaleString()} shares{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
