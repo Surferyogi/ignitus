@@ -1051,6 +1051,37 @@ function App(){
   const totalShares=useMemo(()=>holdings.reduce((s,h)=>s+h.shares,0),[holdings,refreshKey]);
   const avgCostSGD=totalShares?totalCostSGD/totalShares:0;
   const realizedSGD=useMemo(()=>trades.filter(t=>t.type==="SELL").reduce((s,t)=>s+toSGDlive(t.profit||0,t.mkt),0),[trades,refreshKey]);
+  // ── Header metrics — filtered by mktFilter so header reflects selected market ──
+  // When ALL: shows full portfolio. When SG/US/JP etc: shows that market only.
+  const hdrHoldings=useMemo(()=>
+    mktFilter==="ALL"?holdings:holdings.filter(h=>h.mkt===mktFilter),
+  [holdings,mktFilter,refreshKey]);
+  const hdrValSGD=useMemo(()=>
+    hdrHoldings.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0),
+  [hdrHoldings,refreshKey]);
+  const hdrCostSGD=useMemo(()=>
+    hdrHoldings.reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0),
+  [hdrHoldings,refreshKey]);
+  const hdrUnrealSGD=hdrValSGD-hdrCostSGD;
+  const hdrUnrealPct=hdrCostSGD?(hdrUnrealSGD/hdrCostSGD)*100:0;
+  const hdrRealSGD=useMemo(()=>{
+    const mktTrades=mktFilter==="ALL"?trades:trades.filter(t=>{
+      // Match trades to selected market using the holding's market
+      const h=holdings.find(hh=>hh.ticker===t.ticker);
+      return h?h.mkt===mktFilter:t.mkt===mktFilter;
+    });
+    return mktTrades.filter(t=>t.type==="SELL").reduce((s,t)=>s+toSGDlive(t.profit||0,t.mkt),0);
+  },[trades,holdings,mktFilter,refreshKey]);
+  const hdrDivSGD=useMemo(()=>
+    hdrHoldings.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt),0),
+  [hdrHoldings,refreshKey]);
+  const hdrNetDivSGD=useMemo(()=>
+    hdrHoldings.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0),
+  [hdrHoldings,refreshKey]);
+  const hdrShares=useMemo(()=>
+    hdrHoldings.reduce((s,h)=>s+h.shares,0),
+  [hdrHoldings,refreshKey]);
+
   const wt=h=>filteredTotalSGD?(toSGDlive(h.price*h.shares,h.mkt)/filteredTotalSGD)*100:0;
   const wtTotal=h=>totalValSGD?(toSGDlive(h.price*h.shares,h.mkt)/totalValSGD)*100:0;
 
@@ -2869,7 +2900,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
@@ -2880,17 +2911,14 @@ function App(){
   transition:"all 0.2s"
 }}>···</button>
             </div>
-            <div style={{fontSize:30,fontWeight:800,letterSpacing:"-1px",lineHeight:1}}>{showValue?fmtS(totalValSGD):"S$ ••••••"}</div>
-            <div style={{fontSize:10,color:C.muted,marginTop:3}}>{holdings.length} stocks · {totalShares.toLocaleString()} shares{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
+            <div style={{fontSize:30,fontWeight:800,letterSpacing:"-1px",lineHeight:1}}>{showValue?fmtS(hdrValSGD):"S$ ••••••"}</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:3}}>{hdrHoldings.length} stocks{mktFilter!=="ALL"?<span style={{color:C.accent,fontSize:9,marginLeft:4}}>· {mktFilter==="CN"?"HK":mktFilter}</span>:""} · {hdrShares.toLocaleString()} shares{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
           </div>
           <div style={{textAlign:"right"}}>
-            <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:13,fontWeight:700,background:unrealSGD>=0?C.green+"18":C.red+"18",color:unrealSGD>=0?C.green:C.red}}>{unrealSGD>=0?"UP":"DN"} {showValue?fmtPct(unrealPct):"• •%"}</div>
-            <div style={{fontSize:11,color:unrealSGD>=0?C.green:C.red,fontWeight:600,marginTop:5}}>Unr. {showValue?(unrealSGD>=0?"+":"-")+fmtS(Math.abs(unrealSGD)):"••••••"}</div>
-            <div style={{fontSize:11,color:realizedSGD>=0?C.gold:C.red,fontWeight:600,marginTop:3}}>Rlz. {showValue?(realizedSGD>=0?"+":"-")+fmtS(Math.abs(realizedSGD)):"••••••"}</div>
-            <div style={{fontSize:10,color:C.gold,marginTop:3}}>Div {showValue?(()=>{
-              const totalNetDivSGD=holdings.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0);
-              return fmtS(totalDivSGD)+"/yr gross · "+fmtS(totalNetDivSGD)+"/yr net";
-            })():"••••••"}</div>
+            <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:13,fontWeight:700,background:hdrUnrealSGD>=0?C.green+"18":C.red+"18",color:hdrUnrealSGD>=0?C.green:C.red}}>{hdrUnrealSGD>=0?"UP":"DN"} {showValue?fmtPct(hdrUnrealPct):"• •%"}</div>
+            <div style={{fontSize:11,color:hdrUnrealSGD>=0?C.green:C.red,fontWeight:600,marginTop:5}}>Unr. {showValue?(hdrUnrealSGD>=0?"+":"-")+fmtS(Math.abs(hdrUnrealSGD)):"••••••"}</div>
+            <div style={{fontSize:11,color:hdrRealSGD>=0?C.gold:C.red,fontWeight:600,marginTop:3}}>Rlz. {showValue?(hdrRealSGD>=0?"+":"-")+fmtS(Math.abs(hdrRealSGD)):"••••••"}</div>
+            <div style={{fontSize:10,color:C.gold,marginTop:3}}>Div {showValue?fmtS(hdrDivSGD)+"/yr gross · "+fmtS(hdrNetDivSGD)+"/yr net":"••••••"}</div>
           </div>
         </div>
       </div>
