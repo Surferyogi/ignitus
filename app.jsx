@@ -482,8 +482,9 @@ function App(){
 
       const data = await res.json();
       const results = data.prices || {};
+      const divYields = data.divYields || {};  // dividend yields from same Yahoo call
       const n = Object.keys(results).length;
-      console.log('Edge fn OK:', n, 'prices');
+      console.log('Edge fn OK:', n, 'prices,', Object.keys(divYields).length, 'divYields');
 
       if (n === 0) { 
         setPriceStatus('error'); 
@@ -494,7 +495,11 @@ function App(){
       setHoldings(prev => {
         const updated = prev.map(h => {
           const p = results[h.ticker];
-          return p && p > 0 ? { ...h, price: p } : h;
+          const dy = divYields[h.ticker]; // live dividend yield % (e.g. 2.5 for 2.5%)
+          const updates: any = {};
+          if (p && p > 0) updates.price = p;
+          if (dy !== undefined && dy >= 0) updates.divYield = dy; // 0 is valid (non-dividend stock)
+          return Object.keys(updates).length > 0 ? { ...h, ...updates } : h;
         });
         if (window.portfolioDB) {
           window.portfolioDB.updateHoldings(updated).catch(e => console.warn('DB:', e));
@@ -1626,7 +1631,28 @@ function App(){
                   <div style={{flex:1,height:5,borderRadius:2,background:C.border,overflow:"hidden"}}><div style={{width:`${Math.min(Math.abs(idxYtdLive)/35*100,100)}%`,height:"100%",background:m.idxYtd>=0?C.accent:C.red,opacity:0.5,borderRadius:2}}/></div>
                   <span style={{fontSize:9,fontWeight:700,color:C.mutedLight,width:40,textAlign:"right"}}>{idxYtdLive>=0?"+":""}{fmt(idxYtdLive,1)}%</span>
                 </div>
-                <div style={{...row,fontSize:10}}><span style={{color:C.muted}}>{cnt} stocks</span><span style={{fontWeight:700}}>{fmtS(portVal)}</span></div>
+                {/* Dividend yield row */}
+                {(()=>{
+                  const mktH=holdings.filter(h=>h.mkt===mkt);
+                  const mktVal=mktH.reduce((s,h)=>s+h.price*h.shares,0);
+                  const mktDiv=mktH.reduce((s,h)=>s+(h.divYield||0)/100*h.price*h.shares,0);
+                  const mktDivYield=mktVal>0?mktDiv/mktVal*100:0;
+                  const divStocksCount=mktH.filter(h=>h.divYield>0).length;
+                  if(mktDivYield<=0)return null;
+                  return(
+                    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:6,marginTop:2}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10}}>
+                        <span style={{color:C.muted}}>Annual Dividend</span>
+                        <div style={{textAlign:"right"}}>
+                          <span style={{fontWeight:700,color:C.gold}}>{fmt(mktDivYield,2)}% yield</span>
+                          <span style={{color:C.muted,fontSize:9,marginLeft:6}}>{fmtS(toSGDlive(mktDiv,mkt))}/yr</span>
+                          <span style={{color:C.muted,fontSize:9,marginLeft:6}}>({divStocksCount} paying)</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div style={{...row,fontSize:10,marginTop:4}}><span style={{color:C.muted}}>{cnt} stocks</span><span style={{fontWeight:700}}>{fmtS(portVal)}</span></div>
               </div>
             </div>
           );
@@ -2075,7 +2101,7 @@ function App(){
                     <div style={{width:10,height:10,borderRadius:5,background:col,flexShrink:0}}/>
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:5}}>
-                        <span style={{fontWeight:700,fontSize:13}}>{mktKey}</span>
+                        <span style={{fontWeight:700,fontSize:13}}>{mktKey==="CN"?"HK":mktKey}</span>
                         <Chip mkt={mktKey}/>
                         <span style={{fontSize:10,color:C.muted}}>{m.index}</span>
                       </div>
@@ -2091,6 +2117,19 @@ function App(){
                 <div style={{height:5,borderRadius:3,background:C.border}}>
                   <div style={{width:`${pct}%`,height:"100%",borderRadius:3,background:col}}/>
                 </div>
+                {(()=>{
+                  const mktDiv=mktHoldings.reduce((s,h)=>s+(h.divYield||0)/100*h.price*h.shares,0);
+                  const mktDivYield=localVal>0?mktDiv/localVal*100:0;
+                  const sgdDiv=toSGDlive(mktDiv,mktKey);
+                  const divCount=mktHoldings.filter(h=>h.divYield>0).length;
+                  if(mktDivYield<=0)return null;
+                  return(
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginTop:5,color:C.muted}}>
+                      <span>💰 Dividend: <b style={{color:C.gold}}>{fmt(mktDivYield,2)}%</b> yield · {divCount} paying stocks</span>
+                      <span style={{color:C.gold,fontWeight:700}}>{fmtS(sgdDiv)}/yr</span>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
