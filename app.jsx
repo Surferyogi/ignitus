@@ -484,9 +484,8 @@ function App(){
 
       const data = await res.json();
       const results = data.prices || {};
-      const divYields = data.divYields || {};  // dividend yields from same Yahoo call
       const n = Object.keys(results).length;
-      console.log('Edge fn OK:', n, 'prices,', Object.keys(divYields).length, 'divYields');
+      console.log('Edge fn OK:', n, 'prices');
 
       if (n === 0) { 
         setPriceStatus('error'); 
@@ -497,11 +496,7 @@ function App(){
       setHoldings(prev => {
         const updated = prev.map(h => {
           const p = results[h.ticker];
-          const dy = divYields[h.ticker]; // live dividend yield % (e.g. 2.5 for 2.5%)
-          const updates = {};
-          if (p && p > 0) updates.price = p;
-          if (dy !== undefined && dy >= 0) updates.divYield = dy; // 0 is valid (non-dividend stock)
-          return Object.keys(updates).length > 0 ? { ...h, ...updates } : h;
+          return p && p > 0 ? { ...h, price: p } : h;
         });
         if (window.portfolioDB) {
           window.portfolioDB.updateHoldings(updated).catch(e => console.warn('DB:', e));
@@ -511,12 +506,50 @@ function App(){
       setPriceUpdated(new Date());
       setPriceStatus('done');
       setRefreshKey(k => k + 1);
+      // Fetch dividend yields separately after prices — uses Yahoo bulk quote endpoint
+      fetchDividends(currentHoldings);
 
     } catch(e) {
       console.error('fetchLivePrices failed:', e.message);
       setPriceStatus('error');
       setTimeout(()=>setPriceStatus('idle'),10000);
     }
+  }
+
+  // ── Dividend yields — fetched via Yahoo bulk quote after prices load ──────────
+  async function fetchDividends(currentHoldings){
+    if(!currentHoldings||currentHoldings.length===0) return;
+    const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
+    try{
+      const tickers=currentHoldings.map(h=>h.ticker);
+      const res=await fetch(EDGE_URL,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'dividends',
+          tickers,
+          holdings:currentHoldings.map(h=>({ticker:h.ticker,mkt:h.mkt}))
+        }),
+      });
+      if(!res.ok){console.warn('[dividends] fetch failed:',res.status);return;}
+      const d=await res.json();
+      const divYields=d.divYields||{};
+      const count=Object.keys(divYields).length;
+      console.log(`[dividends] Got ${count}/${tickers.length} yields`);
+      if(count===0) return;
+      setHoldings(prev=>{
+        const updated=prev.map(h=>{
+          const dy=divYields[h.ticker];
+          // Only update if we got a real value; 0 = genuinely no dividend
+          return dy!==undefined?{...h,divYield:dy}:h;
+        });
+        if(window.portfolioDB){
+          window.portfolioDB.updateHoldings(updated).catch(e=>console.warn('DB divYield:',e));
+        }
+        return updated;
+      });
+      setRefreshKey(k=>k+1);
+    }catch(e){console.warn('[dividends] error:',e.message);}
   }
 
   // ── Live FX rates — fetched on app open ─────────────────────────────────────
@@ -1290,14 +1323,51 @@ function App(){
             }}>{s.label}</button>
           ))}
         </div>
+        {/* Dividend analysis summary when dividend sort is active */}
+        {holdingSort==="div"&&(()=>{
+          const divH=(mktFilter==="ALL"?holdings:holdings.filter(h=>h.mkt===mktFilter))
+            .filter(h=>h.divYield>0)
+            .sort((a,b)=>(b.divYield||0)-(a.divYield||0));
+          const totalDivSGDLocal=divH.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt),0);
+          const totalValSGDLocal=divH.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+          const blendedYield=totalValSGDLocal>0?totalDivSGDLocal/totalValSGDLocal*100:0;
+          return divH.length>0?(
+            <div style={{...card,background:C.gold+"0A",border:`1px solid ${C.gold}30`,marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:10,color:C.gold,fontWeight:700,letterSpacing:"0.08em",marginBottom:2}}>💵 DIVIDEND ANALYSIS</div>
+                  <div style={{fontSize:9,color:C.muted}}>{divH.length} dividend-paying stocks · sorted highest yield first</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGDLocal)}/yr</div>
+                  <div style={{fontSize:9,color:C.muted}}>Blended yield: <b style={{color:C.gold}}>{fmt(blendedYield,2)}%</b></div>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}}>
+                {divH.slice(0,6).map(h=>{
+                  const annDiv=toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt);
+                  return(
+                    <div key={h.ticker} style={{background:C.surface,borderRadius:6,padding:"5px 7px"}}>
+                      <div style={{fontSize:10,fontWeight:700}}>{h.ticker}</div>
+                      <div style={{fontSize:11,fontWeight:800,color:C.gold}}>{fmt(h.divYield,2)}%</div>
+                      <div style={{fontSize:9,color:C.muted}}>{fmtS(annDiv)}/yr</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ):null;
+        })()}
         <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{filtered.length} Holdings{mktFilter!=="ALL"?` · ${mktFilter!=="CN"?mktFilter:"HK"}`:""}</div>
         {(()=>{
-          let sorted=[...filtered];
-          if(holdingSort==="best") sorted.sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost));
-          else if(holdingSort==="worst") sorted.sort((a,b)=>((a.price-a.avgCost)/a.avgCost)-((b.price-b.avgCost)/b.avgCost));
-          else if(holdingSort==="value") sorted.sort((a,b)=>toSGDlive(b.price*b.shares,b.mkt)-toSGDlive(a.price*a.shares,a.mkt));
-          else if(holdingSort==="div") sorted.sort((a,b)=>(b.divYield||0)-(a.divYield||0));
-          return sorted;
+          let src2=holdingSort==="div"
+            ?filtered.filter(h=>h.divYield>0)  // hide zero-dividend stocks
+            :[...filtered];
+          if(holdingSort==="best") src2.sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost));
+          else if(holdingSort==="worst") src2.sort((a,b)=>((a.price-a.avgCost)/a.avgCost)-((b.price-b.avgCost)/b.avgCost));
+          else if(holdingSort==="value") src2.sort((a,b)=>toSGDlive(b.price*b.shares,b.mkt)-toSGDlive(a.price*a.shares,a.mkt));
+          else if(holdingSort==="div") src2.sort((a,b)=>(b.divYield||0)-(a.divYield||0));
+          return src2;
         })().map(h=>{
           const localVal=h.price*h.shares,localCost=h.avgCost*h.shares,localGain=localVal-localCost;
           const gainPct=((h.price-h.avgCost)/h.avgCost)*100;
@@ -1354,6 +1424,7 @@ function App(){
                 <div style={{display:"flex",gap:4}}>
                   <Bdg label={h.moat+" Moat"} bg={h.moat==="Wide"?"#1A2E1A":"#2A2A1A"} color={h.moat==="Wide"?C.green:C.gold}/>
                   <Bdg label={r.lbl} bg={r.col+"22"} color={r.col}/>
+                  {holdingSort==="div"&&h.divYield>0&&<Bdg label={fmt(h.divYield,2)+"% div"} bg={C.gold+"22"} color={C.gold}/>}
                 </div>
               </div>
             </div>
@@ -2681,7 +2752,7 @@ function App(){
           {priceStatus==='error'&&(
             <div style={{fontSize:9,color:C.red,padding:"4px 8px",fontWeight:700}}>Price err</div>
           )}
-          <button onClick={()=>{fetchLivePrices(holdings);fetchLiveFx();}} title="Update live prices and FX rates" style={{
+          <button onClick={()=>{fetchLivePrices(holdings);fetchLiveFx();fetchDividends(holdings);}} title="Update live prices and FX rates" style={{
             padding:"6px 8px",borderRadius:8,cursor:"pointer",flexShrink:0,
             border:`1px solid ${C.gold}44`,background:C.gold+"12",color:C.gold,
             fontSize:10,fontWeight:700,whiteSpace:"nowrap"
