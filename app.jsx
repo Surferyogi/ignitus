@@ -2332,7 +2332,7 @@ function App(){
     const sgdVal=toSGDlive(localVal,h.mkt),sgdCost=toSGDlive(localCost,h.mkt),sgdGain=toSGDlive(localGain,h.mkt),sgdDiv=toSGDlive(localDiv,h.mkt);
     const w=wtTotal(h),pos=gainPct>=0;
     const analysis=aiText[h.ticker],loading=aiLoad[h.ticker];
-    const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>a.date.localeCompare(b.date));
+    const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
       <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
@@ -2375,8 +2375,15 @@ function App(){
 
           {/* Multi-period chart */}
           <div style={{...card,padding:12,marginBottom:10}}>
-            <div style={{...row,marginBottom:8}}>
-              <div style={{fontSize:10,color:C.muted,fontWeight:700}}>History ({m.code})</div>
+            <div style={{...row,marginBottom:8,alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{fontSize:10,color:C.muted,fontWeight:700}}>History ({m.code})</div>
+                <span style={{
+                  fontSize:7,fontWeight:800,color:C.green,letterSpacing:"0.08em",
+                  background:C.green+"18",border:`1px solid ${C.green}35`,
+                  borderRadius:8,padding:"1px 5px",lineHeight:"14px"
+                }}>● LIVE</span>
+              </div>
               <div style={{display:"flex",gap:3}}>
                 {PERIODS.map(p=><button key={p} style={smPill(detailPeriod===p)} onClick={()=>setDetailPeriod(p)}>{PLBL[p]}</button>)}
               </div>
@@ -2396,10 +2403,7 @@ function App(){
                 </div>
               );
               return(
-                <div style={{position:"relative"}}>
-                  <Sparkline data={hData} color={pos?C.green:C.red} height={60} period={detailPeriod}/>
-                  <div style={{position:"absolute",top:2,right:2,fontSize:9,color:C.green}}>● live</div>
-                </div>
+                <Sparkline data={hData} color={pos?C.green:C.red} height={60} period={detailPeriod}/>
               );
             })()}
             <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,marginTop:3}}>
@@ -2589,50 +2593,71 @@ function App(){
             }
           })()}
 
-          {buyHist.length>0&&(
-            <div style={card}>
-              <div style={cardT}>Buy History ({buyHist.length} lots)</div>
-              {buyHist.slice(0,10).map((bt,i)=>{
-                const total=bt.price*bt.shares;
-                return(
-                  <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<Math.min(buyHist.length,10)-1?`1px solid ${C.border}`:"none"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
-                      <span style={{color:C.muted,fontSize:11}}>{bt.date}</span>
-                      <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
-                        <span style={{color:C.mutedLight,fontSize:11}}>{bt.shares.toLocaleString()} sh @ {fmtL(bt.price,h.mkt)}</span>
-                        <span style={{fontWeight:700,color:C.green,fontSize:12}}>= {fmtL(total,h.mkt,0)}</span>
+          {buyHist.length>0&&(()=>{
+            const [showAllBuy,setShowAllBuy]=React.useState(false);
+            const displayBuy=showAllBuy?buyHist:buyHist.slice(0,8);
+            return(
+              <div style={card}>
+                <div style={{...row,marginBottom:6}}>
+                  <div style={cardT}>Buy History ({buyHist.length} lots)</div>
+                  {buyHist.length>8&&(
+                    <button onClick={()=>setShowAllBuy(v=>!v)} style={{fontSize:9,fontWeight:700,color:C.accent,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>
+                      {showAllBuy?"▲ Show less":"▼ Show all "+buyHist.length}
+                    </button>
+                  )}
+                </div>
+                {displayBuy.map((bt,i)=>{
+                  const total=bt.price*bt.shares;
+                  return(
+                    <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<displayBuy.length-1?`1px solid ${C.border}`:"none"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
+                        <span style={{color:C.muted,fontSize:11}}>{bt.date}</span>
+                        <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
+                          <span style={{color:C.mutedLight,fontSize:11}}>{bt.shares.toLocaleString()} sh @ {fmtL(bt.price,h.mkt)}</span>
+                          <span style={{fontWeight:700,color:C.green,fontSize:12}}>= {fmtL(total,h.mkt,0)}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-              {buyHist.length>10&&<div style={{fontSize:10,color:C.muted,textAlign:"center"}}>+{buyHist.length-10} more lots</div>}
-            </div>
-          )}
-          {sellHist.length>0&&(
-            <div style={card}>
-              <div style={cardT}>Sell History ({sellHist.length} trades)</div>
-              {sellHist.slice(0,5).map((st,i)=>{
-                const received=st.price*st.shares;
-                return(
-                  <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<Math.min(sellHist.length,5)-1?`1px solid ${C.border}`:"none"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
-                      <span style={{color:C.muted,fontSize:11}}>{st.date}</span>
-                      <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
-                        <span style={{color:C.mutedLight,fontSize:11}}>{st.shares.toLocaleString()} sh @ {fmtL(st.price,h.mkt)}</span>
-                        <span style={{fontWeight:700,color:C.red,fontSize:12}}>= {fmtL(received,h.mkt,0)}</span>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          {sellHist.length>0&&(()=>{
+            const [showAllSell,setShowAllSell]=React.useState(false);
+            const displaySell=showAllSell?sellHist:sellHist.slice(0,5);
+            return(
+              <div style={card}>
+                <div style={{...row,marginBottom:6}}>
+                  <div style={cardT}>Sell History ({sellHist.length} trades)</div>
+                  {sellHist.length>5&&(
+                    <button onClick={()=>setShowAllSell(v=>!v)} style={{fontSize:9,fontWeight:700,color:C.accent,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>
+                      {showAllSell?"▲ Show less":"▼ Show all "+sellHist.length}
+                    </button>
+                  )}
+                </div>
+                {displaySell.map((st,i)=>{
+                  const received=st.price*st.shares;
+                  return(
+                    <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<displaySell.length-1?`1px solid ${C.border}`:"none"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
+                        <span style={{color:C.muted,fontSize:11}}>{st.date}</span>
+                        <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
+                          <span style={{color:C.mutedLight,fontSize:11}}>{st.shares.toLocaleString()} sh @ {fmtL(st.price,h.mkt)}</span>
+                          <span style={{fontWeight:700,color:C.red,fontSize:12}}>= {fmtL(received,h.mkt,0)}</span>
+                        </div>
                       </div>
+                      {st.profit!=null&&(
+                        <div style={{textAlign:"right",fontSize:10,fontWeight:700,color:st.profit>=0?C.green:C.red,marginTop:2}}>
+                          P&L {st.profit>=0?"+":"-"}{fmtL(Math.abs(st.profit),h.mkt,0)}
+                        </div>
+                      )}
                     </div>
-                    {st.profit!=null&&(
-                      <div style={{textAlign:"right",fontSize:10,fontWeight:700,color:st.profit>=0?C.green:C.red,marginTop:2}}>
-                        P&L {st.profit>=0?"+":"-"}{fmtL(Math.abs(st.profit),h.mkt,0)}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           <div style={card}><div style={cardT}>Analysis Scores</div>{[["Intrinsic Value",sc.iv],["Economic Moat",sc.mt],["Dividend Yield",sc.dv],["Overall",sc.all]].map(([l,v])=>(<div key={l} style={{marginBottom:8}}><div style={{fontSize:12,color:l==="Overall"?C.text:C.muted,marginBottom:3,fontWeight:l==="Overall"?700:400}}>{l}</div><ScoreBar score={v} max={10} color={l==="Overall"?C.accent:undefined}/></div>))}</div>
           <div style={card}><div style={cardT}>Key Stats</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>{[["P/E",fmt(h.peRatio)],["Div Yield",fmt(h.divYield)+"%"],["Sector",h.sector],["MS Style",h.msStyle],["Market",`${h.mkt} (${m.code})`],["Benchmark",m.index]].map(([l,v])=>(<div key={l}><div style={{fontSize:9,color:C.muted}}>{l}</div><div style={{fontSize:12,fontWeight:600}}>{v}</div></div>))}</div></div>
