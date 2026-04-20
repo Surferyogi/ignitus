@@ -68,7 +68,7 @@ const buffettScore=h=>{
   const pe=h.peRatio;
   const qualPts=(pe>0&&25>pe)?15:(35>pe)?8:0;
   const gainPts=gainPct>50?10:gainPct>20?5:0;
-  const total=moatPts+divPts+valuePts+qualPts+gainPts;
+  const total=Math.round((moatPts+divPts+valuePts+qualPts+gainPts)*10)/10;
   let action,reason,col;
   if(total>=65&&upside>10){action="BUY MORE";col=C.green;reason="Wide moat + undervalued";}
   else if(total>=50&&upside>0){action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals, fair value";}
@@ -1704,7 +1704,7 @@ function App(){
                       <div key={h.ticker} style={{marginBottom:11,paddingBottom:11,borderBottom:i<list.length-1?`1px solid ${C.border}`:"none",cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
                           <div style={{width:36,height:36,borderRadius:8,background:h.col+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                            <span style={{fontSize:12,fontWeight:800,color:h.col}}>{h.score}</span>
+                            <span style={{fontSize:12,fontWeight:800,color:h.col}}>{fmt(h.score,1)}</span>
                           </div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -2464,7 +2464,7 @@ function App(){
             <div style={{...row}}>
               <div><div style={{fontSize:9,color:C.gold,fontWeight:700,marginBottom:3}}>BUFFETT SCORE</div><div style={{fontSize:12,color:C.mutedLight}}>{bs.reason}</div></div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontSize:24,fontWeight:800,color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>{bs.score}<span style={{fontSize:12,color:C.muted}}>/100</span></div>
+                <div style={{fontSize:24,fontWeight:800,color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>{fmt(bs.score,1)}<span style={{fontSize:12,color:C.muted}}>/100</span></div>
                 <Bdg label={bs.action} bg={bs.col+"22"} color={bs.col}/>
               </div>
             </div>
@@ -2678,7 +2678,7 @@ function App(){
                 <div style={{fontSize:12,color:C.mutedLight,lineHeight:1.8}}>
                   <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
                   <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. At a P/E of {fmt(h.peRatio,1)}x, it is {h.peRatio>0&&h.peRatio<20?"reasonably valued":h.peRatio>=20&&h.peRatio<35?"moderately priced":"expensively priced"} relative to earnings.</p>
-                  <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({bs.score}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
+                  <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
                 </div>
               );
             })()}
