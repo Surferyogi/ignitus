@@ -21,6 +21,15 @@ const MKT={
   AU:{symbol:"A$", code:"AUD",r:0.81,  index:"ASX 200",   idxVal:7834.1,  idxYtd:3.7,  idxChange:-0.12},
   SG:{symbol:"S$", code:"SGD",r:1.0,   index:"STI",       idxVal:3892.4,  idxYtd:6.2,  idxChange:0.41},
 };
+// Dividend withholding tax rates for Singapore investors
+// US: 30% (Singapore has no tax treaty with US)
+// JP: 20.315% (15% national + 5.315% local for non-residents)
+// EU/France: 15% (Singapore-France tax treaty reduces from 25% to 15%)
+// SG, HK, CN: 0% (no withholding tax on dividends)
+const DIV_TAX={US:0.30, JP:0.20315, EU:0.15, SG:0, CN:0, GB:0};
+const getDivTax=(mkt)=>DIV_TAX[mkt]||0;
+const fmtTax=(mkt)=>{const t=getDivTax(mkt);return t>0?`${(t*100).toFixed(3).replace(/\.?0+$/,'')}% WHT`:null;};
+
 const fmt=(n,d=2)=>n==null?"--":n.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtPct=n=>n==null?"--":(n>=0?"+":"")+fmt(n)+"%";
 const toSGD=(v,mkt)=>v*(MKT[mkt]?.r??1.36);
@@ -1329,6 +1338,7 @@ function App(){
             .filter(h=>h.divYield>0)
             .sort((a,b)=>(b.divYield||0)-(a.divYield||0));
           const totalDivSGDLocal=divH.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt),0);
+          const totalNetDivSGDLocal=divH.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0);
           const totalValSGDLocal=divH.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
           const blendedYield=totalValSGDLocal>0?totalDivSGDLocal/totalValSGDLocal*100:0;
           return divH.length>0?(
@@ -1339,18 +1349,22 @@ function App(){
                   <div style={{fontSize:9,color:C.muted}}>{divH.length} dividend-paying stocks · sorted highest yield first</div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGDLocal)}/yr</div>
+                  <div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGDLocal)}/yr gross</div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.green}}>{fmtS(totalNetDivSGDLocal)}/yr net after WHT</div>
                   <div style={{fontSize:9,color:C.muted}}>Blended yield: <b style={{color:C.gold}}>{fmt(blendedYield,2)}%</b></div>
                 </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}}>
                 {divH.slice(0,6).map(h=>{
                   const annDiv=toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt);
+                  const taxRate=getDivTax(h.mkt);
+                  const netDiv=annDiv*(1-taxRate);
                   return(
                     <div key={h.ticker} style={{background:C.surface,borderRadius:6,padding:"5px 7px"}}>
                       <div style={{fontSize:10,fontWeight:700}}>{h.ticker}</div>
                       <div style={{fontSize:11,fontWeight:800,color:C.gold}}>{fmt(h.divYield,2)}%</div>
-                      <div style={{fontSize:9,color:C.muted}}>{fmtS(annDiv)}/yr</div>
+                      <div style={{fontSize:8,color:C.muted}}>{fmtS(annDiv)}/yr gross</div>
+                      {taxRate>0&&<div style={{fontSize:8,color:C.green}}>{fmtS(netDiv)}/yr net</div>}
                     </div>
                   );
                 })}
@@ -2265,7 +2279,7 @@ function App(){
         <div style={mCard}>
           {/* Header: back arrow top-left, title centre, action buttons below */}
           <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
-            <button onClick={()=>setSel(null)} style={{background:"none",border:"none",color:C.muted,fontSize:20,cursor:"pointer",padding:"0 10px 0 0",lineHeight:1,flexShrink:0}}>←</button>
+            <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:18,cursor:"pointer",padding:"10px 14px",lineHeight:1,flexShrink:0,borderRadius:10,fontWeight:700,marginRight:10}}>←</button>
             <div style={{flex:1}}>
               <div style={{fontWeight:800,fontSize:17,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
               <div style={{fontSize:12,color:C.muted}}>{h.name}</div>
@@ -2338,10 +2352,28 @@ function App(){
           <div style={{background:C.accent+"0D",border:`1px solid ${C.accentDim}30`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
             <div style={{fontSize:9,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8}}>POSITION</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",marginBottom:8}}>
-              {[["Shares",h.shares.toLocaleString(),null],["Avg Cost",fmtL(h.avgCost,h.mkt),fmtS(toSGDlive(h.avgCost,h.mkt))],["Market Value",fmtL(localVal,h.mkt,0),fmtS(sgdVal)],["Cost Basis",fmtL(localCost,h.mkt,0),fmtS(sgdCost)],["Unrealized P&L",`${pos?"+":"-"}${fmtL(Math.abs(localGain),h.mkt,0)}`,`${pos?"+":"-"}${fmtS(Math.abs(sgdGain))}`],["Annual Div (est.)",fmtL(localDiv,h.mkt,0),fmtS(sgdDiv)]].map(([l,v,sub])=>(
+              {[["Shares",h.shares.toLocaleString(),null],["Avg Cost",fmtL(h.avgCost,h.mkt),fmtS(toSGDlive(h.avgCost,h.mkt))],["Market Value",fmtL(localVal,h.mkt,0),fmtS(sgdVal)],["Cost Basis",fmtL(localCost,h.mkt,0),fmtS(sgdCost)],["Unrealized P&L",`${pos?"+":"-"}${fmtL(Math.abs(localGain),h.mkt,0)}`,`${pos?"+":"-"}${fmtS(Math.abs(sgdGain))}`],["Annual Div (gross)",fmtL(localDiv,h.mkt,0),fmtS(sgdDiv)],].map(([l,v,sub])=>(
                 <div key={l}><div style={{fontSize:9,color:C.muted}}>{l}</div><div style={{fontSize:13,fontWeight:700,color:l==="Unrealized P&L"?(pos?C.green:C.red):C.text}}>{v}</div>{sub&&<div style={{fontSize:9,color:C.muted}}>{sub}</div>}</div>
               ))}
             </div>
+            {/* Dividend tax row — only shown for markets with withholding tax */}
+            {(()=>{
+              const taxRate=getDivTax(h.mkt);
+              if(localDiv<=0||taxRate===0) return null;
+              const netDiv=localDiv*(1-taxRate);
+              const netDivSGD=toSGDlive(netDiv,h.mkt);
+              const taxLabel=fmtTax(h.mkt);
+              return(
+                <div style={{background:C.surface,borderRadius:7,padding:"7px 10px",marginBottom:8,borderLeft:`3px solid ${C.gold}`}}>
+                  <div style={{fontSize:9,color:C.gold,fontWeight:700,marginBottom:4}}>DIVIDEND WITHHOLDING TAX ({taxLabel})</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:10}}>
+                    <div><div style={{fontSize:8,color:C.muted}}>Gross/yr</div><div style={{fontWeight:700}}>{fmtL(localDiv,h.mkt,0)}</div><div style={{fontSize:8,color:C.muted}}>{fmtS(sgdDiv)}</div></div>
+                    <div><div style={{fontSize:8,color:C.red}}>Tax ({(taxRate*100).toFixed(3).replace(/\.?0+$/,"")}%)</div><div style={{fontWeight:700,color:C.red}}>-{fmtL(localDiv*taxRate,h.mkt,0)}</div></div>
+                    <div style={{textAlign:"right"}}><div style={{fontSize:8,color:C.green}}>Net/yr</div><div style={{fontWeight:700,color:C.green}}>{fmtL(netDiv,h.mkt,0)}</div><div style={{fontSize:8,color:C.muted}}>{fmtS(netDivSGD)}</div></div>
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{...row,marginBottom:3}}><span style={{fontSize:9,color:C.muted}}>Portfolio Weight</span><span style={{fontSize:12,fontWeight:800,color:C.accent}}>{w.toFixed(2)}%</span></div>
             <div style={{height:4,borderRadius:2,background:C.border}}><div style={{width:`${Math.min(w*3,100)}%`,height:"100%",borderRadius:2,background:C.accent}}/></div>
           </div>
@@ -2716,7 +2748,7 @@ function App(){
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
-              <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide values":"Show values"} style={{background:"none",border:"none",cursor:"pointer",padding:"0 2px",fontSize:14,color:showValue?C.muted:C.accent,lineHeight:1}}>{showValue?"👁":"🙈"}</button>
+              <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{background:"none",border:`1px solid ${C.border}`,cursor:"pointer",padding:"1px 5px",borderRadius:4,fontSize:9,color:C.muted,lineHeight:1,letterSpacing:2,opacity:0.6}}>{showValue?"···":"···"}</button>
             </div>
             <div style={{fontSize:30,fontWeight:800,letterSpacing:"-1px",lineHeight:1}}>{showValue?fmtS(totalValSGD):"S$ ••••••"}</div>
             <div style={{fontSize:10,color:C.muted,marginTop:3}}>{holdings.length} stocks · {totalShares.toLocaleString()} shares{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
@@ -2725,7 +2757,10 @@ function App(){
             <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:13,fontWeight:700,background:unrealSGD>=0?C.green+"18":C.red+"18",color:unrealSGD>=0?C.green:C.red}}>{unrealSGD>=0?"UP":"DN"} {showValue?fmtPct(unrealPct):"• •%"}</div>
             <div style={{fontSize:11,color:unrealSGD>=0?C.green:C.red,fontWeight:600,marginTop:5}}>Unr. {showValue?(unrealSGD>=0?"+":"-")+fmtS(Math.abs(unrealSGD)):"••••••"}</div>
             <div style={{fontSize:11,color:realizedSGD>=0?C.gold:C.red,fontWeight:600,marginTop:3}}>Rlz. {showValue?(realizedSGD>=0?"+":"-")+fmtS(Math.abs(realizedSGD)):"••••••"}</div>
-            <div style={{fontSize:10,color:C.gold,marginTop:3}}>Div {showValue?fmtS(totalDivSGD)+"/yr":"••••••"}</div>
+            <div style={{fontSize:10,color:C.gold,marginTop:3}}>Div {showValue?(()=>{
+              const totalNetDivSGD=holdings.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0);
+              return fmtS(totalDivSGD)+"/yr gross · "+fmtS(totalNetDivSGD)+"/yr net";
+            })():"••••••"}</div>
           </div>
         </div>
       </div>
