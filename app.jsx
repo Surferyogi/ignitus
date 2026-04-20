@@ -1309,13 +1309,13 @@ function App(){
         {/* Sort controls */}
         <div style={{display:"flex",gap:5,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
           {[
-            {key:"default", label:"📋 Default"},
-            {key:"best",    label:"📈 Best"},
-            {key:"worst",   label:"📉 Worst"},
-            {key:"value",   label:"💰 Value"},
-            {key:"div",     label:"💵 Dividend"},
+            {key:"default", label:"📋 A→Z",    tip:"Alphabetical by ticker"},
+            {key:"best",    label:"📈 Best",   tip:"Highest % gain first"},
+            {key:"worst",   label:"📉 Worst",  tip:"Biggest % loss first"},
+            {key:"value",   label:"💰 Value",  tip:"Largest SGD value first"},
+            {key:"div",     label:"💵 Div",    tip:"Highest dividend yield (hides non-payers)"},
           ].map(s=>(
-            <button key={s.key} onClick={()=>setHoldingSort(s.key)} style={{
+            <button key={s.key} onClick={()=>setHoldingSort(s.key)} title={s.tip} style={{
               flexShrink:0,padding:"5px 10px",borderRadius:14,fontSize:10,fontWeight:700,cursor:"pointer",
               background:holdingSort===s.key?C.accent:C.surface,
               color:holdingSort===s.key?"#000":C.muted,
@@ -1361,9 +1361,10 @@ function App(){
         <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{filtered.length} Holdings{mktFilter!=="ALL"?` · ${mktFilter!=="CN"?mktFilter:"HK"}`:""}</div>
         {(()=>{
           let src2=holdingSort==="div"
-            ?filtered.filter(h=>h.divYield>0)  // hide zero-dividend stocks
+            ?filtered.filter(h=>(h.divYield||0)>0)  // hide zero-dividend stocks
             :[...filtered];
-          if(holdingSort==="best") src2.sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost));
+          if(holdingSort==="default") src2.sort((a,b)=>a.ticker.localeCompare(b.ticker)); // A→Z
+          else if(holdingSort==="best") src2.sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost));
           else if(holdingSort==="worst") src2.sort((a,b)=>((a.price-a.avgCost)/a.avgCost)-((b.price-b.avgCost)/b.avgCost));
           else if(holdingSort==="value") src2.sort((a,b)=>toSGDlive(b.price*b.shares,b.mkt)-toSGDlive(a.price*a.shares,a.mkt));
           else if(holdingSort==="div") src2.sort((a,b)=>(b.divYield||0)-(a.divYield||0));
