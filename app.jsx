@@ -2315,11 +2315,12 @@ function App(){
     const hasSenate=senateData.length>0;
 
     // Senate buy signals — reuse existing senateData
+    // Senate BUY signals — same dedup logic as Insights tab (ticker+name+action+date)
     const senateBuys=senateData
       .filter(s=>s.action==="BUY")
-      .filter((s,i,arr)=>arr.findIndex(x=>x.ticker===s.ticker&&x.name===s.name&&x.date===s.date)===i)
+      .filter((s,i,arr)=>arr.findIndex(x=>x.ticker===s.ticker&&x.name===s.name&&x.action===s.action&&x.date===s.date)===i)
       .sort((a,b)=>b.date.localeCompare(a.date))
-      .slice(0,5);
+      .slice(0,10);
 
     return(
       <>
@@ -2516,8 +2517,8 @@ function App(){
               <span>🏛</span> Senate Buy Signals (Recent)
             </div>
             <div style={{fontSize:13,color:C.muted,marginBottom:10,lineHeight:1.5}}>
-              US senators who recently bought stocks in your portfolio.
-              Congress members have access to non-public information per STOCK Act disclosures.
+              Recent US Congress BUY trades — same data as Insights → Senate tab, BUY actions only.
+              Congress members must disclose within 30-45 days per STOCK Act. Stocks in your portfolio highlighted.
             </div>
             {senateBuys.length===0&&(
               <div style={{fontSize:14,color:C.muted,textAlign:"center",padding:"12px 0"}}>
@@ -2526,27 +2527,61 @@ function App(){
             )}
             {senateBuys.map((s,i)=>{
               const inPort=holdings.find(h=>h.ticker===s.ticker);
+              const extPrice=senatePrices[s.ticker];
+              const livePrice=inPort?inPort.price:(extPrice?.price||s.priceNow||0);
+              const compIV=valuations[s.ticker]?.valuations?.average||0;
+              const intrinsic=compIV>0?compIV:(inPort?inPort.intrinsic:(extPrice?.intrinsic||0));
+              const avgCost=inPort?inPort.avgCost:0;
+              const mkt=inPort?inPort.mkt:"US";
+              const histKey=s.ticker+"_"+s.date;
+              const histPrice=senateHistPrices[histKey];
+              if(histPrice===undefined) fetchSenateHistPrice(s.ticker,s.date);
+              const pricePaid=histPrice||0;
+              const vsNow=pricePaid>0&&livePrice>0?((livePrice-pricePaid)/pricePaid*100):null;
+              const gainPct=avgCost>0?((livePrice-avgCost)/avgCost*100):null;
+              const upside=intrinsic>0&&livePrice>0?((intrinsic-livePrice)/livePrice*100):null;
               return(
-                <div key={i} onClick={()=>{if(inPort){setSel(inPort);setDetailPeriod("6m");}}}
-                  style={{marginBottom:10,paddingBottom:10,
-                    borderBottom:i<senateBuys.length-1?`1px solid ${C.border}`:"none",
-                    cursor:inPort?"pointer":"default",
-                  }}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div key={i} style={{marginBottom:14,paddingBottom:14,borderBottom:i<senateBuys.length-1?`1px solid ${C.border}`:"none"}}>
+                  <div style={{...row,marginBottom:6}}>
                     <div>
-                      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
-                        <span style={{fontWeight:700,fontSize:16}}>{s.ticker}</span>
-                        <Bdg label={s.action} bg={C.green+"22"} color={C.green}/>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                        <span style={{fontWeight:700,fontSize:16}}>{s.name}</span>
                         <Bdg label={s.party} bg={s.party==="D"?"#1e3a5f":"#3d1515"} color={s.party==="D"?"#60a5fa":"#f87171"}/>
-                        {inPort&&<span style={{fontSize:12,color:C.accent,fontWeight:700,padding:"1px 4px",borderRadius:3,background:C.accent+"18"}}>IN PORT</span>}
+                        {inPort&&<span style={{fontSize:12,color:C.accent,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.accent+"18"}}>IN PORTFOLIO</span>}
                       </div>
-                      <div style={{fontSize:14,color:C.muted}}>{s.name} · {s.date}</div>
+                      <div style={{fontSize:14,color:C.muted}}>{s.date} · {s.sector}</div>
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{s.amount}</div>
-                      {inPort&&<div style={{fontSize:13,color:C.muted}}>{fmtL(inPort.price,inPort.mkt)}</div>}
+                      <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"flex-end",marginBottom:2}}>
+                        <span style={{fontWeight:800,fontSize:17}}>{s.ticker}</span>
+                        <Bdg label="BUY" bg={C.green+"22"} color={C.green}/>
+                      </div>
+                      <div style={{fontSize:14,color:C.gold,fontWeight:600}}>{s.amount}</div>
                     </div>
                   </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,background:inPort?C.accent+"0D":C.surface,borderRadius:7,padding:"7px 10px",border:inPort?`1px solid ${C.accent}22`:"none"}}>
+                    <div>
+                      <div style={{fontSize:12,color:C.gold,fontWeight:700}}>Sen. Paid</div>
+                      <div style={{fontSize:14,fontWeight:700,color:pricePaid>0?C.gold:C.border}}>{pricePaid>0?("$"+fmt(pricePaid)):"…"}</div>
+                      <div style={{fontSize:12,color:C.muted}}>on {s.date?.slice(5)}</div>
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <div style={{fontSize:12,color:C.muted}}>Live Price</div>
+                      <div style={{fontSize:14,fontWeight:700}}>{livePrice>0?fmtL(livePrice,mkt):"—"}</div>
+                      {vsNow!=null&&<div style={{fontSize:12,fontWeight:700,color:vsNow>=0?C.green:C.red}}>{vsNow>=0?"+":""}{fmt(vsNow,1)}% since</div>}
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <div style={{fontSize:12,color:C.muted}}>Avg Cost</div>
+                      <div style={{fontSize:14,fontWeight:700,color:avgCost>0?C.mutedLight:C.border}}>{avgCost>0?fmtL(avgCost,mkt):"—"}</div>
+                      {gainPct!=null&&<div style={{fontSize:12,fontWeight:700,color:gainPct>=0?C.green:C.red}}>{gainPct>=0?"+":""}{fmt(gainPct,1)}%</div>}
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:12,color:C.muted}}>{inPort?"Intrinsic":"Graham №"}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:upside!=null?(upside>=0?C.green:C.red):C.border}}>{intrinsic>0?fmtL(intrinsic,mkt):"—"}</div>
+                      {upside!=null&&<div style={{fontSize:12,fontWeight:700,color:upside>=0?C.green:C.red}}>{upside>=0?"+":""}{fmt(upside,1)}% up</div>}
+                    </div>
+                  </div>
+                  {inPort&&<div style={{fontSize:12,color:C.muted,marginTop:4,textAlign:"right",cursor:"pointer"}} onClick={()=>{setSel(inPort);setDetailPeriod("6m");}}>Tap to open {s.ticker} →</div>}
                 </div>
               );
             })}
