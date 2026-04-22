@@ -11,7 +11,21 @@ let SENATE = [];
 let FIRST_BUY = {};
 
 
-const C={bg:"#0A0D14",surface:"#111620",card:"#161C2A",border:"#1E2A3E",accent:"#00D4FF",accentDim:"#0099BB",green:"#00E5A0",red:"#FF4D6A",gold:"#FFB547",purple:"#9B6DFF",text:"#E8EDF5",muted:"#6B7A99",mutedLight:"#8B97B3"};
+const C={
+  bg:         "#080B10",  // slightly deeper — less harsh pure black
+  surface:    "#0F1520",  // card surface — warmer dark
+  card:       "#141B28",  // card background — subtle lift from surface
+  border:     "#243550",  // border — more visible for card separation
+  accent:     "#00CFFF",  // cyan — unchanged (brand)
+  accentDim:  "#008FAF",  // muted cyan
+  green:      "#00D98A",  // green — slightly warmer, easier on eyes than pure cyan-green
+  red:        "#FF5577",  // red — slightly less harsh
+  gold:       "#FFC04A",  // gold — slightly warmer/brighter
+  purple:     "#B088FF",  // purple — lighter, better contrast on dark bg
+  text:       "#E8EDF8",  // primary text — high contrast but not pure white
+  muted:      "#96A3BF",  // muted — bumped up for readability (was #8A97B8)
+  mutedLight: "#B2BFDA",  // mutedLight — bumped for readable subtitles
+};
 const MKT={
   US:{symbol:"$",  code:"USD",r:1.27,  index:"S&P 500",   idxVal:7126.1,  idxYtd:14.8, idxChange:1.24},
   JP:{symbol:"¥",  code:"JPY",r:0.0080,index:"Nikkei 225",idxVal:35808,   idxYtd:-4.2, idxChange:0.78},
@@ -80,13 +94,13 @@ const buffettScore=h=>{
 
 // ─── Shared UI atoms ──────────────────────────────────────────────────────────
 function Bdg({label,bg,color}){
-  return <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,background:bg,color}}>{label}</span>;
+  return <span style={{fontSize:13,fontWeight:700,padding:"2px 6px",borderRadius:3,background:bg,color}}>{label}</span>;
 }
 function Chip({mkt}){
-  return <span style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.accent+"18",color:C.accent}}>{MKT[mkt]?.code||mkt}</span>;
+  return <span style={{fontSize:13,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.accent+"18",color:C.accent}}>{MKT[mkt]?.code||mkt}</span>;
 }
 function Tag({col,children}){
-  return <span style={{display:"inline-block",padding:"2px 6px",borderRadius:3,fontSize:9,fontWeight:700,background:col+"20",color:col}}>{children}</span>;
+  return <span style={{display:"inline-block",padding:"2px 6px",borderRadius:3,fontSize:13,fontWeight:700,background:col+"20",color:col}}>{children}</span>;
 }
 function ScoreBar({score,max=10,color}){
   const pct=(score/max)*100;
@@ -96,7 +110,7 @@ function ScoreBar({score,max=10,color}){
       <div style={{flex:1,height:4,borderRadius:2,background:C.border,overflow:"hidden"}}>
         <div style={{width:`${pct}%`,height:"100%",background:col,borderRadius:2}}/>
       </div>
-      <span style={{fontSize:11,fontWeight:700,color:col,minWidth:14,textAlign:"right"}}>{score}</span>
+      <span style={{fontSize:14,fontWeight:700,color:col,minWidth:14,textAlign:"right"}}>{score}</span>
     </div>
   );
 }
@@ -218,15 +232,15 @@ function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fet
 
   if(isLoading) return(
     <div style={{height:160,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
-      <div style={{fontSize:11,color:C.gold,animation:"pulse 1s ease-in-out infinite"}}>↻ Loading real market data...</div>
-      <div style={{fontSize:9,color:C.muted}}>Fetching from Yahoo Finance</div>
+      <div style={{fontSize:14,color:C.gold,animation:"pulse 1s ease-in-out infinite"}}>↻ Loading real market data...</div>
+      <div style={{fontSize:13,color:C.muted}}>Fetching from Yahoo Finance</div>
     </div>
   );
 
   if(!chartData||chartData.portfolio.length<2) return(
     <div style={{height:160,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
-      <div style={{fontSize:11,color:C.muted}}>No chart data</div>
-      <button onClick={()=>fetchPerfChartData&&fetchPerfChartData(mktFilter,period)} style={{fontSize:10,padding:"4px 12px",borderRadius:5,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,cursor:"pointer"}}>Load Chart</button>
+      <div style={{fontSize:14,color:C.muted}}>No chart data</div>
+      <button onClick={()=>fetchPerfChartData&&fetchPerfChartData(mktFilter,period)} style={{fontSize:14,padding:"4px 12px",borderRadius:5,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,cursor:"pointer"}}>Load Chart</button>
     </div>
   );
 
@@ -265,11 +279,11 @@ function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fet
 
   return(
     <div>
-      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:6,fontSize:11}}>
+      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:6,fontSize:14}}>
         <span style={{color:C.accent}}>Portfolio <b style={{color:+pR>=0?C.green:C.red}}>{+pR>=0?"+":""}{pR}%</b></span>
         <span style={{color:C.mutedLight}}>{idxName} <b style={{color:+iR>=0?C.green:C.red}}>{+iR>=0?"+":""}{iR}%</b></span>
         <span style={{
-          marginLeft:"auto",fontSize:8,fontWeight:700,color:C.green,
+          marginLeft:"auto",fontSize:12,fontWeight:700,color:C.green,
           background:C.green+"18",border:`1px solid ${C.green}40`,
           borderRadius:10,padding:"2px 7px",letterSpacing:"0.05em",flexShrink:0
         }}>● LIVE</span>
@@ -310,7 +324,7 @@ function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fet
         })}
       </svg>
       {mktFilter!=="ALL"&&m&&(
-        <div style={{marginTop:6,padding:"4px 8px",background:C.surface,borderRadius:5,fontSize:9,display:"flex",gap:10}}>
+        <div style={{marginTop:6,padding:"4px 8px",background:C.surface,borderRadius:5,fontSize:13,display:"flex",gap:10}}>
           <span style={{color:C.muted}}>Index: <b style={{color:C.text}}>{m.index}</b></span>
           <span style={{color:m.idxChange>=0?C.green:C.red}}>{m.idxChange>=0?"+":""}{m.idxChange}% today</span>
           <span style={{color:m.idxYtd>=0?C.green:C.red}}>YTD {m.idxYtd>=0?"+":""}{m.idxYtd}%</span>
@@ -346,10 +360,10 @@ function MktSelector({mktFilter,setMktFilter,holdings}){
         const cnt=m==="ALL"?holdings.length:holdings.filter(h=>h.mkt===m).length;
         const active=mktFilter===m;
         return(
-          <button key={m} onClick={()=>setMktFilter(m)} style={{flexShrink:0,padding:"7px 11px",borderRadius:10,cursor:"pointer",background:active?C.accent:C.card,color:active?"#000":C.text,border:`1px solid ${active?C.accent:C.border}`,textAlign:"center",minWidth:64}}>
-            <div style={{fontSize:12,fontWeight:800}}>{m==="ALL"?"ALL":m==="CN"?"HK":m}</div>
-            <div style={{fontSize:9,color:active?"#00000088":C.muted}}>{cnt} stocks</div>
-            {m!=="ALL"&&<div style={{fontSize:8,color:active?"#00000066":C.muted+"88"}}>{IDX[m]||""}</div>}
+          <button key={m} onClick={()=>setMktFilter(m)} style={{flexShrink:0,padding:"9px 13px",borderRadius:12,cursor:"pointer",background:active?C.accent:C.card,color:active?"#000":C.text,border:`1px solid ${active?C.accent:C.border}`,textAlign:"center",minWidth:64}}>
+            <div style={{fontSize:15,fontWeight:800}}>{m==="ALL"?"ALL":m==="CN"?"HK":m}</div>
+            <div style={{fontSize:13,color:active?"#00000088":C.muted}}>{cnt} stocks</div>
+            {m!=="ALL"&&<div style={{fontSize:12,color:active?"#00000066":C.muted+"88"}}>{IDX[m]||""}</div>}
           </button>
         );
       })}
@@ -366,7 +380,7 @@ class ErrBoundary extends React.Component {
     if(this.state.err){
       return React.createElement("div", {
         style: {padding:20, margin:20, background:"#2a0a0a", border:"2px solid #ef4444",
-                borderRadius:8, color:"#fca5a5", fontFamily:"monospace", fontSize:11}
+                borderRadius:8, color:"#fca5a5", fontFamily:"monospace", fontSize:14}
       },
         React.createElement("div", {style:{color:"#ef4444",fontWeight:700,marginBottom:8}}, "Modal render error:"),
         React.createElement("div", null, String(this.state.err?.message || this.state.err)),
@@ -569,6 +583,31 @@ function App(){
       });
       setRefreshKey(k=>k+1);
     }catch(e){console.warn('[dividends] error:',e.message);}
+  }
+
+  // ── Alert scanner — insider buys, short squeeze, volume spikes ──────────────
+  async function fetchAlerts(){
+    if(alertLoading) return;
+    setAlertLoading(true);
+    const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
+    try{
+      const res=await fetch(EDGE_URL,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'alerts',
+          holdings:holdings.map(h=>({
+            ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price
+          }))
+        }),
+      });
+      if(!res.ok){console.warn('[alerts] fetch failed:',res.status);setAlertLoading(false);return;}
+      const d=await res.json();
+      setAlertData(d.alerts||[]);
+      setAlertLastRun(new Date());
+      console.log(`[alerts] ${(d.alerts||[]).length} alerts generated`);
+    }catch(e){console.warn('[alerts] error:',e.message);}
+    setAlertLoading(false);
   }
 
   // ── Live FX rates — fetched on app open ─────────────────────────────────────
@@ -804,7 +843,7 @@ function App(){
   }
 
   async function updateSenateData(){
-    // SIMPLIFIED v2026.04.19-02: just calls updateSenateDataSilent + alert
+    // SIMPLIFIED v2026.04.22: just calls updateSenateDataSilent + alert
     setSenateUpdating(true);
     try{
       await updateSenateDataSilent(holdings);
@@ -866,6 +905,11 @@ function App(){
       }
     }catch(e){console.warn('Senate auto-update failed:',e.message);}
   }
+
+  // ── Alerts Tab state ──────────────────────────────────────────────────────
+  const [alertData,setAlertData]=useState([]);      // array of alert objects
+  const [alertLoading,setAlertLoading]=useState(false);
+  const [alertLastRun,setAlertLastRun]=useState(null); // Date of last scan
 
   const [perfChartData,setPerfChartData]=useState({});
   const [perfChartLoading,setPerfChartLoading]=useState({});
@@ -1319,12 +1363,12 @@ function App(){
     markDirty();
   }
 
-  const card={background:C.card,borderRadius:12,padding:14,marginBottom:10,border:`1px solid ${C.border}`};
-  const cardT={fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10};
+  const card={background:C.card,borderRadius:12,padding:16,marginBottom:10,border:`1px solid ${C.border}`};
+  const cardT={fontSize:14,fontWeight:700,color:C.mutedLight,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14};
   const row={display:"flex",justifyContent:"space-between",alignItems:"center"};
-  const pill=a=>({padding:"5px 11px",borderRadius:20,fontSize:11,fontWeight:a?700:500,background:a?C.accent:"transparent",color:a?C.bg:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
-  const smPill=a=>({padding:"3px 8px",borderRadius:14,fontSize:10,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
-  const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
+  const pill=a=>({padding:"6px 13px",borderRadius:20,fontSize:14,fontWeight:a?700:500,background:a?C.accent:"transparent",color:a?C.bg:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
+  const smPill=a=>({padding:"5px 11px",borderRadius:14,fontSize:14,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
+  const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:16,outline:"none",boxSizing:"border-box"};
   const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:50};
   const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"92vh",overflowY:"auto",position:"relative"};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
@@ -1361,8 +1405,8 @@ function App(){
               </div>
               {(groupBy==="sector"?sectorData:countryData).slice(0,8).map(d=>(
                 <div key={d.label} style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:6,height:6,borderRadius:3,background:d.color}}/><span style={{fontSize:9,color:C.mutedLight}}>{d.label}</span></div>
-                  <span style={{fontSize:9,fontWeight:700}}>{filteredTotalSGD>0?((d.value/filteredTotalSGD)*100).toFixed(1):0}%</span>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:6,height:6,borderRadius:3,background:d.color}}/><span style={{fontSize:13,color:C.mutedLight}}>{d.label}</span></div>
+                  <span style={{fontSize:13,fontWeight:700}}>{filteredTotalSGD>0?((d.value/filteredTotalSGD)*100).toFixed(1):0}%</span>
                 </div>
               ))}
             </div>
@@ -1387,7 +1431,7 @@ function App(){
             <button
               onClick={()=>setSearch("")}
               style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
-                background:"none",border:"none",color:C.muted,fontSize:15,cursor:"pointer",
+                background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",
                 lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center"}}
             >✕</button>
           )}
@@ -1402,7 +1446,7 @@ function App(){
             {key:"div",     label:"💵 Div",    tip:"Highest dividend yield (hides non-payers)"},
           ].map(s=>(
             <button key={s.key} onClick={()=>setHoldingSort(s.key)} title={s.tip} style={{
-              flexShrink:0,padding:"5px 10px",borderRadius:14,fontSize:10,fontWeight:700,cursor:"pointer",
+              flexShrink:0,padding:"7px 13px",borderRadius:14,fontSize:14,fontWeight:700,cursor:"pointer",
               background:holdingSort===s.key?C.accent:C.surface,
               color:holdingSort===s.key?"#000":C.muted,
               border:`1px solid ${holdingSort===s.key?C.accent:C.border}`,
@@ -1422,13 +1466,13 @@ function App(){
             <div style={{...card,background:C.gold+"0A",border:`1px solid ${C.gold}30`,marginBottom:10}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <div>
-                  <div style={{fontSize:10,color:C.gold,fontWeight:700,letterSpacing:"0.08em",marginBottom:2}}>💵 DIVIDEND ANALYSIS</div>
-                  <div style={{fontSize:9,color:C.muted}}>{divH.length} dividend-paying stocks · sorted highest yield first</div>
+                  <div style={{fontSize:14,color:C.gold,fontWeight:700,letterSpacing:"0.08em",marginBottom:2}}>💵 DIVIDEND ANALYSIS</div>
+                  <div style={{fontSize:13,color:C.muted}}>{divH.length} dividend-paying stocks · sorted highest yield first</div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGDLocal)}/yr gross</div>
-                  <div style={{fontSize:11,fontWeight:700,color:C.green}}>{fmtS(totalNetDivSGDLocal)}/yr net after WHT</div>
-                  <div style={{fontSize:9,color:C.muted}}>Blended yield: <b style={{color:C.gold}}>{fmt(blendedYield,2)}%</b></div>
+                  <div style={{fontSize:17,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGDLocal)}/yr gross</div>
+                  <div style={{fontSize:14,fontWeight:700,color:C.green}}>{fmtS(totalNetDivSGDLocal)}/yr net after WHT</div>
+                  <div style={{fontSize:13,color:C.muted}}>Blended yield: <b style={{color:C.gold}}>{fmt(blendedYield,2)}%</b></div>
                 </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}}>
@@ -1438,10 +1482,10 @@ function App(){
                   const netDiv=annDiv*(1-taxRate);
                   return(
                     <div key={h.ticker} style={{background:C.surface,borderRadius:6,padding:"5px 7px"}}>
-                      <div style={{fontSize:10,fontWeight:700}}>{h.ticker}</div>
-                      <div style={{fontSize:11,fontWeight:800,color:C.gold}}>{fmt(h.divYield,2)}%</div>
-                      <div style={{fontSize:8,color:C.muted}}>{fmtS(annDiv)}/yr gross</div>
-                      {taxRate>0&&<div style={{fontSize:8,color:C.green}}>{fmtS(netDiv)}/yr net</div>}
+                      <div style={{fontSize:14,fontWeight:700}}>{h.ticker}</div>
+                      <div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmt(h.divYield,2)}%</div>
+                      <div style={{fontSize:12,color:C.muted}}>{fmtS(annDiv)}/yr gross</div>
+                      {taxRate>0&&<div style={{fontSize:12,color:C.green}}>{fmtS(netDiv)}/yr net</div>}
                     </div>
                   );
                 })}
@@ -1449,7 +1493,7 @@ function App(){
             </div>
           ):null;
         })()}
-        <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{filtered.length} Holdings{mktFilter!=="ALL"?` · ${mktFilter!=="CN"?mktFilter:"HK"}`:""}</div>
+        <div style={{fontSize:14,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{filtered.length} Holdings{mktFilter!=="ALL"?` · ${mktFilter!=="CN"?mktFilter:"HK"}`:""}</div>
         {(()=>{
           let src2=holdingSort==="div"
             ?filtered.filter(h=>(h.divYield||0)>0)  // hide zero-dividend stocks
@@ -1475,39 +1519,39 @@ function App(){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-                    <span style={{fontWeight:800,fontSize:14}}>{h.ticker}</span>
+                    <span style={{fontWeight:800,fontSize:17}}>{h.ticker}</span>
                     <Chip mkt={h.mkt}/>
                     <Tag col={sCol}>{h.sector}</Tag>
                   </div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>{h.name}</div>
-                  <div style={{fontSize:10,color:C.mutedLight,marginTop:3}}>
+                  <div style={{fontSize:14,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>{h.name}</div>
+                  <div style={{fontSize:14,color:C.mutedLight,marginTop:3}}>
                     Avg Cost: <b style={{color:C.text}}>{fmtL(h.avgCost,h.mkt)}</b>
                     <span style={{color:C.muted,fontWeight:400}}> ({fmtS(toSGDlive(h.avgCost,h.mkt))})</span>
                   </div>
-                  <div style={{fontSize:10,color:C.mutedLight,marginTop:1}}>
+                  <div style={{fontSize:14,color:C.mutedLight,marginTop:1}}>
                     Intrinsic: {effIV>0
-                      ?<><b style={{color:upside>=0?C.green:C.red}}>{fmtL(effIV,h.mkt)}</b>{compIV>0&&<span style={{color:C.purple,fontSize:8,fontWeight:700,marginLeft:3}}>●</span>}<span style={{color:C.muted,fontWeight:400}}> {upside>=0?"+":""}{fmt(upside,1)}% upside</span></>
-                      :<span style={{color:C.muted}}>— <span style={{fontSize:9}}>tap stock to compute</span></span>}
+                      ?<><b style={{color:upside>=0?C.green:C.red}}>{fmtL(effIV,h.mkt)}</b>{compIV>0&&<span style={{color:C.purple,fontSize:12,fontWeight:700,marginLeft:3}}>●</span>}<span style={{color:C.muted,fontWeight:400}}> {upside>=0?"+":""}{fmt(upside,1)}% upside</span></>
+                      :<span style={{color:C.muted}}>— <span style={{fontSize:13}}>tap stock to compute</span></span>}
                   </div>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0,marginLeft:8}}>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:14,fontWeight:800}}>{fmtL(h.price,h.mkt)}</div>
-                    <div style={{fontSize:9,color:C.muted}}>{fmtS(toSGDlive(h.price,h.mkt))}</div>
-                    <div style={{fontSize:11,color:pos?C.green:C.red,fontWeight:700}}>{fmtPct(gainPct)}</div>
-                    <div style={{fontSize:9,color:C.muted}}>{h.shares.toLocaleString()} sh</div>
+                    <div style={{fontSize:17,fontWeight:800}}>{fmtL(h.price,h.mkt)}</div>
+                    <div style={{fontSize:13,color:C.muted}}>{fmtS(toSGDlive(h.price,h.mkt))}</div>
+                    <div style={{fontSize:14,color:pos?C.green:C.red,fontWeight:700}}>{fmtPct(gainPct)}</div>
+                    <div style={{fontSize:13,color:C.muted}}>{h.shares.toLocaleString()} sh</div>
                   </div>
                   <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-                    <button onClick={()=>openEditHolding(h)} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.accent,cursor:"pointer",fontWeight:600}}>Edit</button>
-                    <button onClick={()=>confirmDeleteHolding(h.id)} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.red}44`,background:"transparent",color:C.red,cursor:"pointer",fontWeight:600}}>Del</button>
+                    <button onClick={()=>openEditHolding(h)} style={{fontSize:14,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.accent,cursor:"pointer",fontWeight:600}}>Edit</button>
+                    <button onClick={()=>confirmDeleteHolding(h.id)} style={{fontSize:14,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.red}44`,background:"transparent",color:C.red,cursor:"pointer",fontWeight:600}}>Del</button>
                   </div>
                 </div>
               </div>
               <div style={{background:C.accent+"0D",border:`1px solid ${C.accentDim}20`,borderRadius:8,padding:"7px 10px",marginBottom:7}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:4}}>
-                  <div><div style={{fontSize:9,color:C.muted}}>Value</div><div style={{fontSize:11,fontWeight:800}}>{fmtL(localVal,h.mkt,0)}</div><div style={{fontSize:9,color:C.muted}}>{fmtS(sgdVal)}</div></div>
-                  <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.muted}}>Weight{mktFilter!=="ALL"?` (${mktFilter})`:""}</div><div style={{fontSize:14,fontWeight:800,color:C.accent}}>{w.toFixed(1)}%</div></div>
-                  <div style={{textAlign:"right"}}><div style={{fontSize:9,color:C.muted}}>Unr. P&amp;L</div><div style={{fontSize:11,fontWeight:800,color:pos?C.green:C.red}}>{pos?"+":"-"}{fmtL(Math.abs(localGain),h.mkt,0)}</div><div style={{fontSize:9,color:C.muted}}>{pos?"+":"-"}{fmtS(Math.abs(sgdGain))}</div></div>
+                  <div><div style={{fontSize:13,color:C.muted}}>Value</div><div style={{fontSize:14,fontWeight:800}}>{fmtL(localVal,h.mkt,0)}</div><div style={{fontSize:13,color:C.muted}}>{fmtS(sgdVal)}</div></div>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Weight{mktFilter!=="ALL"?` (${mktFilter})`:""}</div><div style={{fontSize:17,fontWeight:800,color:C.accent}}>{w.toFixed(1)}%</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:13,color:C.muted}}>Unr. P&amp;L</div><div style={{fontSize:14,fontWeight:800,color:pos?C.green:C.red}}>{pos?"+":"-"}{fmtL(Math.abs(localGain),h.mkt,0)}</div><div style={{fontSize:13,color:C.muted}}>{pos?"+":"-"}{fmtS(Math.abs(sgdGain))}</div></div>
                 </div>
                 <div style={{height:3,borderRadius:2,background:C.border}}><div style={{width:`${Math.min(w*2.5,100)}%`,height:"100%",borderRadius:2,background:C.accent,opacity:0.7}}/></div>
               </div>
@@ -1548,21 +1592,21 @@ function App(){
                 return(
                   <div key={h.ticker} style={{marginBottom:10,paddingBottom:10,borderBottom:i<9?`1px solid ${C.border}`:"none",cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <div style={{fontSize:16,fontWeight:800,color:C.green,width:26,textAlign:"center",flexShrink:0}}>{i+1}</div>
+                      <div style={{fontSize:18,fontWeight:800,color:C.green,width:26,textAlign:"center",flexShrink:0}}>{i+1}</div>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700,fontSize:13}}>{h.ticker}</span><Chip mkt={h.mkt}/></div>
-                        <div style={{fontSize:10,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700,fontSize:16}}>{h.ticker}</span><Chip mkt={h.mkt}/></div>
+                        <div style={{fontSize:14,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name}</div>
                       </div>
 
                       <div style={{textAlign:"right",flexShrink:0}}>
-                        <div style={{fontSize:14,fontWeight:800,color:C.green}}>{fmtPct(g)}</div>
-                        <div style={{fontSize:10,fontWeight:700,color:C.green}}>+{fmtL(lg,h.mkt,0)}</div>
+                        <div style={{fontSize:17,fontWeight:800,color:C.green}}>{fmtPct(g)}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.green}}>+{fmtL(lg,h.mkt,0)}</div>
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginTop:6,background:C.surface,borderRadius:6,padding:"5px 8px"}}>
-                      <div><div style={{fontSize:8,color:C.muted}}>Price</div><div style={{fontSize:11,fontWeight:700}}>{fmtL(h.price,h.mkt)}</div></div>
-                      <div><div style={{fontSize:8,color:C.muted}}>Avg Cost</div><div style={{fontSize:11,fontWeight:700,color:C.mutedLight}}>{fmtL(h.avgCost,h.mkt)}</div></div>
-                      <div style={{textAlign:"right"}}><div style={{fontSize:8,color:C.muted}}>Intrinsic{valuations[h.ticker]?.valuations?.average>0&&<span style={{color:C.purple,fontSize:7,marginLeft:2}}>●</span>}</div><div style={{fontSize:11,fontWeight:700,color:up>=0?C.green:C.red}}>{eIV>0?fmtL(eIV,h.mkt):"—"}</div></div>
+                      <div><div style={{fontSize:12,color:C.muted}}>Price</div><div style={{fontSize:14,fontWeight:700}}>{fmtL(h.price,h.mkt)}</div></div>
+                      <div><div style={{fontSize:12,color:C.muted}}>Avg Cost</div><div style={{fontSize:14,fontWeight:700,color:C.mutedLight}}>{fmtL(h.avgCost,h.mkt)}</div></div>
+                      <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.muted}}>Intrinsic{valuations[h.ticker]?.valuations?.average>0&&<span style={{color:C.purple,fontSize:8,marginLeft:2}}>●</span>}</div><div style={{fontSize:14,fontWeight:700,color:up>=0?C.green:C.red}}>{eIV>0?fmtL(eIV,h.mkt):"—"}</div></div>
                     </div>
                   </div>
                 );
@@ -1579,21 +1623,21 @@ function App(){
                 return(
                   <div key={h.ticker} style={{marginBottom:10,paddingBottom:10,borderBottom:i<9?`1px solid ${C.border}`:"none",cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <div style={{fontSize:16,fontWeight:800,color:C.red,width:26,textAlign:"center",flexShrink:0}}>{i+1}</div>
+                      <div style={{fontSize:18,fontWeight:800,color:C.red,width:26,textAlign:"center",flexShrink:0}}>{i+1}</div>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700,fontSize:13}}>{h.ticker}</span><Chip mkt={h.mkt}/></div>
-                        <div style={{fontSize:10,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700,fontSize:16}}>{h.ticker}</span><Chip mkt={h.mkt}/></div>
+                        <div style={{fontSize:14,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name}</div>
                       </div>
 
                       <div style={{textAlign:"right",flexShrink:0}}>
-                        <div style={{fontSize:14,fontWeight:800,color:C.red}}>{fmtPct(g)}</div>
-                        <div style={{fontSize:10,fontWeight:700,color:pos?C.green:C.red}}>{pos?"+":"-"}{fmtL(Math.abs(lg),h.mkt,0)}</div>
+                        <div style={{fontSize:17,fontWeight:800,color:C.red}}>{fmtPct(g)}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:pos?C.green:C.red}}>{pos?"+":"-"}{fmtL(Math.abs(lg),h.mkt,0)}</div>
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginTop:6,background:C.surface,borderRadius:6,padding:"5px 8px"}}>
-                      <div><div style={{fontSize:8,color:C.muted}}>Price</div><div style={{fontSize:11,fontWeight:700}}>{fmtL(h.price,h.mkt)}</div></div>
-                      <div><div style={{fontSize:8,color:C.muted}}>Avg Cost</div><div style={{fontSize:11,fontWeight:700,color:C.mutedLight}}>{fmtL(h.avgCost,h.mkt)}</div></div>
-                      <div style={{textAlign:"right"}}><div style={{fontSize:8,color:C.muted}}>Intrinsic{valuations[h.ticker]?.valuations?.average>0&&<span style={{color:C.purple,fontSize:7,marginLeft:2}}>●</span>}</div><div style={{fontSize:11,fontWeight:700,color:up>=0?C.green:C.red}}>{eIV2>0?fmtL(eIV2,h.mkt):"—"}</div></div>
+                      <div><div style={{fontSize:12,color:C.muted}}>Price</div><div style={{fontSize:14,fontWeight:700}}>{fmtL(h.price,h.mkt)}</div></div>
+                      <div><div style={{fontSize:12,color:C.muted}}>Avg Cost</div><div style={{fontSize:14,fontWeight:700,color:C.mutedLight}}>{fmtL(h.avgCost,h.mkt)}</div></div>
+                      <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.muted}}>Intrinsic{valuations[h.ticker]?.valuations?.average>0&&<span style={{color:C.purple,fontSize:8,marginLeft:2}}>●</span>}</div><div style={{fontSize:14,fontWeight:700,color:up>=0?C.green:C.red}}>{eIV2>0?fmtL(eIV2,h.mkt):"—"}</div></div>
                     </div>
                   </div>
                 );
@@ -1607,10 +1651,10 @@ function App(){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
               <div style={cardT}>US Senate Trades</div>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                {senateData.length>0&&!senateUpdating&&<span style={{fontSize:9,color:C.green,fontWeight:700}}>● live</span>}
-                {senateLoading&&<span style={{fontSize:9,color:C.gold}}>↻</span>}
+                {senateData.length>0&&!senateUpdating&&<span style={{fontSize:13,color:C.green,fontWeight:700}}>● live</span>}
+                {senateLoading&&<span style={{fontSize:13,color:C.gold}}>↻</span>}
                 <button onClick={updateSenateData} disabled={senateUpdating} title="Update senate trades from master list" style={{
-                  fontSize:10,padding:"4px 10px",borderRadius:6,cursor:senateUpdating?"not-allowed":"pointer",
+                  fontSize:14,padding:"4px 10px",borderRadius:6,cursor:senateUpdating?"not-allowed":"pointer",
                   background:senateUpdating?C.surface:C.accent+"15",
                   border:`1px solid ${senateUpdating?C.border:C.accent}`,
                   color:senateUpdating?C.muted:C.accent,fontWeight:700,
@@ -1619,11 +1663,11 @@ function App(){
             </div>
 
 
-            <div style={{fontSize:10,color:C.muted,marginBottom:12,padding:"6px 10px",background:C.surface,borderRadius:6}}>
+            <div style={{fontSize:14,color:C.muted,marginBottom:12,padding:"6px 10px",background:C.surface,borderRadius:6}}>
               US Senate STOCK Act disclosures. Senators must report within 30–45 days of trade. Update via Supabase dashboard.
             </div>
-            {senateLoading&&<div style={{textAlign:"center",padding:16,color:C.gold,fontSize:11}}>↻ Loading live senate trades...</div>}
-            {!senateLoading&&senateData.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:11}}>No senate trades in database.<br/>Add entries via the Supabase dashboard.</div>}
+            {senateLoading&&<div style={{textAlign:"center",padding:16,color:C.gold,fontSize:14}}>↻ Loading live senate trades...</div>}
+            {!senateLoading&&senateData.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:14}}>No senate trades in database.<br/>Add entries via the Supabase dashboard.</div>}
             {!senateLoading&&senateData.filter((s,i,arr)=>arr.findIndex(x=>x.ticker===s.ticker&&x.name===s.name&&x.action===s.action&&x.date===s.date)===i)
               .sort((a,b)=>b.date.localeCompare(a.date))
               .slice(0,20)
@@ -1650,43 +1694,43 @@ function App(){
                   <div style={{...row,marginBottom:6}}>
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                        <span style={{fontWeight:700,fontSize:13}}>{s.name}</span>
+                        <span style={{fontWeight:700,fontSize:16}}>{s.name}</span>
                         <Bdg label={s.party} bg={s.party==="D"?"#1e3a5f":"#3d1515"} color={s.party==="D"?"#60a5fa":"#f87171"}/>
-                        {inPort&&<span style={{fontSize:8,color:C.accent,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.accent+"18"}}>IN PORTFOLIO</span>}
+                        {inPort&&<span style={{fontSize:12,color:C.accent,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.accent+"18"}}>IN PORTFOLIO</span>}
                       </div>
-                      <div style={{fontSize:10,color:C.muted}}>{s.date} · {s.sector}</div>
+                      <div style={{fontSize:14,color:C.muted}}>{s.date} · {s.sector}</div>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"flex-end",marginBottom:2}}>
-                        <span style={{fontWeight:800,fontSize:14}}>{s.ticker}</span>
+                        <span style={{fontWeight:800,fontSize:17}}>{s.ticker}</span>
                         <Bdg label={s.action} bg={s.action==="BUY"?C.green+"22":C.red+"22"} color={s.action==="BUY"?C.green:C.red}/>
                       </div>
-                      <div style={{fontSize:10,color:C.gold,fontWeight:600}}>{s.amount}</div>
+                      <div style={{fontSize:14,color:C.gold,fontWeight:600}}>{s.amount}</div>
                     </div>
                   </div>
                   {/* Price strip — 4 columns: Price Paid | Live Price | Avg Cost | Intrinsic */}
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,background:inPort?C.accent+"0D":C.surface,borderRadius:7,padding:"7px 10px",border:inPort?`1px solid ${C.accent}22`:"none"}}>
                     <div>
-                      <div style={{fontSize:8,color:C.gold,fontWeight:700}}>Sen. Paid</div>
-                      <div style={{fontSize:11,fontWeight:700,color:pricePaid>0?C.gold:C.border}}>
+                      <div style={{fontSize:12,color:C.gold,fontWeight:700}}>Sen. Paid</div>
+                      <div style={{fontSize:14,fontWeight:700,color:pricePaid>0?C.gold:C.border}}>
                         {pricePaid>0?("$"+fmt(pricePaid)):"…"}
                       </div>
-                      <div style={{fontSize:8,color:C.muted}}>on {s.date?.slice(5)}</div>
+                      <div style={{fontSize:12,color:C.muted}}>on {s.date?.slice(5)}</div>
                     </div>
                     <div style={{textAlign:"center"}}>
-                      <div style={{fontSize:8,color:C.muted}}>Live Price</div>
-                      <div style={{fontSize:11,fontWeight:700}}>{livePrice>0?fmtL(livePrice,mkt):"—"}</div>
-                      {vsNow!=null&&<div style={{fontSize:8,fontWeight:700,color:vsNow>=0?C.green:C.red}}>{vsNow>=0?"+":""}{fmt(vsNow,1)}% since</div>}
+                      <div style={{fontSize:12,color:C.muted}}>Live Price</div>
+                      <div style={{fontSize:14,fontWeight:700}}>{livePrice>0?fmtL(livePrice,mkt):"—"}</div>
+                      {vsNow!=null&&<div style={{fontSize:12,fontWeight:700,color:vsNow>=0?C.green:C.red}}>{vsNow>=0?"+":""}{fmt(vsNow,1)}% since</div>}
                     </div>
                     <div style={{textAlign:"center"}}>
-                      <div style={{fontSize:8,color:C.muted}}>Avg Cost</div>
-                      <div style={{fontSize:11,fontWeight:700,color:avgCost>0?C.mutedLight:C.border}}>{avgCost>0?fmtL(avgCost,mkt):"—"}</div>
-                      {gainPct!=null&&<div style={{fontSize:8,fontWeight:700,color:gainPct>=0?C.green:C.red}}>{gainPct>=0?"+":""}{fmt(gainPct,1)}%</div>}
+                      <div style={{fontSize:12,color:C.muted}}>Avg Cost</div>
+                      <div style={{fontSize:14,fontWeight:700,color:avgCost>0?C.mutedLight:C.border}}>{avgCost>0?fmtL(avgCost,mkt):"—"}</div>
+                      {gainPct!=null&&<div style={{fontSize:12,fontWeight:700,color:gainPct>=0?C.green:C.red}}>{gainPct>=0?"+":""}{fmt(gainPct,1)}%</div>}
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:8,color:C.muted}}>{inPort?"Intrinsic":"Graham №"}</div>
-                      <div style={{fontSize:11,fontWeight:700,color:upside!=null?(upside>=0?C.green:C.red):C.border}}>{intrinsic>0?fmtL(intrinsic,mkt):"—"}</div>
-                      {upside!=null&&<div style={{fontSize:8,fontWeight:700,color:upside>=0?C.green:C.red}}>{upside>=0?"+":""}{fmt(upside,1)}% up</div>}
+                      <div style={{fontSize:12,color:C.muted}}>{inPort?"Intrinsic":"Graham №"}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:upside!=null?(upside>=0?C.green:C.red):C.border}}>{intrinsic>0?fmtL(intrinsic,mkt):"—"}</div>
+                      {upside!=null&&<div style={{fontSize:12,fontWeight:700,color:upside>=0?C.green:C.red}}>{upside>=0?"+":""}{fmt(upside,1)}% up</div>}
                     </div>
                   </div>
                 </div>
@@ -1702,15 +1746,15 @@ function App(){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
                 background:C.surface,borderRadius:8,padding:"6px 10px",marginBottom:8,
                 border:`1px dashed ${C.border}`}}>
-                <div style={{fontSize:9,color:C.muted}}>
+                <div style={{fontSize:13,color:C.muted}}>
                   <span style={{fontWeight:700,color:C.gold}}>⚠ Moat ratings</span> sourced from Morningstar.
                   Last refreshed: <b style={{color:C.text}}>{moatUpdatedAt}</b>
                 </div>
-                <span style={{fontSize:9,color:C.muted,fontStyle:"italic"}}>Re-run moat SQL quarterly</span>
+                <span style={{fontSize:13,color:C.muted,fontStyle:"italic"}}>Re-run moat SQL quarterly</span>
               </div>
             )}
             <div style={{...card,background:"#1A1200",border:`1px solid ${C.gold}30`}}>
-              <div style={{fontSize:10,color:C.gold,lineHeight:1.6}}>
+              <div style={{fontSize:14,color:C.gold,lineHeight:1.6}}>
                 <b>"Price is what you pay. Value is what you get."</b><br/>
                 Score: Moat 30pts + Dividend 20pts + Upside 25pts + Fair PE 15pts + Gain track 10pts
               </div>
@@ -1724,7 +1768,7 @@ function App(){
               return(
                 <div key={title} style={card}>
                   <div style={cardT}>{title}</div>
-                  {list.length===0&&<div style={{fontSize:12,color:C.muted,padding:"8px 0"}}>{emptyMsg}</div>}
+                  {list.length===0&&<div style={{fontSize:15,color:C.muted,padding:"8px 0"}}>{emptyMsg}</div>}
                   {list.map((h,i)=>{
                     const g=((h.price-h.avgCost)/h.avgCost)*100;
                     const bIV=(valuations[h.ticker]?.valuations?.average)||h.intrinsic||0;
@@ -1733,7 +1777,7 @@ function App(){
                       <div key={h.ticker} style={{marginBottom:11,paddingBottom:11,borderBottom:i<list.length-1?`1px solid ${C.border}`:"none",cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
                           <div style={{width:36,height:36,borderRadius:8,background:h.col+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                            <span style={{fontSize:12,fontWeight:800,color:h.col}}>{fmt(h.score,1)}</span>
+                            <span style={{fontSize:15,fontWeight:800,color:h.col}}>{fmt(h.score,1)}</span>
                           </div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -1741,16 +1785,16 @@ function App(){
                               <Chip mkt={h.mkt}/>
                               <Bdg label={h.action} bg={h.col+"22"} color={h.col}/>
                             </div>
-                            <div style={{fontSize:10,color:C.muted,marginTop:1}}>{h.reason}</div>
+                            <div style={{fontSize:14,color:C.muted,marginTop:1}}>{h.reason}</div>
                           </div>
                           <div style={{textAlign:"right",flexShrink:0}}>
-                            <div style={{fontSize:12,fontWeight:700,color:g>=0?C.green:C.red}}>{fmtPct(g)}</div>
+                            <div style={{fontSize:15,fontWeight:700,color:g>=0?C.green:C.red}}>{fmtPct(g)}</div>
                           </div>
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginTop:6,background:C.surface,borderRadius:6,padding:"5px 8px"}}>
-                          <div><div style={{fontSize:8,color:C.muted}}>Price</div><div style={{fontSize:11,fontWeight:700}}>{fmtL(h.price,h.mkt)}</div></div>
-                          <div><div style={{fontSize:8,color:C.muted}}>Avg Cost</div><div style={{fontSize:11,fontWeight:700,color:C.mutedLight}}>{fmtL(h.avgCost,h.mkt)}</div></div>
-                          <div style={{textAlign:"right"}}><div style={{fontSize:8,color:C.muted}}>Intrinsic{valuations[h.ticker]?.valuations?.average>0&&<span style={{color:C.purple,fontSize:7,marginLeft:2}}>●</span>}</div><div style={{fontSize:11,fontWeight:700,color:up>=0?C.green:C.red}}>{bIV>0?fmtL(bIV,h.mkt):"—"}</div></div>
+                          <div><div style={{fontSize:12,color:C.muted}}>Price</div><div style={{fontSize:14,fontWeight:700}}>{fmtL(h.price,h.mkt)}</div></div>
+                          <div><div style={{fontSize:12,color:C.muted}}>Avg Cost</div><div style={{fontSize:14,fontWeight:700,color:C.mutedLight}}>{fmtL(h.avgCost,h.mkt)}</div></div>
+                          <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.muted}}>Intrinsic{valuations[h.ticker]?.valuations?.average>0&&<span style={{color:C.purple,fontSize:8,marginLeft:2}}>●</span>}</div><div style={{fontSize:14,fontWeight:700,color:up>=0?C.green:C.red}}>{bIV>0?fmtL(bIV,h.mkt):"—"}</div></div>
                         </div>
                       </div>
                     );
@@ -1798,7 +1842,7 @@ function App(){
             <div key={mkt} style={{...card,borderLeft:`3px solid ${beat?C.green:C.mutedLight}`}}>
               <div style={{...row,marginBottom:8}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6,marginBottom:4}}>{m.index}<Chip mkt={mkt}/></div>
+                  <div style={{fontWeight:700,fontSize:17,display:"flex",alignItems:"center",gap:6,marginBottom:4}}>{m.index}<Chip mkt={mkt}/></div>
                   <div style={{display:"flex",gap:5}}>
                     <Tag col={idxYtdLive>=0?C.green:C.red}>Index YTD {idxYtdLive>=0?"+":""}{fmt(idxYtdLive,1)}%</Tag>
                     <Tag col={beat?C.green:C.red}>{beat?"Outperforming":"Underperforming"}</Tag>
@@ -1811,11 +1855,11 @@ function App(){
                     const chg=lv?.change??m.idxChange;
                     return(
                       <>
-                        <div style={{fontSize:15,fontWeight:800}}>
+                        <div style={{fontSize:18,fontWeight:800}}>
                           {m.symbol}{fmt(val,1)}
-                          <span style={{fontSize:8,color:srcBadge.color,fontWeight:700,marginLeft:4}}>{srcBadge.label}</span>
+                          <span style={{fontSize:12,color:srcBadge.color,fontWeight:700,marginLeft:4}}>{srcBadge.label}</span>
                         </div>
-                        <div style={{fontSize:11,color:chg>=0?C.green:C.red,fontWeight:600}}>{chg>=0?"+":""}{fmt(chg,2)}% today</div>
+                        <div style={{fontSize:14,color:chg>=0?C.green:C.red,fontWeight:600}}>{chg>=0?"+":""}{fmt(chg,2)}% today</div>
                       </>
                     );
                   })()}
@@ -1823,14 +1867,14 @@ function App(){
               </div>
               <div style={{background:C.surface,borderRadius:8,padding:"8px 10px"}}>
                 <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:4}}>
-                  <span style={{fontSize:9,color:C.muted,width:48}}>Portfolio</span>
+                  <span style={{fontSize:13,color:C.muted,width:48}}>Portfolio</span>
                   <div style={{flex:1,height:5,borderRadius:2,background:C.border,overflow:"hidden"}}><div style={{width:`${Math.min(Math.abs(portPct)/35*100,100)}%`,height:"100%",background:portPct>=0?C.green:C.red,borderRadius:2}}/></div>
-                  <span style={{fontSize:9,fontWeight:700,color:portPct>=0?C.green:C.red,width:40,textAlign:"right"}}>{portPct>=0?"+":""}{fmt(portPct,1)}%</span>
+                  <span style={{fontSize:13,fontWeight:700,color:portPct>=0?C.green:C.red,width:40,textAlign:"right"}}>{portPct>=0?"+":""}{fmt(portPct,1)}%</span>
                 </div>
                 <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:6}}>
-                  <span style={{fontSize:9,color:C.muted,width:48}}>Index</span>
+                  <span style={{fontSize:13,color:C.muted,width:48}}>Index</span>
                   <div style={{flex:1,height:5,borderRadius:2,background:C.border,overflow:"hidden"}}><div style={{width:`${Math.min(Math.abs(idxYtdLive)/35*100,100)}%`,height:"100%",background:m.idxYtd>=0?C.accent:C.red,opacity:0.5,borderRadius:2}}/></div>
-                  <span style={{fontSize:9,fontWeight:700,color:C.mutedLight,width:40,textAlign:"right"}}>{idxYtdLive>=0?"+":""}{fmt(idxYtdLive,1)}%</span>
+                  <span style={{fontSize:13,fontWeight:700,color:C.mutedLight,width:40,textAlign:"right"}}>{idxYtdLive>=0?"+":""}{fmt(idxYtdLive,1)}%</span>
                 </div>
                 {/* Dividend yield row */}
                 {(()=>{
@@ -1842,18 +1886,18 @@ function App(){
                   if(mktDivYield<=0)return null;
                   return(
                     <div style={{borderTop:`1px solid ${C.border}`,paddingTop:6,marginTop:2}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:14}}>
                         <span style={{color:C.muted}}>Annual Dividend</span>
                         <div style={{textAlign:"right"}}>
                           <span style={{fontWeight:700,color:C.gold}}>{fmt(mktDivYield,2)}% yield</span>
-                          <span style={{color:C.muted,fontSize:9,marginLeft:6}}>{fmtS(toSGDlive(mktDiv,mkt))}/yr</span>
-                          <span style={{color:C.muted,fontSize:9,marginLeft:6}}>({divStocksCount} paying)</span>
+                          <span style={{color:C.muted,fontSize:13,marginLeft:6}}>{fmtS(toSGDlive(mktDiv,mkt))}/yr</span>
+                          <span style={{color:C.muted,fontSize:13,marginLeft:6}}>({divStocksCount} paying)</span>
                         </div>
                       </div>
                     </div>
                   );
                 })()}
-                <div style={{...row,fontSize:10,marginTop:4}}><span style={{color:C.muted}}>{cnt} stocks</span><span style={{fontWeight:700}}>{fmtS(portVal)}</span></div>
+                <div style={{...row,fontSize:14,marginTop:4}}><span style={{color:C.muted}}>{cnt} stocks</span><span style={{fontWeight:700}}>{fmtS(portVal)}</span></div>
               </div>
             </div>
           );
@@ -1874,16 +1918,16 @@ function App(){
               <div key={mkt} style={{marginBottom:16}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
                   <Chip mkt={mkt}/>
-                  <span style={{fontWeight:700,fontSize:13}}>{m.index}</span>
-                  <span style={{fontSize:10,color:C.muted}}>{mktHoldings.length} stocks</span>
+                  <span style={{fontWeight:700,fontSize:16}}>{m.index}</span>
+                  <span style={{fontSize:14,color:C.muted}}>{mktHoldings.length} stocks</span>
                 </div>
                 {sectorsInMkt.map(({sec,val,col,cnt})=>(
                   <div key={sec} style={{marginBottom:6}}>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:3}}>
                       <span style={{display:"flex",alignItems:"center",gap:5}}>
                         <div style={{width:6,height:6,borderRadius:3,background:col}}/>
                         <span style={{color:C.text}}>{sec}</span>
-                        <span style={{fontSize:9,color:C.muted}}>{cnt} stock{cnt>1?"s":""}</span>
+                        <span style={{fontSize:13,color:C.muted}}>{cnt} stock{cnt>1?"s":""}</span>
                       </span>
                       <span style={{fontWeight:700,color:col}}>{mktTotal>0?((val/mktTotal)*100).toFixed(1):0}%</span>
                     </div>
@@ -1906,22 +1950,22 @@ function App(){
     const totalReal=trades.filter(t=>t.type==="SELL").reduce((s,t)=>s+toSGDlive(t.profit||0,t.mkt),0);
     const mkts=Object.keys(MKT);
     const ccyList=Object.keys(CCY);
-    const iField={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 10px",color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"};
-    const lbl={fontSize:10,color:C.muted,marginBottom:3};
+    const iField={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 10px",color:C.text,fontSize:15,outline:"none",boxSizing:"border-box"};
+    const lbl={fontSize:14,color:C.muted,marginBottom:3};
     const tradePriceSym=ccySymbol(tradeForm.ccy);
     const tradePriceTotal=parseFloat(tradeForm.price||0)*parseInt(tradeForm.shares||0);
     return(
       <>
         <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}25`,marginBottom:12}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
-            <div><div style={{fontSize:9,color:C.muted}}>Total</div><div style={{fontSize:20,fontWeight:800}}>{trades.length}</div></div>
-            <div><div style={{fontSize:9,color:C.muted}}>Sells</div><div style={{fontSize:20,fontWeight:800,color:C.gold}}>{trades.filter(t=>t.type==="SELL").length}</div></div>
-            <div><div style={{fontSize:9,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:14,fontWeight:800,color:totalReal>=0?C.green:C.red}}>{totalReal>=0?"+":"-"}{fmtS(Math.abs(totalReal))}</div></div>
+            <div><div style={{fontSize:13,color:C.muted}}>Total</div><div style={{fontSize:22,fontWeight:800}}>{trades.length}</div></div>
+            <div><div style={{fontSize:13,color:C.muted}}>Sells</div><div style={{fontSize:22,fontWeight:800,color:C.gold}}>{trades.filter(t=>t.type==="SELL").length}</div></div>
+            <div><div style={{fontSize:13,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:17,fontWeight:800,color:totalReal>=0?C.green:C.red}}>{totalReal>=0?"+":"-"}{fmtS(Math.abs(totalReal))}</div></div>
           </div>
         </div>
 
         {/* Add / Edit Trade Button */}
-        <button onClick={()=>{if(showTradeForm&&editTradeId==null){setShowTradeForm(false);}else{setShowTradeForm(v=>!v);setEditTradeId(null);setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD"});setTickerCheck({status:"idle",message:"",suggestions:[]});setTickerSearchTerm("");}}} style={{width:"100%",padding:"11px",borderRadius:10,border:`1px dashed ${showTradeForm?C.accent:C.border}`,background:showTradeForm&&editTradeId==null?C.accent+"12":"transparent",color:showTradeForm&&editTradeId==null?C.accent:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:10}}>
+        <button onClick={()=>{if(showTradeForm&&editTradeId==null){setShowTradeForm(false);}else{setShowTradeForm(v=>!v);setEditTradeId(null);setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD"});setTickerCheck({status:"idle",message:"",suggestions:[]});setTickerSearchTerm("");}}} style={{width:"100%",padding:"11px",borderRadius:10,border:`1px dashed ${showTradeForm?C.accent:C.border}`,background:showTradeForm&&editTradeId==null?C.accent+"12":"transparent",color:showTradeForm&&editTradeId==null?C.accent:C.muted,fontSize:16,fontWeight:700,cursor:"pointer",marginBottom:10}}>
           {showTradeForm&&editTradeId==null?"✕ Cancel":"+ Add New Trade"}
         </button>
 
@@ -1929,10 +1973,10 @@ function App(){
         {showTradeForm&&(
           <div style={{...card,border:`1px solid ${editTradeId!=null?C.gold:C.accent}40`,background:C.surface,marginBottom:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:12,fontWeight:700,color:editTradeId!=null?C.gold:C.accent}}>
+              <div style={{fontSize:15,fontWeight:700,color:editTradeId!=null?C.gold:C.accent}}>
                 {editTradeId!=null?"EDIT TRADE":"NEW TRADE ENTRY"}
               </div>
-              {editTradeId!=null&&<button onClick={()=>{setShowTradeForm(false);setEditTradeId(null);}} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer"}}>✕</button>}
+              {editTradeId!=null&&<button onClick={()=>{setShowTradeForm(false);setEditTradeId(null);}} style={{background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer"}}>✕</button>}
             </div>
 
             {/* Row 1: Ticker search + Type */}
@@ -1940,7 +1984,7 @@ function App(){
               <div style={lbl}>Stock Search — Name or Ticker Symbol</div>
               <div style={{display:"flex",gap:6}}>
                 <input style={{...iField,flex:1}} placeholder="e.g. NVIDIA or NVDA or D05.SI" value={tickerSearchTerm} onChange={e=>{setTickerSearchTerm(e.target.value);setTickerCheck({status:"idle",message:"",suggestions:[]});}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();lookupTicker(tickerSearchTerm);}}}/>
-                <button onClick={()=>lookupTicker(tickerSearchTerm)} style={{padding:"7px 12px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accent+"18",color:C.accent,fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
+                <button onClick={()=>lookupTicker(tickerSearchTerm)} style={{padding:"7px 12px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accent+"18",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
                   {tickerCheck.status==="loading"?"...":"Search"}
                 </button>
               </div>
@@ -1949,15 +1993,15 @@ function App(){
                 <div style={{marginTop:6,padding:"6px 10px",background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:6}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
-                      <div style={{fontSize:10,color:C.green,fontWeight:700}}>Confirmed: {tickerCheck.confirmed}</div>
-                      <div style={{fontSize:11,color:C.text}}>{tickerCheck.message}</div>
+                      <div style={{fontSize:14,color:C.green,fontWeight:700}}>Confirmed: {tickerCheck.confirmed}</div>
+                      <div style={{fontSize:14,color:C.text}}>{tickerCheck.message}</div>
                     </div>
-                    <div style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:5,background:C.green,color:"#000"}}>OK</div>
+                    <div style={{fontSize:14,fontWeight:700,padding:"2px 8px",borderRadius:5,background:C.green,color:"#000"}}>OK</div>
                   </div>
                   {tickerCheck.suggestions&&tickerCheck.suggestions.length>0&&(
-                    <div style={{marginTop:6,fontSize:10,color:C.muted}}>
+                    <div style={{marginTop:6,fontSize:14,color:C.muted}}>
                       Also matches: {tickerCheck.suggestions.map((s,i)=>(
-                        <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck(prev=>({...prev,status:"found",message:s.name,confirmed:s.ticker,suggestions:[]}));setTickerSearchTerm(s.ticker);}} style={{marginLeft:4,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,fontSize:10,cursor:"pointer"}}>
+                        <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck(prev=>({...prev,status:"found",message:s.name,confirmed:s.ticker,suggestions:[]}));setTickerSearchTerm(s.ticker);}} style={{marginLeft:4,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,fontSize:14,cursor:"pointer"}}>
                           {s.ticker}
                         </button>
                       ))}
@@ -1967,19 +2011,19 @@ function App(){
               )}
               {tickerCheck.status==="suggestions"&&(
                 <div style={{marginTop:6,padding:"6px 10px",background:C.gold+"12",border:`1px solid ${C.gold}44`,borderRadius:6}}>
-                  <div style={{fontSize:10,color:C.gold,fontWeight:700,marginBottom:5}}>{tickerCheck.message}</div>
+                  <div style={{fontSize:14,color:C.gold,fontWeight:700,marginBottom:5}}>{tickerCheck.message}</div>
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     {tickerCheck.suggestions.map((s,i)=>(
-                      <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck({status:"found",message:s.name,confirmed:s.ticker,suggestions:[]});setTickerSearchTerm(s.ticker);}} style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${C.gold}66`,background:C.gold+"12",color:C.text,fontSize:11,cursor:"pointer",textAlign:"left"}}>
-                        <div style={{fontWeight:700,fontSize:11}}>{s.ticker}</div>
-                        <div style={{fontSize:9,color:C.muted}}>{s.name}</div>
+                      <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck({status:"found",message:s.name,confirmed:s.ticker,suggestions:[]});setTickerSearchTerm(s.ticker);}} style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${C.gold}66`,background:C.gold+"12",color:C.text,fontSize:14,cursor:"pointer",textAlign:"left"}}>
+                        <div style={{fontWeight:700,fontSize:14}}>{s.ticker}</div>
+                        <div style={{fontSize:13,color:C.muted}}>{s.name}</div>
                       </button>
                     ))}
                   </div>
                 </div>
               )}
               {tickerCheck.status==="error"&&(
-                <div style={{marginTop:5,fontSize:10,color:C.red}}>{tickerCheck.message}</div>
+                <div style={{marginTop:5,fontSize:14,color:C.red}}>{tickerCheck.message}</div>
               )}
             </div>
 
@@ -1993,7 +2037,7 @@ function App(){
                 <div style={lbl}>Trade Type</div>
                 <div style={{display:"flex",gap:4}}>
                   {["BUY","SELL"].map(t=>(
-                    <button key={t} onClick={()=>setTradeForm(f=>({...f,type:t}))} style={{flex:1,padding:"7px",borderRadius:7,border:`1px solid ${tradeForm.type===t?(t==="BUY"?C.green:C.red):C.border}`,background:tradeForm.type===t?(t==="BUY"?C.green+"22":C.red+"22"):"transparent",color:tradeForm.type===t?(t==="BUY"?C.green:C.red):C.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>{t}</button>
+                    <button key={t} onClick={()=>setTradeForm(f=>({...f,type:t}))} style={{flex:1,padding:"7px",borderRadius:7,border:`1px solid ${tradeForm.type===t?(t==="BUY"?C.green:C.red):C.border}`,background:tradeForm.type===t?(t==="BUY"?C.green+"22":C.red+"22"):"transparent",color:tradeForm.type===t?(t==="BUY"?C.green:C.red):C.muted,fontSize:15,fontWeight:700,cursor:"pointer"}}>{t}</button>
                   ))}
                 </div>
               </div>
@@ -2012,14 +2056,14 @@ function App(){
                 <select style={iField} value={tradeForm.mkt} onChange={e=>setTradeForm(f=>({...f,mkt:e.target.value}))}>
                   {mkts.map(mk=><option key={mk} value={mk}>{mk} — {MKT[mk].index}</option>)}
                 </select>
-                <div style={{fontSize:9,color:C.muted,marginTop:3}}>Where the stock is listed</div>
+                <div style={{fontSize:13,color:C.muted,marginTop:3}}>Where the stock is listed</div>
               </div>
               <div>
                 <div style={lbl}>Currency of Trade</div>
                 <select style={iField} value={tradeForm.ccy} onChange={e=>setTradeForm(f=>({...f,ccy:e.target.value}))}>
                   {ccyList.map(c=><option key={c} value={c}>{c} ({CCY[c].symbol})</option>)}
                 </select>
-                <div style={{fontSize:9,color:C.muted,marginTop:3}}>Price currency (e.g. SG stock in USD)</div>
+                <div style={{fontSize:13,color:C.muted,marginTop:3}}>Price currency (e.g. SG stock in USD)</div>
               </div>
             </div>
 
@@ -2037,7 +2081,7 @@ function App(){
 
             {/* Preview */}
             {tradeForm.price&&tradeForm.shares&&tradePriceTotal>0&&(
-              <div style={{background:C.card,borderRadius:7,padding:"8px 10px",marginBottom:8,fontSize:11,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{background:C.card,borderRadius:7,padding:"8px 10px",marginBottom:8,fontSize:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{color:C.muted}}>Total:</span>
                 <span style={{fontWeight:700}}>
                   {tradePriceSym}{fmt(tradePriceTotal,0)} {tradeForm.ccy}
@@ -2045,7 +2089,7 @@ function App(){
                 </span>
               </div>
             )}
-            <button onClick={submitTrade} style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:tradeForm.type==="BUY"?C.green:C.red,color:"#000",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+            <button onClick={submitTrade} style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:tradeForm.type==="BUY"?C.green:C.red,color:"#000",fontSize:16,fontWeight:700,cursor:"pointer"}}>
               {editTradeId!=null?"Save Changes":"Confirm"} {tradeForm.type} — {tradeForm.ticker||"ticker"}
             </button>
           </div>
@@ -2066,32 +2110,32 @@ function App(){
               <div style={row}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:2}}>
-                    <span style={{fontWeight:800,fontSize:14}}>{t.ticker}</span>
+                    <span style={{fontWeight:800,fontSize:17}}>{t.ticker}</span>
                     <Tag col={t.type==="BUY"?C.green:C.red}>{t.type}</Tag>
                     <Chip mkt={t.mkt}/>
                     {t.ccy&&t.ccy!==(MKT[t.mkt]?.code)&&(
-                      <span style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.gold+"22",color:C.gold}}>{t.ccy}</span>
+                      <span style={{fontSize:13,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.gold+"22",color:C.gold}}>{t.ccy}</span>
                     )}
                   </div>
-                  {stockName&&<div style={{fontSize:10,color:C.mutedLight,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>{stockName}</div>}
-                  <div style={{fontSize:11,color:C.muted}}>{t.date} · {t.shares?.toLocaleString()} @ {sym}{fmt(t.price)}</div>
-                  {t.type==="SELL"&&t.profit!=null&&t.profit!==0&&<div style={{fontSize:11,fontWeight:700,color:t.profit>=0?C.green:C.red,marginTop:2}}>P&amp;L: {t.profit>=0?"+":"-"}{sym}{fmt(Math.abs(t.profit),0)} <span style={{color:C.muted,fontWeight:400}}>({t.profit>=0?"+":"-"}{fmtS(Math.abs(ccyToSGD(t.profit,t.ccy||t.mkt)))})</span></div>}
+                  {stockName&&<div style={{fontSize:14,color:C.mutedLight,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>{stockName}</div>}
+                  <div style={{fontSize:14,color:C.muted}}>{t.date} · {t.shares?.toLocaleString()} @ {sym}{fmt(t.price)}</div>
+                  {t.type==="SELL"&&t.profit!=null&&t.profit!==0&&<div style={{fontSize:14,fontWeight:700,color:t.profit>=0?C.green:C.red,marginTop:2}}>P&amp;L: {t.profit>=0?"+":"-"}{sym}{fmt(Math.abs(t.profit),0)} <span style={{color:C.muted,fontWeight:400}}>({t.profit>=0?"+":"-"}{fmtS(Math.abs(ccyToSGD(t.profit,t.ccy||t.mkt)))})</span></div>}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0,marginLeft:8}}>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:13,fontWeight:800,color:t.type==="BUY"?C.red:C.green}}>{t.type==="BUY"?"-":"+"}{sym}{fmt(localTotal,0)}</div>
-                    <div style={{fontSize:9,color:C.muted}}>{t.type==="BUY"?"-":"+"}{fmtS(sgdTotal)}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:t.type==="BUY"?C.red:C.green}}>{t.type==="BUY"?"-":"+"}{sym}{fmt(localTotal,0)}</div>
+                    <div style={{fontSize:13,color:C.muted}}>{t.type==="BUY"?"-":"+"}{fmtS(sgdTotal)}</div>
                   </div>
                   <div style={{display:"flex",gap:5}}>
-                    <button onClick={()=>startEditTrade(t)} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.accent,cursor:"pointer",fontWeight:600}}>Edit</button>
-                    <button onClick={()=>deleteTrade(t.id)} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.red}44`,background:"transparent",color:C.red,cursor:"pointer",fontWeight:600}}>Del</button>
+                    <button onClick={()=>startEditTrade(t)} style={{fontSize:14,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.accent,cursor:"pointer",fontWeight:600}}>Edit</button>
+                    <button onClick={()=>deleteTrade(t.id)} style={{fontSize:14,padding:"3px 8px",borderRadius:5,border:`1px solid ${C.red}44`,background:"transparent",color:C.red,cursor:"pointer",fontWeight:600}}>Del</button>
                   </div>
                 </div>
               </div>
             </div>
           );
         })}
-        {shown.length>100&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"10px 0"}}>Showing 100 of {shown.length}</div>}
+        {shown.length>100&&<div style={{textAlign:"center",color:C.muted,fontSize:15,padding:"10px 0"}}>Showing 100 of {shown.length}</div>}
       </>
     );
   }
@@ -2255,6 +2299,263 @@ function App(){
     setExporting(false);
   }
 
+  // ── Alerts Tab ──────────────────────────────────────────────────────────────
+  function AlertsView(){
+    const SEV_META={
+      high:  {col:C.red,   bg:C.red+"14",   icon:"🔴",label:"HIGH"},
+      medium:{col:C.gold,  bg:C.gold+"14",  icon:"🟡",label:"MEDIUM"},
+      low:   {col:C.accent,bg:C.accent+"14",icon:"🔵",label:"LOW"},
+    };
+    const TYPE_META={
+      INSIDER_BUY:  {icon:"🏦",label:"Insider Buying",   col:C.green},
+      SHORT_SQUEEZE:{icon:"🌀",label:"Short Squeeze Risk",col:C.gold},
+      VOLUME_SPIKE: {icon:"📈",label:"Volume Spike",      col:C.accent},
+    };
+    const highCount=alertData.filter(a=>a.severity==="high").length;
+    const hasSenate=senateData.length>0;
+
+    // Senate buy signals — reuse existing senateData
+    const senateBuys=senateData
+      .filter(s=>s.action==="BUY")
+      .filter((s,i,arr)=>arr.findIndex(x=>x.ticker===s.ticker&&x.name===s.name&&x.date===s.date)===i)
+      .sort((a,b)=>b.date.localeCompare(a.date))
+      .slice(0,5);
+
+    return(
+      <>
+        {/* Header card */}
+        <div style={{...card,background:"#0D1A0D",border:`1px solid ${C.green}30`,marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:800,color:C.green,letterSpacing:"0.08em",marginBottom:3}}>
+                🔔 MARKET INTELLIGENCE
+              </div>
+              <div style={{fontSize:14,color:C.muted,lineHeight:1.5}}>
+                Insider buys · Short squeeze risk · Volume anomalies · Senate signals
+              </div>
+              {alertLastRun&&(
+                <div style={{fontSize:13,color:C.muted,marginTop:4}}>
+                  Last scanned: {alertLastRun.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}
+                  {" · "}{alertData.length} alert{alertData.length!==1?"s":""} found
+                </div>
+              )}
+            </div>
+            <button
+              onClick={fetchAlerts}
+              disabled={alertLoading}
+              style={{
+                padding:"8px 14px",borderRadius:9,border:`1px solid ${C.green}66`,
+                background:alertLoading?C.surface:C.green+"18",
+                color:alertLoading?C.muted:C.green,
+                fontSize:14,fontWeight:700,cursor:alertLoading?"not-allowed":"pointer",
+                flexShrink:0,whiteSpace:"nowrap",
+              }}
+            >
+              {alertLoading?"↻ Scanning...":"🔍 Scan Now"}
+            </button>
+          </div>
+          {highCount>0&&(
+            <div style={{marginTop:10,padding:"6px 10px",background:C.red+"18",border:`1px solid ${C.red}44`,borderRadius:7,fontSize:14,color:C.red,fontWeight:700}}>
+              ⚠ {highCount} HIGH severity alert{highCount>1?"s":""} require your attention
+            </div>
+          )}
+        </div>
+
+        {/* Limitation disclaimer */}
+        <div style={{...card,background:C.surface,marginBottom:12}}>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>
+            <b style={{color:C.gold}}>ℹ Signal sources &amp; limitations</b><br/>
+            <b>Insider Buy</b> — Finnhub (US only) · SEC Form 4 filings · 1-2 day lag by law<br/>
+            <b>Short Squeeze</b> — Short float % + price recovery from 52w low (US only, bi-monthly data)<br/>
+            <b>Volume Spike</b> — Yahoo Finance · All markets · 3× 90-day average threshold<br/>
+            <b>Senate Signals</b> — Quiver Quantitative · US Congress trades · 30-45 day lag<br/>
+            <span style={{color:C.red}}>Not financial advice.</span> Use as one signal among many.
+          </div>
+        </div>
+
+        {/* Not yet scanned state */}
+        {!alertLastRun&&!alertLoading&&(
+          <div style={{...card,textAlign:"center",padding:"32px 16px"}}>
+            <div style={{fontSize:34,marginBottom:8}}>🔍</div>
+            <div style={{fontSize:17,fontWeight:700,marginBottom:6}}>No scan run yet</div>
+            <div style={{fontSize:14,color:C.muted,marginBottom:16}}>
+              Tap "Scan Now" to check your {holdings.length} holdings for insider activity,
+              short squeeze risk, and unusual volume across all markets.
+            </div>
+            <div style={{fontSize:13,color:C.muted}}>
+              ⏱ Scan takes ~30-60s for {holdings.length} stocks
+            </div>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {alertLoading&&(
+          <div style={{...card,textAlign:"center",padding:"32px 16px"}}>
+            <div style={{fontSize:14,color:C.gold,animation:"pulse 1s ease-in-out infinite",marginBottom:8}}>
+              ↻ Scanning {holdings.filter(h=>h.mkt==="US").length} US stocks via Finnhub...
+            </div>
+            <div style={{fontSize:13,color:C.muted,marginBottom:4}}>
+              Checking insider filings · short interest · volume anomalies
+            </div>
+            <div style={{fontSize:13,color:C.muted}}>
+              Also checking {holdings.filter(h=>h.mkt!=="US").length} non-US stocks via Yahoo Finance
+            </div>
+          </div>
+        )}
+
+        {/* Clean scan result */}
+        {alertLastRun&&!alertLoading&&alertData.length===0&&(
+          <div style={{...card,textAlign:"center",padding:"28px 16px",background:"#0D1A0D",border:`1px solid ${C.green}30`}}>
+            <div style={{fontSize:30,marginBottom:6}}>✅</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.green,marginBottom:4}}>All Clear</div>
+            <div style={{fontSize:14,color:C.muted}}>
+              No unusual insider activity, short squeeze risk, or volume spikes detected
+              in your portfolio at this time.
+            </div>
+          </div>
+        )}
+
+        {/* Alert cards */}
+        {alertData.length>0&&(
+          <>
+            <div style={{fontSize:14,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>
+              {alertData.length} Alert{alertData.length!==1?"s":" "} Detected
+            </div>
+            {alertData.map((a,i)=>{
+              const sev=SEV_META[a.severity]||SEV_META.low;
+              const typ=TYPE_META[a.type]||{icon:"⚡",label:a.type,col:C.accent};
+              const h=holdings.find(hh=>hh.ticker===a.ticker);
+              const gainPct=h?((h.price-h.avgCost)/h.avgCost)*100:null;
+              return(
+                <div key={i} onClick={()=>{if(h){setSel(h);setDetailPeriod("6m");}}}
+                  style={{
+                    ...card,
+                    borderLeft:`4px solid ${sev.col}`,
+                    background:sev.bg,
+                    cursor:h?"pointer":"default",
+                    marginBottom:10,
+                  }}>
+                  {/* Alert header row */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:18}}>{typ.icon}</span>
+                      <div>
+                        <div style={{fontSize:15,fontWeight:800,color:sev.col}}>{a.title}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
+                          <span style={{fontSize:13,fontWeight:700,padding:"1px 6px",borderRadius:3,
+                            background:sev.col+"25",color:sev.col}}>{sev.icon} {sev.label}</span>
+                          <span style={{fontSize:13,color:C.muted,fontWeight:700}}>{typ.label}</span>
+                          {h&&<Chip mkt={h.mkt}/>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      {h&&(
+                        <>
+                          <div style={{fontSize:14,fontWeight:700}}>{fmtL(h.price,h.mkt)}</div>
+                          <div style={{fontSize:13,fontWeight:700,color:gainPct>=0?C.green:C.red}}>
+                            {gainPct>=0?"+":""}{fmt(gainPct,1)}% gain
+                          </div>
+                        </>
+                      )}
+                      <div style={{fontSize:13,color:C.muted,marginTop:2}}>{a.date}</div>
+                    </div>
+                  </div>
+
+                  {/* Detail text */}
+                  <div style={{fontSize:14,color:C.text,marginBottom:6,lineHeight:1.5}}>{a.detail}</div>
+
+                  {/* Type-specific extras */}
+                  {a.type==="INSIDER_BUY"&&a.who&&(
+                    <div style={{fontSize:14,color:C.muted,background:C.surface,borderRadius:5,padding:"4px 8px"}}>
+                      👤 {a.who}
+                      {a.value>0&&<span style={{marginLeft:8,color:C.gold,fontWeight:700}}>~${fmt(a.value,0)} total</span>}
+                    </div>
+                  )}
+                  {a.type==="SHORT_SQUEEZE"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:4}}>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Short Float</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.red}}>{fmt(a.shortPct,1)}%</div>
+                      </div>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Days to Cover</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.gold}}>{fmt(a.shortRatio,1)}</div>
+                      </div>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Off 52w Low</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.green}}>+{fmt(a.pctFrom52wLow,0)}%</div>
+                      </div>
+                    </div>
+                  )}
+                  {a.type==="VOLUME_SPIKE"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Volume Multiple</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.accent}}>{fmt(a.volMultiple,1)}×</div>
+                      </div>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Price Move</div>
+                        <div style={{fontSize:15,fontWeight:800,color:a.chg1d>=0?C.green:C.red}}>
+                          {a.chg1d>=0?"+":""}{fmt(a.chg1d,1)}%
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {h&&<div style={{fontSize:12,color:C.muted,marginTop:6,textAlign:"right"}}>Tap to open {a.ticker} →</div>}
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* Senate Signal section — always shown if data exists */}
+        {hasSenate&&(
+          <div style={card}>
+            <div style={{...cardT,display:"flex",alignItems:"center",gap:6}}>
+              <span>🏛</span> Senate Buy Signals (Recent)
+            </div>
+            <div style={{fontSize:13,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+              US senators who recently bought stocks in your portfolio.
+              Congress members have access to non-public information per STOCK Act disclosures.
+            </div>
+            {senateBuys.length===0&&(
+              <div style={{fontSize:14,color:C.muted,textAlign:"center",padding:"12px 0"}}>
+                No recent senate buys overlap with your holdings
+              </div>
+            )}
+            {senateBuys.map((s,i)=>{
+              const inPort=holdings.find(h=>h.ticker===s.ticker);
+              return(
+                <div key={i} onClick={()=>{if(inPort){setSel(inPort);setDetailPeriod("6m");}}}
+                  style={{marginBottom:10,paddingBottom:10,
+                    borderBottom:i<senateBuys.length-1?`1px solid ${C.border}`:"none",
+                    cursor:inPort?"pointer":"default",
+                  }}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
+                        <span style={{fontWeight:700,fontSize:16}}>{s.ticker}</span>
+                        <Bdg label={s.action} bg={C.green+"22"} color={C.green}/>
+                        <Bdg label={s.party} bg={s.party==="D"?"#1e3a5f":"#3d1515"} color={s.party==="D"?"#60a5fa":"#f87171"}/>
+                        {inPort&&<span style={{fontSize:12,color:C.accent,fontWeight:700,padding:"1px 4px",borderRadius:3,background:C.accent+"18"}}>IN PORT</span>}
+                      </div>
+                      <div style={{fontSize:14,color:C.muted}}>{s.name} · {s.date}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{s.amount}</div>
+                      {inPort&&<div style={{fontSize:13,color:C.muted}}>{fmtL(inPort.price,inPort.mkt)}</div>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
+  }
+
   function SummaryView(){
     return(
       <>
@@ -2263,7 +2564,7 @@ function App(){
           width:'100%',padding:'12px',borderRadius:10,border:'none',
           background:exporting?C.border:`linear-gradient(135deg,#1A7A4A,#00D4FF22)`,
           borderColor:C.green,borderWidth:1,borderStyle:'solid',
-          color:exporting?C.muted:C.green,fontSize:13,fontWeight:700,
+          color:exporting?C.muted:C.green,fontSize:16,fontWeight:700,
           cursor:exporting?'not-allowed':'pointer',marginBottom:12,
           display:'flex',alignItems:'center',justifyContent:'center',gap:8,
         }}>
@@ -2275,12 +2576,12 @@ function App(){
         <div style={card}>
           <div style={cardT}>Portfolio Overview (SGD)</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-            <div style={sbox(C.accent)}><div style={{fontSize:9,color:C.muted}}>Total Value</div><div style={{fontSize:17,fontWeight:800}}>{fmtS(totalValSGD)}</div><div style={{fontSize:9,color:C.muted}}>{holdings.length} stocks</div></div>
-            <div style={sbox()}><div style={{fontSize:9,color:C.muted}}>Total Cost</div><div style={{fontSize:17,fontWeight:800}}>{fmtS(totalCostSGD)}</div></div>
-            <div style={sbox(unrealSGD>=0?C.green:C.red)}><div style={{fontSize:9,color:C.muted}}>Unrealized P&amp;L</div><div style={{fontSize:15,fontWeight:800,color:unrealSGD>=0?C.green:C.red}}>{unrealSGD>=0?"+":"-"}{fmtS(Math.abs(unrealSGD))}</div><div style={{fontSize:11,fontWeight:700,color:unrealSGD>=0?C.green:C.red}}>{fmtPct(unrealPct)}</div></div>
-            <div style={sbox(realizedSGD>=0?C.gold:C.red)}><div style={{fontSize:9,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:15,fontWeight:800,color:realizedSGD>=0?C.gold:C.red}}>{realizedSGD>=0?"+":"-"}{fmtS(Math.abs(realizedSGD))}</div><div style={{fontSize:9,color:C.muted}}>Closed trades</div></div>
-            <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:9,color:C.muted}}>Stocks</div><div style={{fontSize:22,fontWeight:800,color:C.purple}}>{holdings.length}</div></div>
-            <div style={{...sbox(C.gold),textAlign:"center"}}><div style={{fontSize:9,color:C.muted}}>Annual Div</div><div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGD)}</div><div style={{fontSize:9,color:C.muted}}>{fmt(totalValSGD?totalDivSGD/totalValSGD*100:0)}% yield</div></div>
+            <div style={sbox(C.accent)}><div style={{fontSize:13,color:C.muted}}>Total Value</div><div style={{fontSize:20,fontWeight:800}}>{fmtS(totalValSGD)}</div><div style={{fontSize:13,color:C.muted}}>{holdings.length} stocks</div></div>
+            <div style={sbox()}><div style={{fontSize:13,color:C.muted}}>Total Cost</div><div style={{fontSize:20,fontWeight:800}}>{fmtS(totalCostSGD)}</div></div>
+            <div style={sbox(unrealSGD>=0?C.green:C.red)}><div style={{fontSize:13,color:C.muted}}>Unrealized P&amp;L</div><div style={{fontSize:18,fontWeight:800,color:unrealSGD>=0?C.green:C.red}}>{unrealSGD>=0?"+":"-"}{fmtS(Math.abs(unrealSGD))}</div><div style={{fontSize:14,fontWeight:700,color:unrealSGD>=0?C.green:C.red}}>{fmtPct(unrealPct)}</div></div>
+            <div style={sbox(realizedSGD>=0?C.gold:C.red)}><div style={{fontSize:13,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:18,fontWeight:800,color:realizedSGD>=0?C.gold:C.red}}>{realizedSGD>=0?"+":"-"}{fmtS(Math.abs(realizedSGD))}</div><div style={{fontSize:13,color:C.muted}}>Closed trades</div></div>
+            <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Stocks</div><div style={{fontSize:24,fontWeight:800,color:C.purple}}>{holdings.length}</div></div>
+            <div style={{...sbox(C.gold),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Annual Div</div><div style={{fontSize:17,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGD)}</div><div style={{fontSize:13,color:C.muted}}>{fmt(totalValSGD?totalDivSGD/totalValSGD*100:0)}% yield</div></div>
           </div>
         </div>
         <div style={card}>
@@ -2302,17 +2603,17 @@ function App(){
                     <div style={{width:10,height:10,borderRadius:5,background:col,flexShrink:0}}/>
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:5}}>
-                        <span style={{fontWeight:700,fontSize:13}}>{mktKey==="CN"?"HK":mktKey}</span>
+                        <span style={{fontWeight:700,fontSize:16}}>{mktKey==="CN"?"HK":mktKey}</span>
                         <Chip mkt={mktKey}/>
-                        <span style={{fontSize:10,color:C.muted}}>{m.index}</span>
+                        <span style={{fontSize:14,color:C.muted}}>{m.index}</span>
                       </div>
-                      <div style={{fontSize:10,color:C.muted}}>{mktHoldings.length} stocks · {m.symbol}{fmt(localVal,0)} {m.code}</div>
+                      <div style={{fontSize:14,color:C.muted}}>{mktHoldings.length} stocks · {m.symbol}{fmt(localVal,0)} {m.code}</div>
                     </div>
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontWeight:700,fontSize:13}}>{fmtS(sgdVal)}</div>
-                    <div style={{fontSize:10,fontWeight:700,color:pnl>=0?C.green:C.red}}>{pnl>=0?"+":"-"}{fmtS(Math.abs(pnl))} ({pnl>=0?"+":""}{fmt(pnlPct,1)}%)</div>
-                    <div style={{fontSize:9,color:C.muted}}>{pct.toFixed(1)}% of portfolio</div>
+                    <div style={{fontWeight:700,fontSize:16}}>{fmtS(sgdVal)}</div>
+                    <div style={{fontSize:14,fontWeight:700,color:pnl>=0?C.green:C.red}}>{pnl>=0?"+":"-"}{fmtS(Math.abs(pnl))} ({pnl>=0?"+":""}{fmt(pnlPct,1)}%)</div>
+                    <div style={{fontSize:13,color:C.muted}}>{pct.toFixed(1)}% of portfolio</div>
                   </div>
                 </div>
                 <div style={{height:5,borderRadius:3,background:C.border}}>
@@ -2325,7 +2626,7 @@ function App(){
                   const divCount=mktHoldings.filter(h=>h.divYield>0).length;
                   if(mktDivYield<=0)return null;
                   return(
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginTop:5,color:C.muted}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginTop:5,color:C.muted}}>
                       <span>💰 Dividend: <b style={{color:C.gold}}>{fmt(mktDivYield,2)}%</b> yield · {divCount} paying stocks</span>
                       <span style={{color:C.gold,fontWeight:700}}>{fmtS(sgdDiv)}/yr</span>
                     </div>
@@ -2368,37 +2669,37 @@ function App(){
         <div style={mCard}>
           {/* Header: back arrow top-left, title centre, action buttons below */}
           <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
-            <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:18,cursor:"pointer",padding:"10px 14px",lineHeight:1,flexShrink:0,borderRadius:10,fontWeight:700,marginRight:10}}>←</button>
+            <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:20,cursor:"pointer",padding:"12px 18px",lineHeight:1,flexShrink:0,borderRadius:12,fontWeight:700,marginRight:12}}>←</button>
             <div style={{flex:1}}>
-              <div style={{fontWeight:800,fontSize:17,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
-              <div style={{fontSize:12,color:C.muted}}>{h.name}</div>
-              <div style={{fontSize:10,color:C.mutedLight,marginTop:1}}>{m.index} · YTD {m.idxYtd>=0?"+":""}{m.idxYtd}%</div>
+              <div style={{fontWeight:800,fontSize:20,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
+              <div style={{fontSize:15,color:C.muted}}>{h.name}</div>
+              <div style={{fontSize:14,color:C.mutedLight,marginTop:1}}>{m.index} · YTD {m.idxYtd>=0?"+":""}{m.idxYtd}%</div>
             </div>
           </div>
           {/* Action buttons in their own row - well separated */}
           <div style={{display:"flex",gap:8,marginBottom:14}}>
-            <button onClick={()=>openEditHolding(h)} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.accent}`,background:C.accent+"12",color:C.accent,cursor:"pointer",fontWeight:700,fontSize:12}}>✏️ Edit</button>
-            <button onClick={()=>{setSel(null);confirmDeleteHolding(h.id);}} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.red}55`,background:C.red+"12",color:C.red,cursor:"pointer",fontWeight:700,fontSize:12}}>🗑 Delete</button>
+            <button onClick={()=>openEditHolding(h)} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.accent}`,background:C.accent+"12",color:C.accent,cursor:"pointer",fontWeight:700,fontSize:15}}>✏️ Edit</button>
+            <button onClick={()=>{setSel(null);confirmDeleteHolding(h.id);}} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.red}55`,background:C.red+"12",color:C.red,cursor:"pointer",fontWeight:700,fontSize:15}}>🗑 Delete</button>
           </div>
 
           {/* Avg Cost / Price / Intrinsic */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
-              <div style={{fontSize:9,color:C.muted,marginBottom:2}}>Avg Cost</div>
-              <div style={{fontSize:15,fontWeight:800}}>{fmtL(h.avgCost,h.mkt)}</div>
-              <div style={{fontSize:9,color:C.muted}}>{fmtS(toSGDlive(h.avgCost,h.mkt))}</div>
+              <div style={{fontSize:13,color:C.muted,marginBottom:2}}>Avg Cost</div>
+              <div style={{fontSize:18,fontWeight:800}}>{fmtL(h.avgCost,h.mkt)}</div>
+              <div style={{fontSize:13,color:C.muted}}>{fmtS(toSGDlive(h.avgCost,h.mkt))}</div>
             </div>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
-              <div style={{fontSize:9,color:C.muted,marginBottom:2}}>Price ({m.code})</div>
-              <div style={{fontSize:15,fontWeight:800}}>{fmtL(h.price,h.mkt)}</div>
-              <div style={{fontSize:9,color:pos?C.green:C.red,fontWeight:700}}>{fmtPct(gainPct)}</div>
+              <div style={{fontSize:13,color:C.muted,marginBottom:2}}>Price ({m.code})</div>
+              <div style={{fontSize:18,fontWeight:800}}>{fmtL(h.price,h.mkt)}</div>
+              <div style={{fontSize:13,color:pos?C.green:C.red,fontWeight:700}}>{fmtPct(gainPct)}</div>
             </div>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
-              <div style={{fontSize:9,color:C.muted,marginBottom:2}}>
-                Intrinsic {computedIV>0&&<span style={{color:C.purple,fontSize:8,fontWeight:700}}>● calc</span>}
+              <div style={{fontSize:13,color:C.muted,marginBottom:2}}>
+                Intrinsic {computedIV>0&&<span style={{color:C.purple,fontSize:12,fontWeight:700}}>● calc</span>}
               </div>
-              <div style={{fontSize:15,fontWeight:800}}>{effectiveIV>0?fmtL(effectiveIV,h.mkt):"—"}</div>
-              <div style={{fontSize:9,color:upside>=0?C.green:C.red,fontWeight:700}}>{effectiveIV>0?((upside>=0?"+":"")+fmt(upside,1)+"%"):"no data"}</div>
+              <div style={{fontSize:18,fontWeight:800}}>{effectiveIV>0?fmtL(effectiveIV,h.mkt):"—"}</div>
+              <div style={{fontSize:13,color:upside>=0?C.green:C.red,fontWeight:700}}>{effectiveIV>0?((upside>=0?"+":"")+fmt(upside,1)+"%"):"no data"}</div>
             </div>
           </div>
 
@@ -2406,9 +2707,9 @@ function App(){
           <div style={{...card,padding:12,marginBottom:10}}>
             <div style={{...row,marginBottom:8,alignItems:"center"}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:10,color:C.muted,fontWeight:700}}>History ({m.code})</div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700}}>History ({m.code})</div>
                 <span style={{
-                  fontSize:7,fontWeight:800,color:C.green,letterSpacing:"0.08em",
+                  fontSize:8,fontWeight:800,color:C.green,letterSpacing:"0.08em",
                   background:C.green+"18",border:`1px solid ${C.green}35`,
                   borderRadius:8,padding:"1px 5px",lineHeight:"14px"
                 }}>● LIVE</span>
@@ -2422,20 +2723,20 @@ function App(){
               const isLoading=histLoading[h.ticker+'_'+detailPeriod];
               if(isLoading) return(
                 <div style={{height:80,display:"flex",alignItems:"center",justifyContent:"center",background:C.surface,borderRadius:8}}>
-                  <div style={{fontSize:11,color:C.gold,animation:"pulse 1s ease-in-out infinite"}}>↻ Loading chart data...</div>
+                  <div style={{fontSize:14,color:C.gold,animation:"pulse 1s ease-in-out infinite"}}>↻ Loading chart data...</div>
                 </div>
               );
               if(!hData||hData.length<2) return(
                 <div style={{height:80,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:C.surface,borderRadius:8,gap:6}}>
-                  <div style={{fontSize:11,color:C.muted}}>No chart data</div>
-                  <button onClick={()=>fetchRealHistory(h.ticker,h.mkt,detailPeriod)} style={{fontSize:10,padding:"3px 10px",borderRadius:5,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,cursor:"pointer"}}>Load Chart</button>
+                  <div style={{fontSize:14,color:C.muted}}>No chart data</div>
+                  <button onClick={()=>fetchRealHistory(h.ticker,h.mkt,detailPeriod)} style={{fontSize:14,padding:"3px 10px",borderRadius:5,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,cursor:"pointer"}}>Load Chart</button>
                 </div>
               );
               return(
                 <Sparkline data={hData} color={pos?C.green:C.red} height={60} period={detailPeriod}/>
               );
             })()}
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,marginTop:3}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:C.muted,marginTop:3}}>
               <span>{detailPeriod==="all"&&FIRST_BUY[h.ticker]?"First buy: "+FIRST_BUY[h.ticker]:{"30d":"30 days ago","6m":"6 months ago","1y":"1 year ago","5y":"5 years ago","all":"Start"}[detailPeriod]}</span>
               <span>{fmtL(h.price,h.mkt)}</span>
             </div>
@@ -2443,25 +2744,25 @@ function App(){
 
           {/* Position */}
           <div style={{background:C.accent+"0D",border:`1px solid ${C.accentDim}30`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-            <div style={{fontSize:9,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8}}>POSITION</div>
+            <div style={{fontSize:13,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8}}>POSITION</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",marginBottom:8}}>
               {[["Shares",h.shares.toLocaleString(),null],["Avg Cost",fmtL(h.avgCost,h.mkt),fmtS(toSGDlive(h.avgCost,h.mkt))],["Market Value",fmtL(localVal,h.mkt,0),fmtS(sgdVal)],["Cost Basis",fmtL(localCost,h.mkt,0),fmtS(sgdCost)],["Unrealized P&L",`${pos?"+":"-"}${fmtL(Math.abs(localGain),h.mkt,0)}`,`${pos?"+":"-"}${fmtS(Math.abs(sgdGain))}`],].map(([l,v,sub])=>(
-                <div key={l}><div style={{fontSize:9,color:C.muted}}>{l}</div><div style={{fontSize:13,fontWeight:700,color:l==="Unrealized P&L"?(pos?C.green:C.red):C.text}}>{v}</div>{sub&&<div style={{fontSize:9,color:C.muted}}>{sub}</div>}</div>
+                <div key={l}><div style={{fontSize:13,color:C.muted}}>{l}</div><div style={{fontSize:16,fontWeight:700,color:l==="Unrealized P&L"?(pos?C.green:C.red):C.text}}>{v}</div>{sub&&<div style={{fontSize:13,color:C.muted}}>{sub}</div>}</div>
               ))}
               {/* Annual Div — custom render to show yield % inline */}
               {(()=>{
                 if(localDiv<=0) return(
-                  <div><div style={{fontSize:9,color:C.muted}}>Annual Div</div><div style={{fontSize:13,fontWeight:700,color:C.muted}}>—</div></div>
+                  <div><div style={{fontSize:13,color:C.muted}}>Annual Div</div><div style={{fontSize:16,fontWeight:700,color:C.muted}}>—</div></div>
                 );
                 const yieldPct=h.price>0?(h.divYield||0):0;
                 return(
                   <div>
-                    <div style={{fontSize:9,color:C.muted}}>Annual Div (gross)</div>
+                    <div style={{fontSize:13,color:C.muted}}>Annual Div (gross)</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:5}}>
-                      <div style={{fontSize:13,fontWeight:700,color:C.gold}}>{fmtL(localDiv,h.mkt,0)}</div>
-                      {yieldPct>0&&<div style={{fontSize:10,fontWeight:700,color:C.gold,background:C.gold+"18",padding:"1px 5px",borderRadius:4}}>{fmt(yieldPct,2)}%</div>}
+                      <div style={{fontSize:16,fontWeight:700,color:C.gold}}>{fmtL(localDiv,h.mkt,0)}</div>
+                      {yieldPct>0&&<div style={{fontSize:14,fontWeight:700,color:C.gold,background:C.gold+"18",padding:"1px 5px",borderRadius:4}}>{fmt(yieldPct,2)}%</div>}
                     </div>
-                    <div style={{fontSize:9,color:C.muted}}>{fmtS(sgdDiv)}</div>
+                    <div style={{fontSize:13,color:C.muted}}>{fmtS(sgdDiv)}</div>
                   </div>
                 );
               })()}
@@ -2475,25 +2776,25 @@ function App(){
               const taxLabel=fmtTax(h.mkt);
               return(
                 <div style={{background:C.surface,borderRadius:7,padding:"7px 10px",marginBottom:8,borderLeft:`3px solid ${C.gold}`}}>
-                  <div style={{fontSize:9,color:C.gold,fontWeight:700,marginBottom:4}}>DIVIDEND WITHHOLDING TAX ({taxLabel})</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:10}}>
-                    <div><div style={{fontSize:8,color:C.muted}}>Gross/yr</div><div style={{fontWeight:700}}>{fmtL(localDiv,h.mkt,0)}</div><div style={{fontSize:8,color:C.muted}}>{fmtS(sgdDiv)}</div></div>
-                    <div><div style={{fontSize:8,color:C.red}}>Tax ({(taxRate*100).toFixed(3).replace(/\.?0+$/,"")}%)</div><div style={{fontWeight:700,color:C.red}}>-{fmtL(localDiv*taxRate,h.mkt,0)}</div></div>
-                    <div style={{textAlign:"right"}}><div style={{fontSize:8,color:C.green}}>Net/yr</div><div style={{fontWeight:700,color:C.green}}>{fmtL(netDiv,h.mkt,0)}</div><div style={{fontSize:8,color:C.muted}}>{fmtS(netDivSGD)}</div></div>
+                  <div style={{fontSize:13,color:C.gold,fontWeight:700,marginBottom:4}}>DIVIDEND WITHHOLDING TAX ({taxLabel})</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:14}}>
+                    <div><div style={{fontSize:12,color:C.muted}}>Gross/yr</div><div style={{fontWeight:700}}>{fmtL(localDiv,h.mkt,0)}</div><div style={{fontSize:12,color:C.muted}}>{fmtS(sgdDiv)}</div></div>
+                    <div><div style={{fontSize:12,color:C.red}}>Tax ({(taxRate*100).toFixed(3).replace(/\.?0+$/,"")}%)</div><div style={{fontWeight:700,color:C.red}}>-{fmtL(localDiv*taxRate,h.mkt,0)}</div></div>
+                    <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.green}}>Net/yr</div><div style={{fontWeight:700,color:C.green}}>{fmtL(netDiv,h.mkt,0)}</div><div style={{fontSize:12,color:C.muted}}>{fmtS(netDivSGD)}</div></div>
                   </div>
                 </div>
               );
             })()}
-            <div style={{...row,marginBottom:3}}><span style={{fontSize:9,color:C.muted}}>Portfolio Weight</span><span style={{fontSize:12,fontWeight:800,color:C.accent}}>{w.toFixed(2)}%</span></div>
+            <div style={{...row,marginBottom:3}}><span style={{fontSize:13,color:C.muted}}>Portfolio Weight</span><span style={{fontSize:15,fontWeight:800,color:C.accent}}>{w.toFixed(2)}%</span></div>
             <div style={{height:4,borderRadius:2,background:C.border}}><div style={{width:`${Math.min(w*3,100)}%`,height:"100%",borderRadius:2,background:C.accent}}/></div>
           </div>
 
           {/* Buffett score */}
           <div style={{background:"#1A1200",border:`1px solid ${C.gold}30`,borderRadius:10,padding:"10px 14px",marginBottom:10}}>
             <div style={{...row}}>
-              <div><div style={{fontSize:9,color:C.gold,fontWeight:700,marginBottom:3}}>BUFFETT SCORE</div><div style={{fontSize:12,color:C.mutedLight}}>{bs.reason}</div></div>
+              <div><div style={{fontSize:13,color:C.gold,fontWeight:700,marginBottom:3}}>BUFFETT SCORE</div><div style={{fontSize:15,color:C.mutedLight}}>{bs.reason}</div></div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontSize:24,fontWeight:800,color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>{fmt(bs.score,1)}<span style={{fontSize:12,color:C.muted}}>/100</span></div>
+                <div style={{fontSize:26,fontWeight:800,color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>{fmt(bs.score,1)}<span style={{fontSize:15,color:C.muted}}>/100</span></div>
                 <Bdg label={bs.action} bg={bs.col+"22"} color={bs.col}/>
               </div>
             </div>
@@ -2506,7 +2807,7 @@ function App(){
             const loading=valLoading[h.ticker];
             if(loading&&!v) return(
               <div style={{...card,background:C.purple+"0A",border:`1px solid ${C.purple}30`}}>
-                <div style={{fontSize:11,color:C.purple,textAlign:"center",padding:"12px 0"}}>↻ Fetching valuations from Wall Street analysts...</div>
+                <div style={{fontSize:14,color:C.purple,textAlign:"center",padding:"12px 0"}}>↻ Fetching valuations from Wall Street analysts...</div>
               </div>
             );
             if(!v) return null;
@@ -2543,14 +2844,14 @@ function App(){
             return(
               <div style={{...card,background:C.purple+"0A",border:`1px solid ${C.purple}40`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <div style={{fontSize:10,color:C.purple,fontWeight:700,letterSpacing:"0.08em"}}>MULTI-SOURCE VALUATION</div>
-                  {rec.totalAnalysts>0&&<span style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:4,background:recCol+"22",color:recCol}}>{recText} ({rec.totalAnalysts} analysts)</span>}
+                  <div style={{fontSize:14,color:C.purple,fontWeight:700,letterSpacing:"0.08em"}}>MULTI-SOURCE VALUATION</div>
+                  {rec.totalAnalysts>0&&<span style={{fontSize:13,fontWeight:700,padding:"2px 8px",borderRadius:4,background:recCol+"22",color:recCol}}>{recText} ({rec.totalAnalysts} analysts)</span>}
                 </div>
-                <div style={{fontSize:10,color:C.mutedLight,marginBottom:6}}>
+                <div style={{fontSize:14,color:C.mutedLight,marginBottom:6}}>
                   Current: <b style={{color:C.text}}>${fmt(priceLive)}</b> · EPS ${fmt(inp.eps)} · FCF/sh ${fmt(inp.fcfPerShare)} · Growth <b style={{color:C.gold}}>{growthUsed}%</b> <span style={{color:C.muted}}>({growthSrc})</span>
                 </div>
                 {/* Column headers */}
-                <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:8,color:C.muted,marginBottom:4,paddingBottom:4,borderBottom:`1px solid ${C.border}33`,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:12,color:C.muted,marginBottom:4,paddingBottom:4,borderBottom:`1px solid ${C.border}33`,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>
                   <div>Model</div>
                   <div style={{textAlign:"right"}}>Value</div>
                   <div style={{textAlign:"right"}}>vs Price</div>
@@ -2558,7 +2859,7 @@ function App(){
                 </div>
 
                 {/* Column headers */}
-                <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:8,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:12,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>
                   <div>Model</div>
                   <div style={{textAlign:"right"}}>Fair Value</div>
                   <div style={{textAlign:"right"}}>vs Market</div>
@@ -2571,21 +2872,21 @@ function App(){
                     const upside=priceLive>0?((s.val-priceLive)/priceLive*100):0;
                     const col=upside>=15?C.green:upside>=0?C.gold:C.red;
                     return(
-                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:11,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`}}>
+                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`}}>
                         <div style={{fontWeight:700,color:C.text}}>{s.label}</div>
                         <div style={{fontWeight:700,textAlign:"right"}}>${fmt(s.val)}</div>
                         <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
-                        <div style={{fontSize:9,color:C.muted,textAlign:"right"}}>{s.note}</div>
+                        <div style={{fontSize:13,color:C.muted,textAlign:"right"}}>{s.note}</div>
                       </div>
                     );
                   } else {
                     // Creative N/A row — dashed border, muted, shows reason
                     return(
-                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:11,marginBottom:6,paddingBottom:6,borderBottom:`1px dashed ${C.border}44`,opacity:0.55}}>
+                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px dashed ${C.border}44`,opacity:0.55}}>
                         <div style={{fontWeight:600,color:C.mutedLight,textDecoration:"line-through"}}>{s.label}</div>
-                        <div style={{textAlign:"right",color:C.muted,fontSize:13,letterSpacing:2}}>· · ·</div>
-                        <div style={{textAlign:"right",color:C.muted,fontSize:13,letterSpacing:2}}>· · ·</div>
-                        <div style={{fontSize:9,color:C.gold,textAlign:"right",fontStyle:"italic"}}>{s.na}</div>
+                        <div style={{textAlign:"right",color:C.muted,fontSize:16,letterSpacing:2}}>· · ·</div>
+                        <div style={{textAlign:"right",color:C.muted,fontSize:16,letterSpacing:2}}>· · ·</div>
+                        <div style={{fontSize:13,color:C.gold,textAlign:"right",fontStyle:"italic"}}>{s.na}</div>
                       </div>
                     );
                   }
@@ -2593,20 +2894,20 @@ function App(){
 
                 {/* Average row */}
                 {computedAvg>0?(
-                  <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:12,marginTop:8,paddingTop:8,borderTop:`2px solid ${C.purple}44`}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:15,marginTop:8,paddingTop:8,borderTop:`2px solid ${C.purple}44`}}>
                     <div style={{fontWeight:800,color:C.purple}}>AVERAGE</div>
                     <div style={{fontWeight:800,textAlign:"right",color:C.purple}}>${fmt(computedAvg)}</div>
                     <div style={{fontWeight:800,textAlign:"right",color:avgUpside>=0?C.green:C.red}}>{avgUpside>=0?"+":""}{fmt(avgUpside,1)}%</div>
-                    <div style={{fontSize:9,color:C.muted,textAlign:"right"}}>{availCount} of 4 models</div>
+                    <div style={{fontSize:13,color:C.muted,textAlign:"right"}}>{availCount} of 4 models</div>
                   </div>
                 ):(
-                  <div style={{textAlign:"center",fontSize:10,color:C.muted,marginTop:10,padding:"8px",background:C.surface,borderRadius:6}}>
+                  <div style={{textAlign:"center",fontSize:14,color:C.muted,marginTop:10,padding:"8px",background:C.surface,borderRadius:6}}>
                     ⚠ No models available — Finnhub returned insufficient data for this ticker
                   </div>
                 )}
 
                 {/* Disclaimer */}
-                <div style={{fontSize:9,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
+                <div style={{fontSize:13,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
                   <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = how over/undervalued the stock is at today's price according to each model. Negative = overvalued (model says fair value is below market price); Positive = undervalued. <b>FMP DCF</b> is a professionally pre-computed DCF. <b>DCF (FCF/EPS)</b> use your growth rate from Finnhub. <b>Peter Lynch</b> says fair P/E = growth rate. The AVERAGE drives the Buffett score and the Intrinsic tile above.
                   {availCount<4&&<><br/><span style={{color:C.gold}}>Strikethrough rows</span>: data unavailable on Finnhub/FMP free tier.</>}
                 </div>
@@ -2615,7 +2916,7 @@ function App(){
             }catch(err){
               console.error("Valuation panel error:",err);
               return(
-                <div style={{padding:10,margin:"5px 0",background:"#2a0a0a",border:"1px solid #ef4444",borderRadius:8,fontSize:10,color:"#fca5a5"}}>
+                <div style={{padding:10,margin:"5px 0",background:"#2a0a0a",border:"1px solid #ef4444",borderRadius:8,fontSize:14,color:"#fca5a5"}}>
                   <b>Valuation panel error:</b> {err.message}
                 </div>
               );
@@ -2630,7 +2931,7 @@ function App(){
                 <div style={{...row,marginBottom:6}}>
                   <div style={cardT}>Buy History ({buyHist.length} lots)</div>
                   {buyHist.length>8&&(
-                    <button onClick={()=>setShowAllBuy(v=>!v)} style={{fontSize:9,fontWeight:700,color:C.accent,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>
+                    <button onClick={()=>setShowAllBuy(v=>!v)} style={{fontSize:13,fontWeight:700,color:C.accent,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>
                       {showAllBuy?"▲ Show less":"▼ Show all "+buyHist.length}
                     </button>
                   )}
@@ -2639,11 +2940,11 @@ function App(){
                   const total=bt.price*bt.shares;
                   return(
                     <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<displayBuy.length-1?`1px solid ${C.border}`:"none"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
-                        <span style={{color:C.muted,fontSize:11}}>{bt.date}</span>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:15}}>
+                        <span style={{color:C.muted,fontSize:14}}>{bt.date}</span>
                         <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
-                          <span style={{color:C.mutedLight,fontSize:11}}>{bt.shares.toLocaleString()} sh @ {fmtL(bt.price,h.mkt)}</span>
-                          <span style={{fontWeight:700,color:C.green,fontSize:12}}>= {fmtL(total,h.mkt,0)}</span>
+                          <span style={{color:C.mutedLight,fontSize:14}}>{bt.shares.toLocaleString()} sh @ {fmtL(bt.price,h.mkt)}</span>
+                          <span style={{fontWeight:700,color:C.green,fontSize:15}}>= {fmtL(total,h.mkt,0)}</span>
                         </div>
                       </div>
                     </div>
@@ -2660,7 +2961,7 @@ function App(){
                 <div style={{...row,marginBottom:6}}>
                   <div style={cardT}>Sell History ({sellHist.length} trades)</div>
                   {sellHist.length>5&&(
-                    <button onClick={()=>setShowAllSell(v=>!v)} style={{fontSize:9,fontWeight:700,color:C.accent,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>
+                    <button onClick={()=>setShowAllSell(v=>!v)} style={{fontSize:13,fontWeight:700,color:C.accent,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>
                       {showAllSell?"▲ Show less":"▼ Show all "+sellHist.length}
                     </button>
                   )}
@@ -2669,15 +2970,15 @@ function App(){
                   const received=st.price*st.shares;
                   return(
                     <div key={i} style={{marginBottom:5,paddingBottom:5,borderBottom:i<displaySell.length-1?`1px solid ${C.border}`:"none"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
-                        <span style={{color:C.muted,fontSize:11}}>{st.date}</span>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:15}}>
+                        <span style={{color:C.muted,fontSize:14}}>{st.date}</span>
                         <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
-                          <span style={{color:C.mutedLight,fontSize:11}}>{st.shares.toLocaleString()} sh @ {fmtL(st.price,h.mkt)}</span>
-                          <span style={{fontWeight:700,color:C.red,fontSize:12}}>= {fmtL(received,h.mkt,0)}</span>
+                          <span style={{color:C.mutedLight,fontSize:14}}>{st.shares.toLocaleString()} sh @ {fmtL(st.price,h.mkt)}</span>
+                          <span style={{fontWeight:700,color:C.red,fontSize:15}}>= {fmtL(received,h.mkt,0)}</span>
                         </div>
                       </div>
                       {st.profit!=null&&(
-                        <div style={{textAlign:"right",fontSize:10,fontWeight:700,color:st.profit>=0?C.green:C.red,marginTop:2}}>
+                        <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:st.profit>=0?C.green:C.red,marginTop:2}}>
                           P&L {st.profit>=0?"+":"-"}{fmtL(Math.abs(st.profit),h.mkt,0)}
                         </div>
                       )}
@@ -2688,11 +2989,11 @@ function App(){
             );
           })()}
 
-          <div style={card}><div style={cardT}>Analysis Scores</div>{[["Intrinsic Value",sc.iv],["Economic Moat",sc.mt],["Dividend Yield",sc.dv],["Overall",sc.all]].map(([l,v])=>(<div key={l} style={{marginBottom:8}}><div style={{fontSize:12,color:l==="Overall"?C.text:C.muted,marginBottom:3,fontWeight:l==="Overall"?700:400}}>{l}</div><ScoreBar score={v} max={10} color={l==="Overall"?C.accent:undefined}/></div>))}</div>
-          <div style={card}><div style={cardT}>Key Stats</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>{[["P/E",fmt(h.peRatio)],["Div Yield",fmt(h.divYield)+"%"],["Sector",h.sector],["MS Style",h.msStyle],["Market",`${h.mkt} (${m.code})`],["Benchmark",m.index]].map(([l,v])=>(<div key={l}><div style={{fontSize:9,color:C.muted}}>{l}</div><div style={{fontSize:12,fontWeight:600}}>{v}</div></div>))}</div></div>
+          <div style={card}><div style={cardT}>Analysis Scores</div>{[["Intrinsic Value",sc.iv],["Economic Moat",sc.mt],["Dividend Yield",sc.dv],["Overall",sc.all]].map(([l,v])=>(<div key={l} style={{marginBottom:8}}><div style={{fontSize:15,color:l==="Overall"?C.text:C.muted,marginBottom:3,fontWeight:l==="Overall"?700:400}}>{l}</div><ScoreBar score={v} max={10} color={l==="Overall"?C.accent:undefined}/></div>))}</div>
+          <div style={card}><div style={cardT}>Key Stats</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>{[["P/E",fmt(h.peRatio)],["Div Yield",fmt(h.divYield)+"%"],["Sector",h.sector],["MS Style",h.msStyle],["Market",`${h.mkt} (${m.code})`],["Benchmark",m.index]].map(([l,v])=>(<div key={l}><div style={{fontSize:13,color:C.muted}}>{l}</div><div style={{fontSize:15,fontWeight:600}}>{v}</div></div>))}</div></div>
 
           <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}30`}}>
-            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:16}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:18}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
             {(()=>{
               const bs=buffettScore(h);
               const gainPctAI=((h.price-h.avgCost)/h.avgCost)*100;
@@ -2704,7 +3005,7 @@ function App(){
               const divText=divOk?`pays a ${h.divYield.toFixed(1)}% dividend yield, providing income while you wait`:"pays no dividend, so returns depend entirely on price appreciation";
               const perfText=gainPctAI>=0?`currently up ${fmt(gainPctAI,1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`:`currently down ${fmt(Math.abs(gainPctAI),1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`;
               return(
-                <div style={{fontSize:12,color:C.mutedLight,lineHeight:1.8}}>
+                <div style={{fontSize:15,color:C.mutedLight,lineHeight:1.8}}>
                   <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
                   <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. At a P/E of {fmt(h.peRatio,1)}x, it is {h.peRatio>0&&h.peRatio<20?"reasonably valued":h.peRatio>=20&&h.peRatio<35?"moderately priced":"expensively priced"} relative to earnings.</p>
                   <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
@@ -2724,8 +3025,8 @@ function App(){
     const f=holdingForm,setF=setHoldingForm;
     const h=holdings.find(x=>x.id===holdingEditId);
     if(!h)return null;
-    const iF={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:13,outline:"none",boxSizing:"border-box"};
-    const lbl={fontSize:10,color:C.muted,marginBottom:4};
+    const iF={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:16,outline:"none",boxSizing:"border-box"};
+    const lbl={fontSize:14,color:C.muted,marginBottom:4};
     const mkts=Object.keys(MKT);
     const moatOpts=["Wide","Narrow","None"];
     const sectorOpts=["Technology","Healthcare","Financials","Consumer Disc.","Industrials","Energy","Utilities","Materials","Real Estate","Comm. Services","Consumer Staples"];
@@ -2736,14 +3037,14 @@ function App(){
           {/* Header */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div>
-              <div style={{fontSize:15,fontWeight:800,color:C.accent}}>Edit Holding</div>
-              <div style={{fontSize:11,color:C.muted}}>{h.ticker} — {h.name}</div>
+              <div style={{fontSize:18,fontWeight:800,color:C.accent}}>Edit Holding</div>
+              <div style={{fontSize:14,color:C.muted}}>{h.ticker} — {h.name}</div>
             </div>
-            <button onClick={()=>{setHoldingEditId(null);setHoldingForm({});}} style={{background:"none",border:"none",color:C.muted,fontSize:22,cursor:"pointer",lineHeight:1}}>x</button>
+            <button onClick={()=>{setHoldingEditId(null);setHoldingForm({});}} style={{background:"none",border:"none",color:C.muted,fontSize:24,cursor:"pointer",lineHeight:1}}>x</button>
           </div>
 
           {/* Section: Identity */}
-          <div style={{fontSize:10,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8}}>IDENTITY</div>
+          <div style={{fontSize:14,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8}}>IDENTITY</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
             <div>
               <div style={lbl}>Ticker Symbol</div>
@@ -2774,7 +3075,7 @@ function App(){
           </div>
 
           {/* Section: Position */}
-          <div style={{fontSize:10,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8,marginTop:4}}>POSITION</div>
+          <div style={{fontSize:14,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8,marginTop:4}}>POSITION</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
             <div>
               <div style={lbl}>Shares / Units</div>
@@ -2787,7 +3088,7 @@ function App(){
           </div>
 
           {/* Section: Valuation */}
-          <div style={{fontSize:10,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8,marginTop:4}}>VALUATION</div>
+          <div style={{fontSize:14,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8,marginTop:4}}>VALUATION</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
             <div>
               <div style={lbl}>Current Price ({MKT[f.mkt||"US"]?.symbol})</div>
@@ -2814,20 +3115,20 @@ function App(){
             const localVal=p*s,sgdVal=toSGDlive(localVal,f.mkt||"US");
             return(
               <div style={{background:C.accent+"0D",border:`1px solid ${C.accentDim}30`,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
-                <div style={{fontSize:9,color:C.accent,fontWeight:700,marginBottom:6}}>PREVIEW</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11}}>
-                  <div><div style={{fontSize:8,color:C.muted}}>Market Value</div><div style={{fontWeight:700}}>{fmtL(localVal,f.mkt||"US",0)}</div><div style={{fontSize:9,color:C.muted}}>{fmtS(sgdVal)}</div></div>
-                  <div style={{textAlign:"center"}}><div style={{fontSize:8,color:C.muted}}>Gain vs Cost</div><div style={{fontWeight:700,color:gain>=0?C.green:C.red}}>{gain>=0?"+":""}{fmt(gain,1)}%</div></div>
-                  <div style={{textAlign:"right"}}><div style={{fontSize:8,color:C.muted}}>P&amp;L</div><div style={{fontWeight:700,color:gain>=0?C.green:C.red}}>{gain>=0?"+":"-"}{fmtL(Math.abs((p-ac)*s),f.mkt||"US",0)}</div></div>
+                <div style={{fontSize:13,color:C.accent,fontWeight:700,marginBottom:6}}>PREVIEW</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:14}}>
+                  <div><div style={{fontSize:12,color:C.muted}}>Market Value</div><div style={{fontWeight:700}}>{fmtL(localVal,f.mkt||"US",0)}</div><div style={{fontSize:13,color:C.muted}}>{fmtS(sgdVal)}</div></div>
+                  <div style={{textAlign:"center"}}><div style={{fontSize:12,color:C.muted}}>Gain vs Cost</div><div style={{fontWeight:700,color:gain>=0?C.green:C.red}}>{gain>=0?"+":""}{fmt(gain,1)}%</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.muted}}>P&amp;L</div><div style={{fontWeight:700,color:gain>=0?C.green:C.red}}>{gain>=0?"+":"-"}{fmtL(Math.abs((p-ac)*s),f.mkt||"US",0)}</div></div>
                 </div>
               </div>
             );
           })()}
 
-          <button onClick={saveHolding} disabled={!ready} style={{width:"100%",padding:"12px",borderRadius:9,border:"none",background:ready?C.accent:C.border,color:ready?"#000":C.muted,fontSize:14,fontWeight:700,cursor:ready?"pointer":"not-allowed",marginBottom:8}}>
+          <button onClick={saveHolding} disabled={!ready} style={{width:"100%",padding:"12px",borderRadius:9,border:"none",background:ready?C.accent:C.border,color:ready?"#000":C.muted,fontSize:17,fontWeight:700,cursor:ready?"pointer":"not-allowed",marginBottom:8}}>
             Save Changes to {f.ticker||"Holding"}
           </button>
-          <button onClick={()=>{setHoldingEditId(null);setHoldingForm({});}} style={{width:"100%",padding:"10px",borderRadius:9,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,cursor:"pointer"}}>
+          <button onClick={()=>{setHoldingEditId(null);setHoldingForm({});}} style={{width:"100%",padding:"10px",borderRadius:9,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:16,cursor:"pointer"}}>
             Cancel
           </button>
           <div style={{height:16}}/>
@@ -2846,25 +3147,25 @@ function App(){
     return(
       <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:70,padding:"0 20px"}}>
         <div style={{background:C.card,borderRadius:16,padding:24,width:"100%",maxWidth:360,border:`1px solid ${C.red}44`}}>
-          <div style={{fontSize:22,textAlign:"center",marginBottom:8}}>Delete Holding?</div>
+          <div style={{fontSize:24,textAlign:"center",marginBottom:8}}>Delete Holding?</div>
           <div style={{textAlign:"center",marginBottom:16}}>
-            <div style={{fontWeight:800,fontSize:18}}>{h.ticker}</div>
-            <div style={{fontSize:12,color:C.muted}}>{h.name}</div>
-            <div style={{fontSize:13,marginTop:8}}>
+            <div style={{fontWeight:800,fontSize:20}}>{h.ticker}</div>
+            <div style={{fontSize:15,color:C.muted}}>{h.name}</div>
+            <div style={{fontSize:16,marginTop:8}}>
               <span style={{color:C.muted}}>Value: </span>
               <span style={{fontWeight:700}}>{fmtL(localVal,h.mkt,0)}</span>
               <span style={{color:C.muted}}> ≈ {fmtS(sgdVal)}</span>
             </div>
-            <div style={{fontSize:13}}><span style={{color:C.muted}}>{h.shares.toLocaleString()} shares</span></div>
+            <div style={{fontSize:16}}><span style={{color:C.muted}}>{h.shares.toLocaleString()} shares</span></div>
           </div>
-          <div style={{background:C.red+"10",border:`1px solid ${C.red}33`,borderRadius:8,padding:"8px 12px",marginBottom:16,fontSize:11,color:C.red,textAlign:"center"}}>
+          <div style={{background:C.red+"10",border:`1px solid ${C.red}33`,borderRadius:8,padding:"8px 12px",marginBottom:16,fontSize:14,color:C.red,textAlign:"center"}}>
             This will permanently remove this holding from your portfolio. This cannot be undone.
           </div>
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setDeleteConfirm(null)} style={{flex:1,padding:"11px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            <button onClick={()=>setDeleteConfirm(null)} style={{flex:1,padding:"11px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:16,fontWeight:600,cursor:"pointer"}}>
               Cancel
             </button>
-            <button onClick={doDeleteHolding} style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:C.red,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+            <button onClick={doDeleteHolding} style={{flex:1,padding:"11px",borderRadius:8,border:"none",background:C.red,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer"}}>
               Delete
             </button>
           </div>
@@ -2879,6 +3180,7 @@ function App(){
     {id:"insights", icon:"💡",label:"Insights"},
     {id:"indices",  icon:"🌍",label:"Markets"},
     {id:"trades",   icon:"💱",label:"Trades"},
+    {id:"alerts",   icon:"🔔",label:"Alerts"},
     {id:"summary",  icon:"📋",label:"Summary"},
   ];
   const refreshTs=lastRefresh?lastRefresh.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null;
@@ -2886,8 +3188,8 @@ function App(){
     <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,minHeight:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative"}}>
       {isLoading&&(
         <div style={{position:"fixed",inset:0,background:"#0A0D14",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,padding:20}}>
-          <div style={{fontSize:28,fontWeight:800,color:"#00D4FF",letterSpacing:"-1px"}}>IGNITUS</div>
-          <div style={{fontSize:12,color:"#6B7A99",textAlign:"center",maxWidth:320,wordBreak:"break-all"}}>{loadMsg}</div>
+          <div style={{fontSize:30,fontWeight:800,color:"#00D4FF",letterSpacing:"-1px"}}>IGNITUS</div>
+          <div style={{fontSize:15,color:"#6B7A99",textAlign:"center",maxWidth:320,wordBreak:"break-all"}}>{loadMsg}</div>
           <div style={{width:120,height:2,background:"#1E2A3E",borderRadius:1,overflow:"hidden"}}>
             <div style={{width:"55%",height:"100%",background:"#00D4FF",borderRadius:1,animation:"pulse 1s ease-in-out infinite"}}/>
           </div>
@@ -2898,25 +3200,25 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
   border:`1px solid ${showValue?C.border:C.accent}`,
-  cursor:"pointer",padding:"3px 8px",borderRadius:5,
-  fontSize:11,color:showValue?C.mutedLight:C.accent,
+  cursor:"pointer",padding:"4px 10px",borderRadius:6,
+  fontSize:14,color:showValue?C.mutedLight:C.accent,
   lineHeight:1,letterSpacing:3,fontWeight:700,
   transition:"all 0.2s"
 }}>···</button>
             </div>
-            <div style={{fontSize:30,fontWeight:800,letterSpacing:"-1px",lineHeight:1}}>{showValue?fmtS(hdrValSGD):"S$ ••••••"}</div>
-            <div style={{fontSize:10,color:C.muted,marginTop:3}}>{hdrHoldings.length} stocks{mktFilter!=="ALL"?<span style={{color:C.accent,fontSize:9,marginLeft:4}}>· {mktFilter==="CN"?"HK":mktFilter}</span>:""}{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
+            <div style={{fontSize:33,fontWeight:800,letterSpacing:"-1.5px",lineHeight:1}}>{showValue?fmtS(hdrValSGD):"S$ ••••••"}</div>
+            <div style={{fontSize:14,color:C.muted,marginTop:3}}>{hdrHoldings.length} stocks{mktFilter!=="ALL"?<span style={{color:C.accent,fontSize:13,marginLeft:4}}>· {mktFilter==="CN"?"HK":mktFilter}</span>:""}{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
           </div>
           <div style={{textAlign:"right"}}>
-            <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:13,fontWeight:700,background:hdrUnrealSGD>=0?C.green+"18":C.red+"18",color:hdrUnrealSGD>=0?C.green:C.red}}>{hdrUnrealSGD>=0?"UP":"DN"} {showValue?fmtPct(hdrUnrealPct):"• •%"}</div>
-            <div style={{fontSize:11,color:hdrUnrealSGD>=0?C.green:C.red,fontWeight:600,marginTop:5}}>Unr. {showValue?(hdrUnrealSGD>=0?"+":"-")+fmtS(Math.abs(hdrUnrealSGD)):"••••••"}</div>
-            <div style={{fontSize:11,color:hdrRealSGD>=0?C.gold:C.red,fontWeight:600,marginTop:3}}>Rlz. {showValue?(hdrRealSGD>=0?"+":"-")+fmtS(Math.abs(hdrRealSGD)):"••••••"}</div>
-            <div style={{fontSize:10,color:C.gold,marginTop:3}}>Div {showValue?fmtS(hdrDivSGD)+"/yr gross · "+fmtS(hdrNetDivSGD)+"/yr net":"••••••"}</div>
+            <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:16,fontWeight:700,background:hdrUnrealSGD>=0?C.green+"18":C.red+"18",color:hdrUnrealSGD>=0?C.green:C.red}}>{hdrUnrealSGD>=0?"UP":"DN"} {showValue?fmtPct(hdrUnrealPct):"• •%"}</div>
+            <div style={{fontSize:14,color:hdrUnrealSGD>=0?C.green:C.red,fontWeight:600,marginTop:5}}>Unr. {showValue?(hdrUnrealSGD>=0?"+":"-")+fmtS(Math.abs(hdrUnrealSGD)):"••••••"}</div>
+            <div style={{fontSize:14,color:hdrRealSGD>=0?C.gold:C.red,fontWeight:600,marginTop:3}}>Rlz. {showValue?(hdrRealSGD>=0?"+":"-")+fmtS(Math.abs(hdrRealSGD)):"••••••"}</div>
+            <div style={{fontSize:14,color:C.gold,marginTop:3}}>Div {showValue?fmtS(hdrDivSGD)+"/yr gross · "+fmtS(hdrNetDivSGD)+"/yr net":"••••••"}</div>
           </div>
         </div>
       </div>
@@ -2924,30 +3226,30 @@ function App(){
       {/* Tab bar + refresh button */}
       <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,background:C.surface,position:"sticky",top:0,zIndex:10,overflowX:"auto",alignItems:"stretch"}}>
         {TABS.map(t=>(
-          <button key={t.id} style={{flex:"0 0 auto",padding:"10px 12px",fontSize:10,fontWeight:tab===t.id?700:500,color:tab===t.id?C.accent:C.muted,borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`,cursor:"pointer",background:"none",border:"none",textAlign:"center",whiteSpace:"nowrap"}} onClick={()=>setTab(t.id)}>
-            <div style={{fontSize:16,marginBottom:1}}>{t.icon}</div>{t.label}
+          <button key={t.id} style={{flex:"0 0 auto",padding:"11px 12px",fontSize:14,fontWeight:tab===t.id?700:500,color:tab===t.id?C.accent:C.muted,borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`,cursor:"pointer",background:"none",border:"none",textAlign:"center",whiteSpace:"nowrap"}} onClick={()=>setTab(t.id)}>
+            <div style={{fontSize:19,marginBottom:2}}>{t.icon}</div>{t.label}
           </button>
         ))}
         {/* Refresh button — right-anchored */}
         <div style={{marginLeft:"auto",padding:"0 10px",display:"flex",alignItems:"center",flexShrink:0}}>
           {/* Price update status */}
           {priceStatus==='fetching'&&(
-            <div style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",fontSize:9,color:C.gold,fontWeight:700}}>
+            <div style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",fontSize:13,color:C.gold,fontWeight:700}}>
               <span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>↻</span> Prices...
             </div>
           )}
           {priceStatus==='done'&&priceUpdated&&(
-            <div style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",fontSize:9,color:C.green,fontWeight:700,whiteSpace:"nowrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",fontSize:13,color:C.green,fontWeight:700,whiteSpace:"nowrap"}}>
               ✓ {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}
             </div>
           )}
           {priceStatus==='error'&&(
-            <div style={{fontSize:9,color:C.red,padding:"4px 8px",fontWeight:700}}>Price err</div>
+            <div style={{fontSize:13,color:C.red,padding:"4px 8px",fontWeight:700}}>Price err</div>
           )}
           <button onClick={()=>{fetchLivePrices(holdings);fetchLiveFx();fetchDividends(holdings);}} title="Update live prices and FX rates" style={{
             padding:"6px 8px",borderRadius:8,cursor:"pointer",flexShrink:0,
             border:`1px solid ${C.gold}44`,background:C.gold+"12",color:C.gold,
-            fontSize:10,fontWeight:700,whiteSpace:"nowrap"
+            fontSize:14,fontWeight:700,whiteSpace:"nowrap"
           }}>
             $ Live
           </button>
@@ -2959,8 +3261,8 @@ function App(){
             color:pendingChanges>0?C.accent:C.muted,
             transition:"all 0.2s"
           }}>
-            <span style={{fontSize:14,display:"inline-block",animation:refreshAnim?"spin 0.6s linear":"none"}}>↻</span>
-            <span style={{fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>
+            <span style={{fontSize:17,display:"inline-block",animation:refreshAnim?"spin 0.6s linear":"none"}}>↻</span>
+            <span style={{fontSize:14,fontWeight:700,whiteSpace:"nowrap"}}>
               {pendingChanges>0?`${pendingChanges} pending`:"Refresh"}
             </span>
             {pendingChanges>0&&(
@@ -2970,10 +3272,10 @@ function App(){
         </div>
       </div>
 
-      <div style={{overflowY:"auto",padding:"14px 16px 80px"}}>
+      <div style={{overflowY:"auto",padding:"16px 18px 100px"}}>
         {/* Last refresh timestamp */}
         {refreshTs&&(
-          <div style={{fontSize:9,color:C.muted,textAlign:"right",marginBottom:8,opacity:0.7}}>
+          <div style={{fontSize:13,color:C.muted,textAlign:"right",marginBottom:8,opacity:0.7}}>
             Last refreshed: {refreshTs}
           </div>
         )}
@@ -2981,6 +3283,7 @@ function App(){
         {tab==="insights" &&<InsightsView/>}
         {tab==="indices"  &&<IndexView/>}
         {tab==="trades"   &&<TradesView/>}
+        {tab==="alerts"   &&<AlertsView/>}
         {tab==="summary"  &&<SummaryView/>}
       </div>
 
@@ -2992,12 +3295,12 @@ function App(){
             padding:"10px 16px",borderRadius:24,
             border:"none",cursor:"pointer",
             background:`linear-gradient(135deg,${C.accent},${C.accentDim})`,
-            color:"#000",fontWeight:700,fontSize:13,
+            color:"#000",fontWeight:700,fontSize:16,
             boxShadow:`0 4px 20px ${C.accent}55`
           }}>
-            <span style={{fontSize:16,display:"inline-block",animation:refreshAnim?"spin 0.6s linear":"none"}}>↻</span>
+            <span style={{fontSize:18,display:"inline-block",animation:refreshAnim?"spin 0.6s linear":"none"}}>↻</span>
             Refresh All Tabs
-            <span style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"1px 7px",fontSize:11}}>{pendingChanges}</span>
+            <span style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"1px 7px",fontSize:14}}>{pendingChanges}</span>
           </button>
         </div>
       )}
@@ -3005,7 +3308,7 @@ function App(){
       {/* Refresh toast */}
       {refreshAnim&&(
         <div style={{position:"fixed",bottom:70,left:"50%",transform:"translateX(-50%)",zIndex:80,pointerEvents:"none",animation:"fadeUp 0.3s ease"}}>
-          <div style={{background:C.green,color:"#000",padding:"8px 18px",borderRadius:20,fontSize:12,fontWeight:700,whiteSpace:"nowrap",boxShadow:`0 4px 16px ${C.green}44`}}>
+          <div style={{background:C.green,color:"#000",padding:"8px 18px",borderRadius:20,fontSize:15,fontWeight:700,whiteSpace:"nowrap",boxShadow:`0 4px 16px ${C.green}44`}}>
             All tabs refreshed
           </div>
         </div>
