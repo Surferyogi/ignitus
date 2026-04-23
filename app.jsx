@@ -1646,99 +1646,7 @@ function App(){
           </>
         )}
 
-        {insightTab==="senate"&&(
-          <div style={card}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <div style={cardT}>US Senate Trades (Latest 10)</div>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                {senateData.length>0&&!senateUpdating&&<span style={{fontSize:13,color:C.green,fontWeight:700}}>● live</span>}
-                {senateLoading&&<span style={{fontSize:13,color:C.gold}}>↻</span>}
-                <button onClick={updateSenateData} disabled={senateUpdating} title="Update senate trades from master list" style={{
-                  fontSize:14,padding:"4px 10px",borderRadius:6,cursor:senateUpdating?"not-allowed":"pointer",
-                  background:senateUpdating?C.surface:C.accent+"15",
-                  border:`1px solid ${senateUpdating?C.border:C.accent}`,
-                  color:senateUpdating?C.muted:C.accent,fontWeight:700,
-                }}>{senateUpdating?"updating...":"↻ Update"}</button>
-              </div>
-            </div>
-
-
-            <div style={{fontSize:14,color:C.muted,marginBottom:12,padding:"6px 10px",background:C.surface,borderRadius:6}}>
-              US Senate STOCK Act disclosures. Senators must report within 30–45 days of trade. Update via Supabase dashboard.
-            </div>
-            {senateLoading&&<div style={{textAlign:"center",padding:16,color:C.gold,fontSize:14}}>↻ Loading live senate trades...</div>}
-            {!senateLoading&&senateData.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:14}}>No senate trades in database.<br/>Add entries via the Supabase dashboard.</div>}
-            {!senateLoading&&senateData.filter((s,i,arr)=>arr.findIndex(x=>x.ticker===s.ticker&&x.name===s.name&&x.action===s.action&&x.date===s.date)===i)
-              .sort((a,b)=>b.date.localeCompare(a.date))
-              .slice(0,10)
-              .map((s,i,arr)=>{
-              const inPort=holdings.find(h=>h.ticker===s.ticker);
-              const extPrice=senatePrices[s.ticker];
-              const livePrice=inPort?inPort.price:(extPrice?.price||s.priceNow||0);
-              // Use computed valuation average (FMP/Finnhub) if available
-              const compIV=valuations[s.ticker]?.valuations?.average||0;
-              const intrinsic=compIV>0?compIV:(inPort?inPort.intrinsic:(extPrice?.intrinsic||0));
-              const avgCost=inPort?inPort.avgCost:0;
-              const mkt=inPort?inPort.mkt:"US";
-              const histKey=s.ticker+'_'+s.date;
-              const histPrice=senateHistPrices[histKey];
-              // Trigger fetch if not yet loaded
-              if(histPrice===undefined) fetchSenateHistPrice(s.ticker,s.date);
-              const pricePaid=histPrice||0;
-              const vsNow=pricePaid>0&&livePrice>0?((livePrice-pricePaid)/pricePaid*100):null;
-              const gainPct=avgCost>0?((livePrice-avgCost)/avgCost*100):null;
-              const upside=intrinsic>0&&livePrice>0?((intrinsic-livePrice)/livePrice*100):null;
-              return(
-                <div key={i} style={{marginBottom:14,paddingBottom:14,borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
-                  {/* Header row: senator name + ticker/action */}
-                  <div style={{...row,marginBottom:6}}>
-                    <div>
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                        <span style={{fontWeight:700,fontSize:16}}>{s.name}</span>
-                        <Bdg label={s.party} bg={s.party==="D"?"#1e3a5f":"#3d1515"} color={s.party==="D"?"#60a5fa":"#f87171"}/>
-                        {inPort&&<span style={{fontSize:12,color:C.accent,fontWeight:700,padding:"1px 5px",borderRadius:3,background:C.accent+"18"}}>IN PORTFOLIO</span>}
-                      </div>
-                      <div style={{fontSize:14,color:C.muted}}>{s.date} · {s.sector}</div>
-                    </div>
-                    <div style={{textAlign:"right"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"flex-end",marginBottom:2}}>
-                        <span style={{fontWeight:800,fontSize:17}}>{s.ticker}</span>
-                        <Bdg label={s.action} bg={s.action==="BUY"?C.green+"22":C.red+"22"} color={s.action==="BUY"?C.green:C.red}/>
-                      </div>
-                      <div style={{fontSize:14,color:C.gold,fontWeight:600}}>{s.amount}</div>
-                    </div>
-                  </div>
-                  {/* Price strip — 4 columns: Price Paid | Live Price | Avg Cost | Intrinsic */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,background:inPort?C.accent+"0D":C.surface,borderRadius:7,padding:"7px 10px",border:inPort?`1px solid ${C.accent}22`:"none"}}>
-                    <div>
-                      <div style={{fontSize:12,color:C.gold,fontWeight:700}}>Sen. Paid</div>
-                      <div style={{fontSize:14,fontWeight:700,color:pricePaid>0?C.gold:C.border}}>
-                        {pricePaid>0?("$"+fmt(pricePaid)):"…"}
-                      </div>
-                      <div style={{fontSize:12,color:C.muted}}>on {s.date?.slice(5)}</div>
-                    </div>
-                    <div style={{textAlign:"center"}}>
-                      <div style={{fontSize:12,color:C.muted}}>Live Price</div>
-                      <div style={{fontSize:14,fontWeight:700}}>{livePrice>0?fmtL(livePrice,mkt):"—"}</div>
-                      {vsNow!=null&&<div style={{fontSize:12,fontWeight:700,color:vsNow>=0?C.green:C.red}}>{vsNow>=0?"+":""}{fmt(vsNow,1)}% since</div>}
-                    </div>
-                    <div style={{textAlign:"center"}}>
-                      <div style={{fontSize:12,color:C.muted}}>Avg Cost</div>
-                      <div style={{fontSize:14,fontWeight:700,color:avgCost>0?C.mutedLight:C.border}}>{avgCost>0?fmtL(avgCost,mkt):"—"}</div>
-                      {gainPct!=null&&<div style={{fontSize:12,fontWeight:700,color:gainPct>=0?C.green:C.red}}>{gainPct>=0?"+":""}{fmt(gainPct,1)}%</div>}
-                    </div>
-                    <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:12,color:C.muted}}>{inPort?"Intrinsic":"Graham №"}</div>
-                      <div style={{fontSize:14,fontWeight:700,color:upside!=null?(upside>=0?C.green:C.red):C.border}}>{intrinsic>0?fmtL(intrinsic,mkt):"—"}</div>
-                      {upside!=null&&<div style={{fontSize:12,fontWeight:700,color:upside>=0?C.green:C.red}}>{upside>=0?"+":""}{fmt(upside,1)}% up</div>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
+        
         {insightTab==="buffett"&&(
           <>
             {/* FIX 5: Moat data freshness notice */}
@@ -2315,10 +2223,16 @@ function App(){
     const hasSenate=senateData.length>0;
 
     // Senate buy signals — reuse existing senateData
-    // Senate trades — identical logic to Insights Senate tab (all actions, same dedup+sort)
+    // Senate trades — sorted by largest transaction size first, top 10
+    const parseAmt=s=>{
+      // Parse upper bound of amount string e.g. "$1,001 - $15,000" → 15000
+      // or "$1,000,001 - $5,000,000" → 5000000
+      const m=(s.amount||"").match(/\$([\d,]+)\s*$/);
+      return m?parseInt(m[1].replace(/,/g,""),10):0;
+    };
     const senateBuys=senateData
       .filter((s,i,arr)=>arr.findIndex(x=>x.ticker===s.ticker&&x.name===s.name&&x.action===s.action&&x.date===s.date)===i)
-      .sort((a,b)=>b.date.localeCompare(a.date))
+      .sort((a,b)=>parseAmt(b)-parseAmt(a))  // largest purchase first
       .slice(0,10);
 
     return(
@@ -2503,10 +2417,10 @@ function App(){
         {hasSenate&&(
           <div style={card}>
             <div style={{...cardT,display:"flex",alignItems:"center",gap:6}}>
-              <span>🏛</span> Senate Trades (Latest 10)
+              <span>🏛</span> Senate Trades (Top 10 by Size)
             </div>
             <div style={{fontSize:13,color:C.muted,marginBottom:10,lineHeight:1.5}}>
-              Same data as Insights → Senate tab. Latest 10 trades (BUY & SELL). Congress must disclose within 30-45 days per STOCK Act. Stocks in your portfolio highlighted.
+              Top 10 largest Congress trades by purchase size. Congress must disclose within 30-45 days per STOCK Act. Stocks in your portfolio highlighted.
             </div>
             {senateBuys.length===0&&(
               <div style={{fontSize:14,color:C.muted,textAlign:"center",padding:"12px 0"}}>
