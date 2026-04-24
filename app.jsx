@@ -1,15 +1,10 @@
-// ── Electron DB bridge ────────────────────────────────────────────────────────
-// Data is loaded from SQLite via window.portfolioDB (exposed by preload.js)
-// ALL_H / ALL_T / SENATE / FIRST_BUY are populated from the database at startup
 
 const { useState, useMemo, useEffect, useCallback } = React;
 
-// Static fallbacks — replaced immediately by live DB data in App useEffect
 let ALL_H = [];
 let ALL_T = [];
 let SENATE = [];
 let FIRST_BUY = {};
-
 
 const C={
   bg:         "#080B10",  // slightly deeper — less harsh pure black
@@ -35,11 +30,6 @@ const MKT={
   AU:{symbol:"A$", code:"AUD",r:0.81,  index:"ASX 200",   idxVal:7834.1,  idxYtd:3.7,  idxChange:-0.12},
   SG:{symbol:"S$", code:"SGD",r:1.0,   index:"STI",       idxVal:3892.4,  idxYtd:6.2,  idxChange:0.41},
 };
-// Dividend withholding tax rates for Singapore investors
-// US: 30% (Singapore has no tax treaty with US)
-// JP: 20.315% (15% national + 5.315% local for non-residents)
-// EU/France: 15% (Singapore-France tax treaty reduces from 25% to 15%)
-// SG, HK, CN: 0% (no withholding tax on dividends)
 const DIV_TAX={US:0.30, JP:0.20315, EU:0.15, SG:0, CN:0, GB:0};
 const getDivTax=(mkt)=>DIV_TAX[mkt]||0;
 const fmtTax=(mkt)=>{const t=getDivTax(mkt);return t>0?`${(t*100).toFixed(3).replace(/\.?0+$/,'')}% WHT`:null;};
@@ -53,12 +43,6 @@ const SECTORS=["Technology","Healthcare","Financials","Consumer Disc.","Industri
 const MS_STYLES=["Large Growth","Large Blend","Large Value","Mid Growth","Mid Blend","Mid Value","Small Growth","Small Blend","Small Value"];
 const SCOL=[C.accent,C.green,C.gold,C.purple,"#FF8C42","#FF4D6A","#62D2E8","#C084FC","#FDE68A","#A3E635","#FB923C"];
 
-
-// Price history is fetched from Yahoo Finance via Edge Function - no simulation
-
-// HIST removed - all chart data is real from Yahoo Finance
-
-// Scoring - avoid bare < in expressions by using negation where possible
 const scoreH=h=>{
   const up=((h.intrinsic-h.price)/h.price)*100;
   const iv=Math.max(0,Math.min(10,Math.round(5+up/10)));
@@ -92,7 +76,6 @@ const buffettScore=h=>{
   return{score:total,action,reason,col};
 };
 
-// ─── Shared UI atoms ──────────────────────────────────────────────────────────
 function Bdg({label,bg,color}){
   return <span style={{fontSize:13,fontWeight:700,padding:"2px 6px",borderRadius:3,background:bg,color}}>{label}</span>;
 }
@@ -115,7 +98,6 @@ function ScoreBar({score,max=10,color}){
   );
 }
 
-// Sparkline — no bare < in this component
 function Sparkline({data,color=C.accent,height=44,period="6m"}){
   if(!data||data.length<2)return null;
   const mn=Math.min(...data),mx=Math.max(...data),range=mx-mn||1;
@@ -130,7 +112,6 @@ function Sparkline({data,color=C.accent,height=44,period="6m"}){
   const area=path+` L${W},${H} L0,${H} Z`;
   const gid="g"+color.replace(/[^a-zA-Z0-9]/g,"");
 
-  // Generate X-axis markers based on period
   const now=new Date();
   function getMarkers(){
     const n=data.length;
@@ -143,24 +124,20 @@ function Sparkline({data,color=C.accent,height=44,period="6m"}){
         tick:true
       }));
     } else if(period==="1y"){
-      // Quarterly labels + monthly ticks
       const quarters=Array.from({length:5},(_,i)=>({
         pos:Math.round((i/4)*n),
         label:new Date(now.getFullYear()-1+Math.floor((now.getMonth()+i*3)/12),((now.getMonth()+i*3)%12),1).toLocaleString("default",{month:"short"}),
         tick:true,major:true
       }));
-      // Monthly minor ticks
       const monthTicks=Array.from({length:13},(_,i)=>({pos:Math.round((i/12)*n),label:"",tick:true,major:false}));
       return [...monthTicks,...quarters];
     } else {
-      // 5y/all: year labels + monthly minor ticks
       const years=period==="5y"?5:10;
       const yearMarks=Array.from({length:years+1},(_,i)=>({
         pos:Math.min(Math.round((i/years)*n),n-1),
         label:String(now.getFullYear()-years+i),
         tick:true,major:true
       }));
-      // Quarterly minor ticks
       const quarters=years*4;
       const qTicks=Array.from({length:quarters+1},(_,i)=>({
         pos:Math.min(Math.round((i/quarters)*n),n-1),
@@ -189,7 +166,6 @@ function Sparkline({data,color=C.accent,height=44,period="6m"}){
       {markers.map((m,idx)=>{
         const x=data.length>1?(m.pos/(data.length-1))*W:0;
         const hasLabel=m.label&&m.label.length>0;
-        // Anchor: first labeled→start, last labeled→end, rest→middle
         const labeledMarkers=markers.filter(mk=>mk.label);
         const labelIdx=labeledMarkers.indexOf(m);
         const anchor=labelIdx===0?"start":labelIdx===labeledMarkers.length-1?"end":"middle";
@@ -217,7 +193,6 @@ function MiniSparkline({data,color=C.accent}){
   );
 }
 
-// Performance chart with period support
 function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fetchPerfChartData}){
   const m=MKT[mktFilter];
   const idxName=mktFilter==="ALL"?"S&P 500":(m?.index||"Index");
@@ -261,7 +236,6 @@ function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fet
   const pp=pN.map((v,i)=>`${i===0?"M":"L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
   const ip=iNorm.map((v,i)=>`${i===0?"M":"L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
 
-  // Date markers
   const now=new Date();
   const markers=(()=>{
     if(period==="30d") return [0,1,2,3,4].map(w=>({pos:Math.round((w/4)*(n-1)),label:w===0?"4w":w===1?"3w":w===2?"2w":w===3?"1w":"",major:true}));
@@ -334,7 +308,6 @@ function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fet
   );
 }
 
-
 function DonutChart({data,size=96}){
   const total=data.reduce((s,d)=>s+d.value,0)||1;
   let cum=-90;
@@ -371,7 +344,6 @@ function MktSelector({mktFilter,setMktFilter,holdings}){
   );
 }
 
-// ─── Error Boundary: displays errors instead of black-screen ──────────────────
 class ErrBoundary extends React.Component {
   constructor(p){ super(p); this.state = {err: null}; }
   static getDerivedStateFromError(err){ return {err}; }
@@ -395,7 +367,6 @@ class ErrBoundary extends React.Component {
   }
 }
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
 function App(){
   const [tab,setTab]=useState("portfolio");
   const [holdings,setHoldings]=useState(ALL_H);
@@ -435,7 +406,6 @@ function App(){
   const [moatUpdatedAt,setMoatUpdatedAt]=useState(null); // FIX 5: when moat_map was last seeded
   const [valLoading,setValLoading]=useState({});
 
-  // ── DB persistence ────────────────────────────────────────────────────────────
   const [dbStatus,setDbStatus]=useState('ready'); // 'ready' | 'saving' | 'saved' | 'error'
   const [isLoading,setIsLoading]=useState(true);
   const [priceStatus,setPriceStatus]=useState('idle');
@@ -443,7 +413,6 @@ function App(){
   const [fxUpdated,setFxUpdated]=useState(null); // 'idle'|'fetching'|'done'|'error'
   const [priceUpdated,setPriceUpdated]=useState(null); // timestamp of last price update
 
-  // ── Load data from Supabase on mount ─────────────────────────────────────────
   const [loadMsg,setLoadMsg]=useState('Connecting...');
   useEffect(()=>{
     if(!window.portfolioDB){setLoadMsg('ERROR: portfolioDB not found');setIsLoading(false);return;}
@@ -458,19 +427,15 @@ function App(){
           if(!fb[t.ticker]||t.date<fb[t.ticker])fb[t.ticker]=t.date;
         });
         FIRST_BUY=fb;
-        // Load senate data
         if(data.senate&&data.senate.length>0){
           SENATE.length=0;
           data.senate.forEach(s=>SENATE.push(s));
         }
-        // Fetch live prices and FX rates after data loads
         fetchLivePrices(data.holdings);
         fetchLiveFx();
         fetchLiveIndices();
         fetchSenateTrades();
-        // Auto-fetch senate from Quiver (pass holdings directly to avoid stale closure)
         updateSenateDataSilent(data.holdings);
-        // Apply moat ratings from meta table on every launch (silent, no spinner)
         fetchMoatData(data.holdings);
 
       } else {
@@ -483,12 +448,10 @@ function App(){
     });
   },[]);
 
-  // ── Live price updater — Supabase Edge Function → Yahoo Finance ─────────────
   async function fetchLivePrices(currentHoldings) {
     if (!currentHoldings || currentHoldings.length === 0) return;
     setPriceStatus('fetching');
 
-    // Finnhub free: 60 req/min — fetch all holdings concurrently
     const sorted = [...currentHoldings];
     const tickers = sorted.map(h => h.ticker);
     console.log('Fetching all', tickers.length, 'tickers via Finnhub');
@@ -534,7 +497,6 @@ function App(){
       setPriceUpdated(new Date());
       setPriceStatus('done');
       setRefreshKey(k => k + 1);
-      // Fetch dividend yields separately after prices — uses Yahoo bulk quote endpoint
       fetchDividends(currentHoldings);
 
     } catch(e) {
@@ -544,7 +506,6 @@ function App(){
     }
   }
 
-  // ── Dividend yields — fetched via Yahoo bulk quote after prices load ──────────
   async function fetchDividends(currentHoldings){
     if(!currentHoldings||currentHoldings.length===0) return;
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
@@ -585,7 +546,6 @@ function App(){
     }catch(e){console.warn('[dividends] error:',e.message);}
   }
 
-  // ── Screen (God Mode) — multi-factor BUY/SELL scoring engine ────────────────
   async function fetchScreen(){
     if(screenLoading) return;
     setScreenLoading(true);
@@ -606,22 +566,16 @@ function App(){
       setScreenData(sd);
       setScreenLastRun(new Date());
 
-      // Score every holding
       const scored=holdings.map(h=>{
         const s=sd[h.ticker]||{};
-        // --- Valuation ---
         const effIV=valuations[h.ticker]?.valuations?.average||h.intrinsic||0;
         const upside=effIV>0&&h.price>0?((effIV-h.price)/h.price)*100:0;
         const overvalued=effIV>0&&h.price>0?((h.price-effIV)/effIV)*100:0;
-        // --- Portfolio ---
         const gainPct=h.avgCost>0?((h.price-h.avgCost)/h.avgCost)*100:0;
-        // --- Alert signals ---
         const insiderBuy=alertData.some(a=>a.ticker===h.ticker&&a.type==="INSIDER_BUY");
         const insiderSell=alertData.some(a=>a.ticker===h.ticker&&a.type==="INSIDER_SELL");
         const senateBuy=senateData.some(s2=>s2.ticker===h.ticker&&s2.action==="BUY");
-        // --- RSI ---
         const rsi=s.rsi||50;
-        // --- Fundamentals ---
         const revGrowth=s.revenueGrowth||null;
         const de=s.debtToEquity||null;
         const analystBuyPct=s.analystBuyPct||null;
@@ -637,7 +591,6 @@ function App(){
         else if(rsi<50){buyScore+=4;buySignals.push({label:`RSI ${rsi}`,pts:4,strength:"weak"});}
         if(insiderBuy){buyScore+=15;buySignals.push({label:"Insider buying",pts:15,strength:"strong"});}
         if(senateBuy){buyScore+=10;buySignals.push({label:"Senate buy signal",pts:10,strength:"strong"});}
-        // Revenue growth (10 pts)
         if(revGrowth!==null){
           if(revGrowth>=20){buyScore+=10;buySignals.push({label:`Rev growth ${revGrowth.toFixed(0)}%`,pts:10,strength:"strong"});}
           else if(revGrowth>=10){buyScore+=6;buySignals.push({label:`Rev growth ${revGrowth.toFixed(0)}%`,pts:6,strength:"medium"});}
@@ -671,11 +624,9 @@ function App(){
           pctFromHi:s.pctFromHi,pctFromLo:s.pctFromLo};
       });
 
-      // Sort by selected mode score descending
       scored.sort((a,b)=>screenMode==="BUY"?b.buyScore-a.buyScore:b.sellScore-a.sellScore);
       setScreenResults(scored);
 
-      // Generate Claude AI allocation narrative
       const budget=parseFloat(screenBudget)||0;
       if(budget>0){
         setScreenAILoad(true);
@@ -724,7 +675,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     setScreenLoading(false);
   }
 
-  // ── Alert scanner — insider buys, short squeeze, volume spikes ──────────────
   async function fetchAlerts(){
     if(alertLoading) return;
     setAlertLoading(true);
@@ -749,7 +699,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     setAlertLoading(false);
   }
 
-  // ── Live FX rates — fetched on app open ─────────────────────────────────────
   async function fetchLiveFx(){
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
     const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
@@ -768,8 +717,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
         setFxUpdated(new Date());
         setRefreshKey(k=>k+1);
         console.log("FX rates live updated:",Object.entries(d.rates).map(([k,v])=>k+"="+v).join(", "));
-        // FIX 4: Write successful FX rates to Supabase meta as LKG cache
-        // So next time live fetch fails, we use yesterday's rates instead of hardcoded 2024 values
         fetch(SB+'/rest/v1/meta?on_conflict=key',{
           method:'POST',
           headers:{...SBH,'Prefer':'resolution=merge-duplicates,return=minimal'},
@@ -780,7 +727,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     }catch(e){
       console.warn("FX live fetch failed:",e.message);
     }
-    // FIX 4: Layer 2 — Try LKG cache from Supabase meta before using hardcoded fallback
     try{
       const cacheRes=await fetch(SB+`/rest/v1/meta?key=eq.${FX_CACHE_KEY}`,{
         headers:{'apikey':KEY,'Authorization':'Bearer '+KEY}
@@ -800,7 +746,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
         }
       }
     }catch(e2){console.warn("FX cache fetch failed:",e2.message);}
-    // Layer 3: hardcoded fallback (last resort only)
     console.warn("FX: all sources failed — using hardcoded fallback rates");
   }
 
@@ -810,7 +755,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     const SBH={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
     const CACHE_KEY='indices_lkg';
 
-    // ── Layer 1: Live from Yahoo Finance via Edge Function ────────────────────
     try{
       const res=await fetch(SB+'/functions/v1/smart-api',{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -823,7 +767,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
           setIndicesSource('live');
           setIndicesCachedAt(null);
           console.log('Live indices fetched:',Object.keys(d.indices).length);
-          // Fire-and-forget: write LKG cache to meta table
           fetch(SB+'/rest/v1/meta?on_conflict=key',{
             method:'POST',
             headers:{...SBH,'Prefer':'resolution=merge-duplicates,return=minimal'},
@@ -834,7 +777,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       }
     }catch(e){console.warn('fetchLiveIndices live failed:',e.message);}
 
-    // ── Layer 2: LKG cache from Supabase meta table ───────────────────────────
     try{
       const res=await fetch(SB+'/rest/v1/meta?key=eq.'+CACHE_KEY,{headers:SBH});
       if(res.ok){
@@ -852,7 +794,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       }
     }catch(e){console.warn('fetchLiveIndices cache failed:',e.message);}
 
-    // ── Layer 3: Hardcoded MKT object (liveIndices stays {}) ─────────────────
     setIndicesSource('fallback');
     console.warn('Live indices: using hardcoded MKT fallback');
   }
@@ -876,10 +817,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     setValLoading(p=>({...p,[ticker]:false}));
   }
 
-
-  // ── Moat ratings — read from meta table and patch holdings on every launch ──
-  // To update moat ratings in future: edit the 'moat_map' row in Supabase meta
-  // table via SQL editor. No code deploy needed — just update one DB row.
   async function fetchMoatData(currentHoldings) {
     const SB  = 'https://ckyshjxznltdkxfvhfdy.supabase.co';
     const KEY = 'sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
@@ -894,11 +831,9 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       try { parsed = JSON.parse(rows[0].value); } catch(e) { console.warn('[moat] JSON parse failed'); return; }
       const moat_map = parsed.moat_map;
       if (!moat_map) return;
-      // FIX 5: capture when moat_map was last seeded
       if(parsed.updatedAt) setMoatUpdatedAt(parsed.updatedAt);
       else setMoatUpdatedAt('March 2026'); // fallback if no timestamp
 
-      // Patch holdings state — only touch entries where something changed
       const toUpdate = [];
       setHoldings(prev => prev.map(h => {
         const m = moat_map[h.ticker];
@@ -911,7 +846,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
         return { ...h, moat: m.moat, sector: m.sector, msStyle: m.msStyle };
       }));
 
-      // Persist changed rows back to DB silently in the background
       if (toUpdate.length > 0) {
         console.log(`[moat] patching ${toUpdate.length} changed holdings in DB`);
         await Promise.all(toUpdate.map(u =>
@@ -930,11 +864,9 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     }
   }
 
-  // ── Live Senate trades — fetched on app open ──────────────────────────────
   async function fetchSenateTrades(){
     setSenateLoading(true);
     await new Promise(r=>setTimeout(r,300));
-    // Use data already loaded from Supabase into SENATE array on startup
     if(SENATE.length>0){
       setSenateData([...SENATE]);
     }
@@ -942,7 +874,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   }
 
   async function fetchSenatePrices(trades){
-    // Routes via Edge Function which uses Yahoo Finance primary (no rate limits)
     const portSet=new Set(holdings.map(h=>h.ticker));
     const missing=[...new Set((trades||[]).map(t=>t.ticker))].filter(tk=>tk&&tk.length<=6&&!portSet.has(tk));
     if(missing.length===0)return;
@@ -964,9 +895,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     }catch(e){console.warn('fetchSenatePrices:',e.message);}
   }
 
-
   async function fetchSenateHistPrice(ticker, date){
-    // Fetch historical closing price on transaction date via Edge Function
     const key=ticker+'_'+date;
     if(senateHistPrices[key]!==undefined) return; // already fetched
     try{
@@ -982,7 +911,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   }
 
   async function updateSenateData(){
-    // SIMPLIFIED v2026.04.22: just calls updateSenateDataSilent + alert
     setSenateUpdating(true);
     try{
       await updateSenateDataSilent(holdings);
@@ -994,12 +922,10 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   } // {period: {portfolio:[],index:[]}}
 
   async function updateSenateDataSilent(passedHoldings){
-    // Called on launch - fetches Quiver, saves to Supabase, gets prices via Yahoo (Edge fn)
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
     const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
     const SBH={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
     try{
-      // 1. Fetch from Quiver via Edge Function
       let trades=[];
       const res=await fetch(SB+'/functions/v1/smart-api',{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -1008,8 +934,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       if(res.ok){const d=await res.json();if(d.trades?.length>0)trades=d.trades;}
       if(trades.length===0){console.log('Senate auto: Quiver returned no data, keeping existing Supabase data');return;}
 
-      // 2. Save to Supabase — DELETE requires a WHERE filter (Supabase safety)
-      // Use ticker filter to match all rows (every row has a ticker)
       await fetch(SB+"/rest/v1/senate?ticker=neq.__NEVER__",{method:'DELETE',headers:{...SBH,'Prefer':'return=minimal'}});
       for(const t of trades){
         await fetch(SB+'/rest/v1/senate',{method:'POST',headers:{...SBH,'Prefer':'return=minimal'},
@@ -1018,11 +942,9 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
             price_now:t.price_now||0,source:t.source})});
       }
 
-      // 3. Update UI
       setSenateData(trades);
       console.log('Senate auto-updated:',trades.length,'trades');
 
-      // 4. Fetch prices+intrinsic via Edge Function (Yahoo primary)
       const portSet=new Set((passedHoldings||[]).map(h=>h.ticker));
       const missing=[...new Set(trades.map(t=>t.ticker))].filter(tk=>tk&&tk.length<=6&&!portSet.has(tk));
       if(missing.length>0){
@@ -1045,10 +967,8 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     }catch(e){console.warn('Senate auto-update failed:',e.message);}
   }
 
-  // ── Alerts Tab state ──────────────────────────────────────────────────────
   const [alertData,setAlertData]=useState([]);
 
-  // ── Screen (God Mode) Tab state ────────────────────────────────────────────
   const [screenData,setScreenData]=useState({});     // {TICKER: {rsi, mom1m, revenueGrowth, ...}}
   const [screenLoading,setScreenLoading]=useState(false);
   const [screenLastRun,setScreenLastRun]=useState(null);
@@ -1063,7 +983,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   const [perfChartData,setPerfChartData]=useState({});
   const [perfChartLoading,setPerfChartLoading]=useState({});
 
-  // Index ETF tickers for each market (used in PerfChart)
   const INDEX_ETFS={
     ALL:"SPY", US:"SPY", SG:"ES3.SI", CN:"2800.HK", JP:"^N225", EU:"CSPX.L"
   };
@@ -1077,11 +996,9 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     const subset=(mktFilter==="ALL"?holdings:holdings.filter(h=>h.mkt===mktFilter));
     if(subset.length===0){setPerfChartLoading(prev=>({...prev,[key]:false}));return;}
 
-    // Index ETF per market
     const INDEX_ETFS={ALL:"SPY",US:"SPY",SG:"ES3.SI",CN:"2800.HK",JP:"^N225",EU:"CSPX.L"};
     const idxTicker=INDEX_ETFS[mktFilter]||"SPY";
 
-    // Top holdings by value (max 8 to stay within edge fn timeout)
     const top=[...subset].sort((a,b)=>toSGDlive(b.price*b.shares,b.mkt)-toSGDlive(a.price*a.shares,a.mkt)).slice(0,8);
     const holdingTickers=top.map(h=>h.ticker);
 
@@ -1099,7 +1016,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
 
       const n=indexCloses.length;
 
-      // Build portfolio value series aligned to index length
       const portfolioSeries=Array.from({length:n},(_,i)=>{
         return top.reduce((s,h)=>{
           const hc=holdingHistories[h.ticker];
@@ -1124,7 +1040,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     if(realHist[ticker]?.[period]) return;
     if(histLoading[cacheKey]) return;
     setHistLoading(prev=>({...prev,[cacheKey]:true}));
-    // 15 second timeout for edge function
     const controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),15000);
     try{
@@ -1151,7 +1066,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     }
   }
 
-  // Auto-persist holdings to SQLite whenever they change (debounced 600ms)
   useEffect(()=>{
     if(!window.portfolioDB)return;
     setDbStatus('saving');
@@ -1168,33 +1082,21 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     return()=>clearTimeout(timer);
   },[holdings]);
 
-  // Auto-persist trades to SQLite whenever they change
   useEffect(()=>{
     if(!window.portfolioDB)return;
-    // We save all trades in batch via updateHoldings approach or individually
-    // For trades we use saveTrade for each new/edited trade (already called in submitTrade/deleteTrade)
-    // This effect just marks status
   },[trades]);
 
-
-
-  // Track mutations — increment pending count on any holdings/trades change
   const markDirty=()=>setPendingChanges(n=>n+1);
 
   function doRefresh(){
     setRefreshAnim(true);
-    // Only bump refreshKey to force all useMemo to recompute
-    // Never touch holdings state here - that would corrupt live price data
     setRefreshKey(k=>k+1);
     setLastRefresh(new Date());
     setPendingChanges(0);
-    // Re-apply moat ratings from meta on every manual refresh
     fetchMoatData(holdings);
     setTimeout(()=>setRefreshAnim(false),800);
   }
 
-  // Currencies separate from exchange/market
-  // CCY uses live FX rates — updates automatically when fxRates changes
   const CCY=useMemo(()=>({
     USD:{symbol:"$",  r:fxRates.USD||1.27},
     SGD:{symbol:"S$", r:1.0},
@@ -1209,7 +1111,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   const ccySymbol=ccy=>(CCY[ccy]?.symbol||"$");
   const ccyToSGD=(v,ccy)=>v*(CCY[ccy]?.r??1.36);
 
-  // Live MKT rates — overrides hardcoded values with real FX rates
   const liveMKT=useMemo(()=>({
     ...MKT,
     US:{...MKT.US, r:fxRates.USD||1.27},
@@ -1221,21 +1122,17 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     SG:{...MKT.SG, r:1.0},
   }),[fxRates]);
 
-  // toSGD using live rates
   const toSGDlive=(v,mkt)=>v*(liveMKT[mkt]?.r??fxRates.USD??1.36);
 
-  // Ticker → Name lookup from existing holdings
   const tickerNames=useMemo(()=>{
     const map={};
     holdings.forEach(h=>{map[h.ticker]=h.name;});
     return map;
   },[holdings]);
 
-  // Ticker validation / suggestion state
   const [tickerCheck,setTickerCheck]=useState({status:"idle",message:"",suggestions:[]});
   const [tickerSearchTerm,setTickerSearchTerm]=useState("");
 
-  // Portfolio maths — all depend on holdings/trades/refreshKey so they recompute on refresh
   const totalValSGD=useMemo(()=>holdings.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0),[holdings,refreshKey]);
   const totalCostSGD=useMemo(()=>holdings.reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0),[holdings,refreshKey]);
   const unrealSGD=totalValSGD-totalCostSGD;
@@ -1244,8 +1141,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   const totalShares=useMemo(()=>holdings.reduce((s,h)=>s+h.shares,0),[holdings,refreshKey]);
   const avgCostSGD=totalShares?totalCostSGD/totalShares:0;
   const realizedSGD=useMemo(()=>trades.filter(t=>t.type==="SELL").reduce((s,t)=>s+toSGDlive(t.profit||0,t.mkt),0),[trades,refreshKey]);
-  // ── Header metrics — filtered by mktFilter so header reflects selected market ──
-  // When ALL: shows full portfolio. When SG/US/JP etc: shows that market only.
   const hdrHoldings=useMemo(()=>
     mktFilter==="ALL"?holdings:holdings.filter(h=>h.mkt===mktFilter),
   [holdings,mktFilter,refreshKey]);
@@ -1259,7 +1154,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   const hdrUnrealPct=hdrCostSGD?(hdrUnrealSGD/hdrCostSGD)*100:0;
   const hdrRealSGD=useMemo(()=>{
     const mktTrades=mktFilter==="ALL"?trades:trades.filter(t=>{
-      // Match trades to selected market using the holding's market
       const h=holdings.find(hh=>hh.ticker===t.ticker);
       return h?h.mkt===mktFilter:t.mkt===mktFilter;
     });
@@ -1271,7 +1165,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   const hdrNetDivSGD=useMemo(()=>
     hdrHoldings.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0),
   [hdrHoldings,refreshKey]);
-
 
   const wt=h=>filteredTotalSGD?(toSGDlive(h.price*h.shares,h.mkt)/filteredTotalSGD)*100:0;
   const wtTotal=h=>totalValSGD?(toSGDlive(h.price*h.shares,h.mkt)/totalValSGD)*100:0;
@@ -1295,19 +1188,16 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     return h;
   },[mktFilter,search,holdings,refreshKey]);
 
-  // Sorted performers
   const byGain=useMemo(()=>[...holdings].sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost)),[holdings,refreshKey]);
   const top10=byGain.slice(0,10);
   const worst10=[...byGain].reverse().slice(0,10);
   const buffettList=useMemo(()=>[...holdings].map(h=>{
-    // Use computed valuation average (FMP/Finnhub) when available, else DB intrinsic
     const compIV=valuations[h.ticker]?.valuations?.average||0;
     const effIV=compIV>0?compIV:(h.intrinsic||0);
     const hScored={...h,intrinsic:effIV};
     return {...hScored,...buffettScore(hScored)};
   }).sort((a,b)=>b.score-a.score),[holdings,valuations,refreshKey]);
 
-  // AI analysis
   async function analyse(h){
     if(aiText[h.ticker])return;
     setAiLoad(p=>({...p,[h.ticker]:true}));
@@ -1331,32 +1221,24 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     setAiLoad(p=>({...p,[h.ticker]:false}));
   }
 
-  // Rebuild holdings from scratch based on ALL_H baseline + all BUY trades applied
-  // This ensures any trade edit/delete correctly recalculates shares and avgCost
   function rebuildHoldingsFromTrades(tradeList, currentHoldings){
     const curH=currentHoldings||holdings;
-    // Start from the original static holdings as a reference for metadata (name, sector, price, etc.)
     const meta={};
     ALL_H.forEach(h=>{meta[h.ticker]={...h};});
-    // Also carry over any current holdings metadata for manually added holdings
     curH.forEach(h=>{if(!meta[h.ticker])meta[h.ticker]={...h};});
 
-    // Group all BUY trades by ticker
     const buyMap={};
     tradeList.filter(t=>t.type==="BUY").forEach(t=>{
       if(!buyMap[t.ticker])buyMap[t.ticker]=[];
       buyMap[t.ticker].push(t);
     });
-    // Group all SELL trades to subtract shares
     const sellMap={};
     tradeList.filter(t=>t.type==="SELL").forEach(t=>{
       if(!sellMap[t.ticker])sellMap[t.ticker]=[];
       sellMap[t.ticker].push(t);
     });
 
-    // Tickers that appear in any trade
     const allTickers=new Set([...Object.keys(buyMap),...Object.keys(sellMap)]);
-    // Also include tickers from original holdings that have NO trades at all
     ALL_H.forEach(h=>allTickers.add(h.ticker));
 
     const rebuilt=[];
@@ -1365,7 +1247,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       const sells=sellMap[ticker]||[];
       const baseH=meta[ticker];
 
-      // Calculate weighted average cost from buys
       let totalBuyShares=0,totalBuyCost=0;
       buys.forEach(b=>{totalBuyShares+=b.shares;totalBuyCost+=b.shares*b.price;});
       const totalSellShares=sells.reduce((s,t)=>s+t.shares,0);
@@ -1375,7 +1256,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
 
       const computedAvgCost=totalBuyShares>0?totalBuyCost/totalBuyShares:baseH?.avgCost||0;
 
-      // If we have base metadata, use it; otherwise create minimal entry
       if(baseH){
         rebuilt.push({
           ...baseH,
@@ -1383,7 +1263,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
           avgCost:parseFloat(computedAvgCost.toFixed(4)),
         });
       } else {
-        // New ticker added via trades with no base metadata
         rebuilt.push({
           id:Date.now()+Math.random(),ticker,name:ticker,mkt:"US",
           sector:"Technology",msStyle:"Large Blend",
@@ -1440,14 +1319,12 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     if(!query||query.trim().length<2)return;
     setTickerCheck({status:"loading",message:"Searching...",suggestions:[]});
     const term=query.trim();
-    // First check if it's already in portfolio
     const inPort=holdings.find(h=>h.ticker===term.toUpperCase());
     if(inPort){
       setTickerCheck({status:"found",message:inPort.name,suggestions:[],confirmed:inPort.ticker});
       setTradeForm(f=>({...f,ticker:inPort.ticker}));
       return;
     }
-    // Use AI to look up the ticker
     const prompt="You are a financial ticker symbol lookup. Given a company name or ticker, return ONLY a JSON object with no markdown, no explanation.\nQuery: "+term+"\nReturn: {\"found\":true/false,\"ticker\":\"TICKER\",\"name\":\"Full Company Name\",\"exchange\":\"US/SG/CN/JP/EU/HK\",\"suggestions\":[{\"ticker\":\"T1\",\"name\":\"Name1\"},{\"ticker\":\"T2\",\"name\":\"Name2\"}]}\nIf the query looks like a ticker symbol, validate it and return its full name. If it looks like a company name, suggest up to 3 matching tickers. Always populate suggestions array with 1-3 options.";
     try{
       const res=await fetch("https://api.anthropic.com/v1/messages",{
@@ -1456,7 +1333,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       });
       const d=await res.json();
       const text=d.content?.map(c=>c.text||"").join("").trim();
-      // Strip possible markdown fences
       const clean=text.replace(/^```json\s*/,"").replace(/```\s*$/,"").trim();
       const parsed=JSON.parse(clean);
       if(parsed.found){
@@ -1496,8 +1372,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     setHoldingEditId(null);
     setHoldingForm({});
     if(window.portfolioDB){window.portfolioDB.updateHoldings(holdings).catch(e=>console.error('DB:',e));}
-    // Auto-apply moat ratings from meta map after every save — covers both edits and new holdings
-    // This means new holdings get moat/sector/msStyle automatically without any manual SQL
     setTimeout(()=>fetchMoatData(holdings), 500);
     markDirty();
   }
@@ -1524,7 +1398,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
 
-  // ── Portfolio tab ────────────────────────────────────────────────────────────
   function PortfolioView(){
     const activeM=MKT[mktFilter];
     return(
@@ -1569,8 +1442,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
             value={search}
             onChange={e=>{
               setSearch(e.target.value);
-              // PortfolioView is defined inside App so re-render can lose focus —
-              // use rAF to restore it after React reconciliation completes
               requestAnimationFrame(()=>{
                 if(searchInputRef.current) searchInputRef.current.focus();
               });
@@ -1719,7 +1590,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Insights tab ─────────────────────────────────────────────────────────────
   function InsightsView(){
     return(
       <>
@@ -1866,13 +1736,10 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Indices tab ──────────────────────────────────────────────────────────────
   function IndexView(){
     const mktsInPort=[...new Set(holdings.map(h=>h.mkt))];
-    // Map markets to live index keys
     const IDX_KEY={US:"US_SP500",SG:"SG_STI",JP:"JP_NIKKEI",CN:"CN_HSI",EU:"EU_CAC",GB:"GB_FTSE",AU:"AU_ASX"};
     const liveFor=(mkt)=>liveIndices[IDX_KEY[mkt]]||null;
-    // Compute source badge label once for the whole Markets tab
     const srcAge=indicesCachedAt?(()=>{
       const diffMs=Date.now()-new Date(indicesCachedAt).getTime();
       const h=Math.floor(diffMs/3600000);
@@ -2002,7 +1869,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Trades tab ───────────────────────────────────────────────────────────────
   function TradesView(){
     const shown=tradeType==="ALL"?trades:trades.filter(t=>t.type===tradeType);
     const totalReal=trades.filter(t=>t.type==="SELL").reduce((s,t)=>s+toSGDlive(t.profit||0,t.mkt),0);
@@ -2198,14 +2064,11 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Summary tab ──────────────────────────────────────────────────────────────
-  // ── Excel Export ───────────────────────────────────────────────────────────
   const [exporting,setExporting]=useState(false);
 
   async function exportToExcel(){
     setExporting(true);
     try{
-      // Load SheetJS dynamically
       if(!window.XLSX){
         await new Promise((resolve,reject)=>{
           const s=document.createElement('script');
@@ -2216,7 +2079,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       }
       const XL=window.XLSX;
 
-      // FX rates in use
       const FX={
         US:{ccy:'USD',rate:fxRates.USD||1.27,pair:'USD/SGD'},
         SG:{ccy:'SGD',rate:1.0,pair:'SGD/SGD'},
@@ -2229,7 +2091,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       const MKT_NAMES={US:'United States',SG:'Singapore',CN:'China/HK',JP:'Japan',EU:'Europe',GB:'United Kingdom',AU:'Australia'};
       const MKT_ORDER=['US','SG','CN','JP','EU','GB','AU'];
 
-      // Group holdings by market
       const byMkt={};
       holdings.forEach(h=>{
         if(!byMkt[h.mkt])byMkt[h.mkt]=[];
@@ -2242,7 +2103,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       const wb=XL.utils.book_new();
       const today=new Date().toLocaleDateString('en-SG',{day:'2-digit',month:'short',year:'numeric'});
 
-      // ── Summary sheet ─────────────────────────────────────────────────────
       const sumRows=[];
       sumRows.push(['IGNITUS PORTFOLIO — Holdings Export','','','','','','','','']);
       sumRows.push([`As of: ${today}   |   Base Currency: SGD`,'','','','','','','','']);
@@ -2296,7 +2156,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
       wsSummary['!cols']=[{wch:22},{wch:10},{wch:10},{wch:18},{wch:18},{wch:18},{wch:18},{wch:12},{wch:10}];
       XL.utils.book_append_sheet(wb,wsSummary,'Portfolio Summary');
 
-      // ── Per-market sheets ─────────────────────────────────────────────────
       MKT_ORDER.forEach(mkt=>{
         if(!byMkt[mkt])return;
         const fx=FX[mkt]||{rate:1.27,ccy:'USD',pair:'USD/SGD'};
@@ -2331,7 +2190,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
           ]);
         });
 
-        // Total row
         const divYieldTot=locTot>0?divLocTot/locTot:0;
         rows.push([
           `TOTAL — ${mkt} (${fx.ccy})`, '', '', '', hlist.length, '', '',
@@ -2347,7 +2205,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
         XL.utils.book_append_sheet(wb,ws,`${mkt} — ${fx.ccy}`);
       });
 
-      // Download
       const date=new Date().toISOString().slice(0,10);
       XL.writeFile(wb,`Ignitus_Holdings_${date}.xlsx`);
     }catch(e){
@@ -2357,7 +2214,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     setExporting(false);
   }
 
-  // ── Screen (God Mode) Tab ───────────────────────────────────────────────────
   function ScreenView(){
     const budget=parseFloat(screenBudget)||0;
     const modeColor=screenMode==="BUY"?C.green:C.red;
@@ -2575,7 +2431,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-    // ── Alerts Tab ──────────────────────────────────────────────────────────────
   function AlertsView(){
     const SEV_META={
       high:  {col:C.red,   bg:C.red+"14",   icon:"🔴",label:"HIGH"},
@@ -2590,11 +2445,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     const highCount=alertData.filter(a=>a.severity==="high").length;
     const hasSenate=senateData.length>0;
 
-    // Senate buy signals — reuse existing senateData
-    // Senate trades — sorted by largest transaction size first, top 10
     const parseAmt=s=>{
-      // Parse upper bound of amount string e.g. "$1,001 - $15,000" → 15000
-      // or "$1,000,001 - $5,000,000" → 5000000
       const m=(s.amount||"").match(/\$([\d,]+)\s*$/);
       return m?parseInt(m[1].replace(/,/g,""),10):0;
     };
@@ -2642,8 +2493,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
             </div>
           )}
         </div>
-
-
 
         {/* Not yet scanned state */}
         {!alertLastRun&&!alertLoading&&(
@@ -2945,23 +2794,19 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Holding detail modal ─────────────────────────────────────────────────────
   function HoldingDetail(){
     const h=sel;if(!h)return null;
     const [showAllBuy,setShowAllBuy]=useState(false);   // expand buy history
     const [showAllSell,setShowAllSell]=useState(false); // expand sell history
-    // Fetch real history for current period when period changes
     useEffect(()=>{
       if(!h)return;
       fetchRealHistory(h.ticker,h.mkt,detailPeriod);
       if(h.mkt==="US") fetchValuation(h.ticker); // multi-source valuation only for US stocks (Finnhub coverage)
     },[h?.ticker,detailPeriod]);
     const m=MKT[h.mkt]||MKT.US;
-    // Use computed average from valuation panel if available, otherwise fall back to h.intrinsic
     const valData=valuations[h.ticker];
     const computedIV=valData?.valuations?.average||0;
     const effectiveIV=computedIV>0?computedIV:(h.intrinsic||0);
-    // Build a synthetic holding with effective intrinsic for scoring
     const hScored={...h,intrinsic:effectiveIV};
     const sc=scoreH(hScored),r=getRec(hScored),bs=buffettScore(hScored);
     const gainPct=((h.price-h.avgCost)/h.avgCost)*100,upside=((effectiveIV-h.price)/h.price)*100;
@@ -3126,7 +2971,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
             const growthUsed=inp.growthUsed||5;
             const growthSrc=inp.growthSource||'default 5%';
 
-            // All 4 model sources — always show, with N/A indicator if unavailable
             const allSources=[
               {label:"FMP DCF",         val:vals.fmpDcf,        ok:!!(avail.fmpDcfAvailable&&vals.fmpDcf>0),
                note:"FMP pre-computed DCF (free API)",
@@ -3143,7 +2987,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
             ];
             const availCount=allSources.filter(s=>s.ok).length;
 
-            // Average of available models only (no manual input)
             const computedAvg=vals.average||0;
             const avgUpside=priceLive>0&&computedAvg>0?((computedAvg-priceLive)/priceLive*100):0;
             const recText=rec.score>=0.7?"Strong Buy":rec.score>=0.3?"Buy":rec.score>=-0.3?"Hold":rec.score>=-0.7?"Sell":"Strong Sell";
@@ -3187,7 +3030,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
                       </div>
                     );
                   } else {
-                    // Creative N/A row — dashed border, muted, shows reason
                     return(
                       <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px dashed ${C.border}44`,opacity:0.55}}>
                         <div style={{fontWeight:600,color:C.mutedLight,textDecoration:"line-through"}}>{s.label}</div>
@@ -3320,7 +3162,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Edit Holding Modal ────────────────────────────────────────────────────────
   function EditHoldingModal(){
     if(holdingEditId==null)return null;
     const f=holdingForm,setF=setHoldingForm;
@@ -3438,7 +3279,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Delete Confirm Modal ──────────────────────────────────────────────────────
   function DeleteConfirmModal(){
     if(deleteConfirm==null)return null;
     const h=holdings.find(x=>x.id===deleteConfirm);
@@ -3475,7 +3315,6 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     );
   }
 
-  // ── Shell ────────────────────────────────────────────────────────────────────
   const TABS=[
     {id:"portfolio",icon:"📊",label:"Portfolio"},
     {id:"insights", icon:"💡",label:"Insights"},
@@ -3622,14 +3461,35 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
   );
 }
 
-
-// ── Mount ─────────────────────────────────────────────────────────────────────
 (function mountApp() {
   const loading = document.getElementById('loading');
   if (loading) loading.style.display = 'none';
   const RD = window.ReactDOM;
   if (RD && document.getElementById('root')) {
-    const root = RD.createRoot(document.getElementById('root'));
-    root.render(React.createElement(App));
+    try {
+      const root = RD.createRoot(document.getElementById('root'));
+      root.render(React.createElement(App));
+    } catch(mountErr) {
+      document.getElementById('root').innerHTML =
+        '<div style="background:#0A0D14;color:#FF5577;padding:20px;font-family:monospace;font-size:12px;position:fixed;inset:0;overflow:auto">' +
+        '<div style="font-size:18px;margin-bottom:12px">🔴 Ignitus Crash Report</div>' +
+        '<b>Error:</b> ' + mountErr.message + '<br><br>' +
+        '<b>Stack:</b><pre style="white-space:pre-wrap;font-size:10px;color:#FF8899">' + (mountErr.stack||'') + '</pre>' +
+        '<br><div style="color:#8899AA;font-size:10px">Screenshot this and send to developer</div></div>';
+    }
   }
-})();
+}
+window.addEventListener('error', function(e) {
+  const root = document.getElementById('root');
+  const loading = document.getElementById('loading');
+  if (loading) loading.style.display = 'none';
+  if (root && !root.innerHTML) {
+    root.innerHTML =
+      '<div style="background:#0A0D14;color:#FF5577;padding:20px;font-family:monospace;font-size:12px;position:fixed;inset:0;overflow:auto">' +
+      '<div style="font-size:18px;margin-bottom:12px">🔴 Ignitus Load Error</div>' +
+      '<b>Error:</b> ' + (e.message||'Unknown') + '<br>' +
+      '<b>File:</b> ' + (e.filename||'') + '<br>' +
+      '<b>Line:</b> ' + e.lineno + ' Col: ' + e.colno + '<br><br>' +
+      '<div style="color:#8899AA;font-size:10px">Screenshot this and send to developer</div></div>';
+  }
+});)();
