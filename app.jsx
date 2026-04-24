@@ -631,27 +631,21 @@ function App(){
       if(budget>0){
         setScreenAILoad(true);
         const top=scored.slice(0,8);
+        const buyLines=top.map(function(r,i){
+          return (i+1)+'. '+r.h.ticker+' ('+r.h.name+') -- Buy Score: '+r.buyScore+'/100\n'+
+            '   Signals: '+(r.buySignals.map(function(s){return s.label;}).join(', ')||'None')+'\n'+
+            '   Price: S$'+r.h.price+' | IV: '+(r.effIV>0?'S$'+r.effIV.toFixed(2):'N/A')+' | Upside: '+r.upside.toFixed(0)+'%\n'+
+            '   RSI: '+r.rsi+' | Rev Growth: '+(r.revGrowth!==null?r.revGrowth.toFixed(0)+'%':'N/A')+' | D/E: '+(r.de!==null?r.de.toFixed(1):'N/A');
+        }).join('\n\n');
+        const sellLines=top.map(function(r,i){
+          return (i+1)+'. '+r.h.ticker+' ('+r.h.name+') -- Sell Score: '+r.sellScore+'/100\n'+
+            '   Signals: '+(r.sellSignals.map(function(s){return s.label;}).join(', ')||'None')+'\n'+
+            '   Gain: +'+r.gainPct.toFixed(0)+'% | RSI: '+r.rsi+' | Overvalued: '+r.overvalued.toFixed(0)+'%\n'+
+            '   Position value: S$'+toSGDlive(r.h.price*r.h.shares,r.h.mkt).toFixed(0);
+        }).join('\n\n');
         const prompt=screenMode==="BUY"
-          ?`I am a Singapore investor with S$${budget.toLocaleString()} to deploy. Based on this multi-factor analysis of my portfolio holdings, recommend the best allocation:
-
-${top.map((r,i)=>`${i+1}. ${r.h.ticker} (${r.h.name}) — Buy Score: ${r.buyScore}/100
-   Signals: ${r.buySignals.map(s=>s.label).join(', ')||'None'}
-   Price: S$${r.h.price} | IV: ${r.effIV>0?'S$'+r.effIV.toFixed(2):'N/A'} | Upside: ${r.upside.toFixed(0)}%
-   RSI: ${r.rsi} | Rev Growth: ${r.revGrowth!==null?r.revGrowth.toFixed(0)+'%':'N/A'} | D/E: ${r.de!==null?r.de.toFixed(1):'N/A'}`).join('
-
-')}
-
-Give a concise allocation recommendation: how much to put in each top pick, why, and any concentration warnings. Max 200 words. No disclaimers.`
-          :`I am a Singapore investor targeting S$${budget.toLocaleString()} cash-out. Based on this analysis of my portfolio, recommend what to sell:
-
-${top.map((r,i)=>`${i+1}. ${r.h.ticker} (${r.h.name}) — Sell Score: ${r.sellScore}/100
-   Signals: ${r.sellSignals.map(s=>s.label).join(', ')||'None'}
-   Gain: +${r.gainPct.toFixed(0)}% | RSI: ${r.rsi} | Overvalued: ${r.overvalued.toFixed(0)}%
-   Position value: S$${toSGDlive(r.h.price*r.h.shares,r.h.mkt).toFixed(0)}`).join('
-
-')}
-
-Recommend which to sell, how much, and the sequencing. Max 200 words. No disclaimers.`;
+          ?'I am a Singapore investor with S$'+budget.toLocaleString()+' to deploy. Recommend the best allocation based on this analysis:\n\n'+buyLines+'\n\nGive a concise allocation: how much per pick, why, any concentration warnings. Max 200 words.'
+          :'I am a Singapore investor targeting S$'+budget.toLocaleString()+' cash-out. Recommend what to sell:\n\n'+sellLines+'\n\nRecommend which to sell, how much, and sequencing. Max 200 words.';
 
         try{
           const aiRes=await fetch('https://api.anthropic.com/v1/messages',{
