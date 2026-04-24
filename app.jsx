@@ -626,22 +626,16 @@ function App(){
         const de=s.debtToEquity||null;
         const analystBuyPct=s.analystBuyPct||null;
 
-        // ── BUY SCORE ──────────────────────────────────────────────────
         let buyScore=0; const buySignals=[];
-        // Intrinsic value upside (25 pts)
         if(upside>=30){buyScore+=25;buySignals.push({label:`IV +${upside.toFixed(0)}% upside`,pts:25,strength:"strong"});}
         else if(upside>=15){buyScore+=15;buySignals.push({label:`IV +${upside.toFixed(0)}% upside`,pts:15,strength:"medium"});}
         else if(upside>=5){buyScore+=8;buySignals.push({label:`IV +${upside.toFixed(0)}% upside`,pts:8,strength:"weak"});}
-        // Moat (15 pts)
         if(h.moat==="Wide"){buyScore+=15;buySignals.push({label:"Wide moat",pts:15,strength:"strong"});}
         else if(h.moat==="Narrow"){buyScore+=8;buySignals.push({label:"Narrow moat",pts:8,strength:"medium"});}
-        // RSI oversold (15 pts)
         if(rsi<30){buyScore+=15;buySignals.push({label:`RSI ${rsi} (oversold)`,pts:15,strength:"strong"});}
         else if(rsi<40){buyScore+=10;buySignals.push({label:`RSI ${rsi} (low)`,pts:10,strength:"medium"});}
         else if(rsi<50){buyScore+=4;buySignals.push({label:`RSI ${rsi}`,pts:4,strength:"weak"});}
-        // Insider buy (15 pts)
         if(insiderBuy){buyScore+=15;buySignals.push({label:"Insider buying",pts:15,strength:"strong"});}
-        // Senate buy (10 pts)
         if(senateBuy){buyScore+=10;buySignals.push({label:"Senate buy signal",pts:10,strength:"strong"});}
         // Revenue growth (10 pts)
         if(revGrowth!==null){
@@ -649,36 +643,26 @@ function App(){
           else if(revGrowth>=10){buyScore+=6;buySignals.push({label:`Rev growth ${revGrowth.toFixed(0)}%`,pts:6,strength:"medium"});}
           else if(revGrowth>0){buyScore+=2;buySignals.push({label:`Rev growth ${revGrowth.toFixed(0)}%`,pts:2,strength:"weak"});}
         }
-        // Low D/E (5 pts)
         if(de!==null&&de<0.3){buyScore+=5;buySignals.push({label:`D/E ${de.toFixed(1)}`,pts:5,strength:"strong"});}
         else if(de!==null&&de<0.7){buyScore+=3;buySignals.push({label:`D/E ${de.toFixed(1)}`,pts:3,strength:"medium"});}
-        // Analyst consensus (5 pts)
         if(analystBuyPct!==null&&analystBuyPct>=70){buyScore+=5;buySignals.push({label:`${analystBuyPct.toFixed(0)}% analyst buy`,pts:5,strength:"strong"});}
         else if(analystBuyPct!==null&&analystBuyPct>=50){buyScore+=3;buySignals.push({label:`${analystBuyPct.toFixed(0)}% analyst buy`,pts:3,strength:"medium"});}
 
-        // ── SELL SCORE ─────────────────────────────────────────────────
         let sellScore=0; const sellSignals=[];
-        // Overvalued vs IV (25 pts)
         if(overvalued>=50){sellScore+=25;sellSignals.push({label:`${overvalued.toFixed(0)}% above IV`,pts:25,strength:"strong"});}
         else if(overvalued>=30){sellScore+=18;sellSignals.push({label:`${overvalued.toFixed(0)}% above IV`,pts:18,strength:"strong"});}
         else if(overvalued>=15){sellScore+=10;sellSignals.push({label:`${overvalued.toFixed(0)}% above IV`,pts:10,strength:"medium"});}
-        // RSI overbought (20 pts)
         if(rsi>80){sellScore+=20;sellSignals.push({label:`RSI ${rsi} (very overbought)`,pts:20,strength:"strong"});}
         else if(rsi>70){sellScore+=14;sellSignals.push({label:`RSI ${rsi} (overbought)`,pts:14,strength:"strong"});}
         else if(rsi>65){sellScore+=7;sellSignals.push({label:`RSI ${rsi} (elevated)`,pts:7,strength:"medium"});}
-        // Large unrealized gain (15 pts)
         if(gainPct>150){sellScore+=15;sellSignals.push({label:`+${gainPct.toFixed(0)}% unrealized gain`,pts:15,strength:"strong"});}
         else if(gainPct>100){sellScore+=10;sellSignals.push({label:`+${gainPct.toFixed(0)}% unrealized gain`,pts:10,strength:"medium"});}
         else if(gainPct>75){sellScore+=5;sellSignals.push({label:`+${gainPct.toFixed(0)}% unrealized gain`,pts:5,strength:"weak"});}
-        // Revenue declining (15 pts)
         if(revGrowth!==null&&revGrowth<-10){sellScore+=15;sellSignals.push({label:`Rev declining ${revGrowth.toFixed(0)}%`,pts:15,strength:"strong"});}
         else if(revGrowth!==null&&revGrowth<0){sellScore+=8;sellSignals.push({label:`Rev declining ${revGrowth.toFixed(0)}%`,pts:8,strength:"medium"});}
-        // Insider selling (10 pts)
         if(insiderSell){sellScore+=10;sellSignals.push({label:"Insider selling",pts:10,strength:"strong"});}
-        // High D/E (10 pts)
         if(de!==null&&de>3){sellScore+=10;sellSignals.push({label:`D/E ${de.toFixed(1)} (high debt)`,pts:10,strength:"strong"});}
         else if(de!==null&&de>2){sellScore+=6;sellSignals.push({label:`D/E ${de.toFixed(1)} (elevated debt)`,pts:6,strength:"medium"});}
-        // No moat (5 pts)
         if(h.moat==="None"||!h.moat){sellScore+=5;sellSignals.push({label:"No moat",pts:5,strength:"weak"});}
 
         return{h,buyScore,buySignals,sellScore,sellSignals,
@@ -1646,7 +1630,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
                   const taxRate=getDivTax(h.mkt);
                   const netDiv=annDiv*(1-taxRate);
                   return(
-                    <div key={h.ticker} style={{background:C.surface,borderRadius:6,padding:"5px 7px"}}>
+                    <div key={h.ticker} style={{...mBox,textAlign:"left"}}>
                       <div style={{fontSize:14,fontWeight:700}}>{h.ticker}</div>
                       <div style={{fontSize:14,fontWeight:800,color:C.gold}}>{fmt(h.divYield,2)}%</div>
                       <div style={{fontSize:12,color:C.muted}}>{fmtS(annDiv)}/yr gross</div>
@@ -2378,13 +2362,13 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
     const budget=parseFloat(screenBudget)||0;
     const modeColor=screenMode==="BUY"?C.green:C.red;
     const topResults=screenResults.slice(0,10);
-
-    // Strength dot color
     const strengthCol=s=>s==="strong"?C.green:s==="medium"?C.gold:C.muted;
+    const mBox={background:C.surface,borderRadius:6,padding:"5px 7px",textAlign:"center"};
+    const sigChip=(sig,si)=>(<div key={si} style={{fontSize:12,padding:"2px 7px",borderRadius:5,background:strengthCol(sig.strength)+"18",color:strengthCol(sig.strength),fontWeight:600,border:`1px solid ${strengthCol(sig.strength)}30`}}>{sig.label} <span style={{opacity:0.7}}>+{sig.pts}</span></div>);
 
     return(
       <>
-        {/* Header */}
+        
         <div style={{...card,background:"#0A0F1A",border:`1px solid ${modeColor}30`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
             <div>
@@ -2409,7 +2393,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
             }}>{screenLoading?"↻ Scanning...":"🔍 Run Screen"}</button>
           </div>
 
-          {/* BUY / SELL toggle */}
+          
           <div style={{display:"flex",gap:8,marginBottom:10}}>
             {["BUY","SELL"].map(m=>(
               <button key={m} onClick={()=>{setScreenMode(m);if(screenResults.length>0){
@@ -2425,7 +2409,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
             ))}
           </div>
 
-          {/* Target fund input */}
+          
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div style={{fontSize:12,color:C.muted,flexShrink:0}}>
               {screenMode==="BUY"?"💰 Deploy":"💵 Cash out"} S$
@@ -2448,31 +2432,8 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
           </div>}
         </div>
 
-        {/* Scoring legend */}
-        <div style={{...card,marginBottom:10,padding:"10px 14px"}}>
-          <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:7,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-            {screenMode==="BUY"?"BUY Score Signals":"SELL Score Signals"}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 10px",fontSize:11,color:C.muted}}>
-            {screenMode==="BUY"?[
-              ["IV upside > 30%","25pts"],["Wide moat","15pts"],
-              ["RSI < 30 oversold","15pts"],["Insider buying","15pts"],
-              ["Senate buy","10pts"],["Revenue growth > 20%","10pts"],
-              ["Low D/E < 0.3","5pts"],["Analyst ≥ 70% buy","5pts"],
-            ]:[
-              ["Price 50%+ above IV","25pts"],["RSI > 80 overbought","20pts"],
-              ["Gain > 150%","15pts"],["Revenue declining","15pts"],
-              ["Insider selling","10pts"],["D/E > 3 (high debt)","10pts"],
-              ["No moat","5pts"],["",""],
-            ].map(([label,pts],i)=>label?(
-              <div key={i} style={{display:"flex",justifyContent:"space-between"}}>
-                <span>{label}</span><span style={{fontWeight:700,color:modeColor}}>{pts}</span>
-              </div>
-            ):null)}
-          </div>
-        </div>
-
-        {/* Not yet scanned */}
+        
+        
         {!screenLastRun&&!screenLoading&&(
           <div style={{...card,textAlign:"center",padding:"36px 16px"}}>
             <div style={{fontSize:36,marginBottom:10}}>🎯</div>
@@ -2486,24 +2447,16 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
           </div>
         )}
 
-        {/* Loading */}
+        
         {screenLoading&&(
           <div style={{...card,padding:"28px 16px"}}>
             <div style={{fontSize:13,color:modeColor,fontWeight:700,marginBottom:8}}>↻ Running multi-factor screen...</div>
-            {[
-              "Fetching RSI from Yahoo Finance price history",
-              "Computing 14-day Relative Strength Index",
-              "Pulling revenue growth + D/E from Finnhub",
-              "Reading analyst consensus ratings",
-              "Cross-referencing insider activity + senate signals",
-              "Scoring all "+holdings.length+" holdings...",
-            ].map((step,i)=>(
-              <div key={i} style={{fontSize:12,color:C.muted,marginBottom:3,paddingLeft:8}}>→ {step}</div>
-            ))}
+            <div style={{fontSize:13,color:modeColor,fontWeight:700,marginBottom:6}}>↻ Scanning {holdings.length} stocks — RSI · Fundamentals · Analyst · Insider · Senate...</div>
+          </div>
           </div>
         )}
 
-        {/* Claude AI allocation */}
+        
         {(screenAI||screenAILoad)&&(
           <div style={{...card,background:"#080D18",border:`1px solid ${C.accent}30`,marginBottom:10}}>
             <div style={{fontSize:12,fontWeight:700,color:C.accent,marginBottom:8}}>
@@ -2517,7 +2470,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
           </div>
         )}
 
-        {/* Results */}
+        
         {topResults.length>0&&!screenLoading&&(
           <>
             <div style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>
@@ -2538,7 +2491,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
                     borderLeft:`4px solid ${scoreColor}`,
                     background:rank===0?scoreColor+"08":C.card,
                   }}>
-                  {/* Stock header */}
+                  
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
@@ -2557,32 +2510,32 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
                     </div>
                   </div>
 
-                  {/* Score bar */}
+                  
                   <div style={{height:4,borderRadius:2,background:C.border,marginBottom:10,overflow:"hidden"}}>
                     <div style={{width:`${scoreBar}%`,height:"100%",background:scoreColor,borderRadius:2,transition:"width 0.5s"}}/>
                   </div>
 
-                  {/* Key metrics grid */}
+                  
                   <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"5px 8px",marginBottom:8}}>
-                    <div style={{background:C.surface,borderRadius:6,padding:"5px 7px",textAlign:"center"}}>
+                    <div style={mBox}>
                       <div style={{fontSize:10,color:C.muted}}>RSI-14</div>
                       <div style={{fontSize:13,fontWeight:700,
                         color:r.rsi<40?C.green:r.rsi>70?C.red:C.text
                       }}>{r.rsi}</div>
                     </div>
-                    <div style={{background:C.surface,borderRadius:6,padding:"5px 7px",textAlign:"center"}}>
+                    <div style={mBox}>
                       <div style={{fontSize:10,color:C.muted}}>{screenMode==="BUY"?"IV Upside":"Overvalued"}</div>
                       <div style={{fontSize:13,fontWeight:700,
                         color:screenMode==="BUY"?(r.upside>20?C.green:r.upside>0?C.gold:C.red):(r.overvalued>30?C.red:r.overvalued>0?C.gold:C.green)
                       }}>{screenMode==="BUY"?(r.upside>0?"+":"")+r.upside.toFixed(0):r.overvalued.toFixed(0)}%</div>
                     </div>
-                    <div style={{background:C.surface,borderRadius:6,padding:"5px 7px",textAlign:"center"}}>
+                    <div style={mBox}>
                       <div style={{fontSize:10,color:C.muted}}>Rev Growth</div>
                       <div style={{fontSize:13,fontWeight:700,
                         color:r.revGrowth===null?C.border:r.revGrowth>10?C.green:r.revGrowth>0?C.gold:C.red
                       }}>{r.revGrowth!==null?r.revGrowth.toFixed(0)+"%":"—"}</div>
                     </div>
-                    <div style={{background:C.surface,borderRadius:6,padding:"5px 7px",textAlign:"center"}}>
+                    <div style={mBox}>
                       <div style={{fontSize:10,color:C.muted}}>My Gain</div>
                       <div style={{fontSize:13,fontWeight:700,
                         color:gainPct>=0?C.green:C.red
@@ -2590,7 +2543,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
                     </div>
                   </div>
 
-                  {/* Signal chips */}
+                  
                   {signals.length>0&&(
                     <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
                       {signals.map((sig,si)=>(
@@ -2607,7 +2560,7 @@ Recommend which to sell, how much, and the sequencing. Max 200 words. No disclai
                     <div style={{fontSize:12,color:C.muted}}>No strong {screenMode.toLowerCase()} signals detected</div>
                   )}
 
-                  {/* Position info */}
+                  
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,borderTop:`1px solid ${C.border}`,paddingTop:6,marginTop:2}}>
                     <span>Position: {fmtS(sgdVal)}</span>
                     <span>{fmtL(r.h.price,r.h.mkt)} · avg cost {fmtL(r.h.avgCost,r.h.mkt)}</span>
