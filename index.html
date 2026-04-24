@@ -2,111 +2,176 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- CSP: allow CDN scripts + anthropic API calls -->
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self';
-             script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com;
-             style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-             font-src https://fonts.gstatic.com;
-             connect-src *;
-             img-src 'self' data: https:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ignitus Portfolio</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root {
       width: 100%; height: 100vh;
-      background: #0A0D14;
-      color: #E8EDF5;
+      background: #080B10;
+      color: #E8EDF8;
       font-family: 'DM Sans', system-ui, sans-serif;
       overflow: hidden;
     }
-    /* Loading screen */
     #loading {
       position: fixed; inset: 0;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      background: #0A0D14; z-index: 999;
+      background: #080B10; z-index: 999;
       gap: 16px;
     }
-    #loading .logo { font-size: 32px; font-weight: 800; color: #00D4FF; letter-spacing: -1px; }
-    #loading .sub  { font-size: 12px; color: #6B7A99; }
-    #loading .bar  { width: 120px; height: 2px; background: #1E2A3E; border-radius: 1px; overflow: hidden; }
-    #loading .fill { width: 60%; height: 100%; background: #00D4FF; border-radius: 1px;
+    #loading .logo { font-size: 32px; font-weight: 800; color: #00CFFF; letter-spacing: -1px; }
+    #loading .sub  { font-size: 12px; color: #6B7A99; text-align: center; max-width: 280px; }
+    #loading .bar  { width: 120px; height: 2px; background: #243550; border-radius: 1px; overflow: hidden; }
+    #loading .fill { width: 60%; height: 100%; background: #00CFFF; border-radius: 1px;
                      animation: slide 1s ease-in-out infinite alternate; }
     @keyframes slide { from { transform: translateX(-40px); } to { transform: translateX(60px); } }
-    #db-path { position: fixed; bottom: 8px; left: 0; right: 0; text-align: center;
-               font-size: 9px; color: #2A3A55; z-index: 1; pointer-events: none; }
   </style>
 </head>
 <body>
   <div id="loading">
     <div class="logo">IGNITUS</div>
-    <div class="sub">Loading portfolio from database...</div>
+    <div class="sub" id="load-msg">Connecting to database...</div>
     <div class="bar"><div class="fill"></div></div>
   </div>
   <div id="root"></div>
-  <div id="db-path"></div>
 
-  <!-- React + Babel via CDN -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- React 18 + Babel standalone -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Bootstrap: load DB then mount app -->
   <script>
-    window.addEventListener('DOMContentLoaded', async () => {
-      // Verify the DB bridge is available (set by preload.js)
-      if (!window.portfolioDB) {
-        document.getElementById('loading').innerHTML =
-          '<div style="color:#FF4D6A;font-size:14px;padding:20px;text-align:center">Error: Database bridge not found.<br/>Make sure you launched via Electron.</div>';
-        return;
+  (async function() {
+    const msg = document.getElementById('load-msg');
+    const SB_URL = 'https://ckyshjxznltdkxfvhfdy.supabase.co';
+    const SB_KEY = 'sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+    const HDR = {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal'
+    };
+
+    // ── Supabase helpers ──────────────────────────────────────────────────────
+    async function sbGet(table, query) {
+      const r = await fetch(SB_URL + '/rest/v1/' + table + '?' + (query||''), { headers: HDR });
+      if (!r.ok) throw new Error('Supabase ' + table + ': ' + r.status);
+      return r.json();
+    }
+    async function sbUpsert(table, rows) {
+      if (!rows || !rows.length) return;
+      const r = await fetch(SB_URL + '/rest/v1/' + table + '?on_conflict=id', {
+        method: 'POST',
+        headers: { ...HDR, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(rows)
+      });
+      return r.ok;
+    }
+    async function sbDelete(table, query) {
+      const r = await fetch(SB_URL + '/rest/v1/' + table + '?' + query, {
+        method: 'DELETE', headers: HDR
+      });
+      return r.ok;
+    }
+
+    // ── window.portfolioDB shim — mirrors Electron preload API ────────────────
+    window.portfolioDB = {
+      async load() {
+        msg.textContent = 'Loading holdings...';
+        const [holdings, trades, senate] = await Promise.all([
+          sbGet('holdings', 'order=ticker'),
+          sbGet('trades',   'order=date.desc'),
+          sbGet('senate',   'order=date.desc&limit=200'),
+        ]);
+        // Normalise field names (snake_case DB → camelCase app)
+        const h = (holdings || []).map(r => ({
+          id: r.id, ticker: r.ticker, name: r.name, mkt: r.mkt,
+          sector: r.sector || '', msStyle: r.ms_style || '',
+          shares: Number(r.shares) || 0,
+          avgCost: Number(r.avg_cost) || 0,
+          price: Number(r.price) || 0,
+          intrinsic: Number(r.intrinsic) || 0,
+          moat: r.moat || 'None',
+          divYield: Number(r.div_yield) || 0,
+          peRatio: Number(r.pe_ratio) || 0,
+          revenueGrowth: Number(r.revenue_growth) || 0,
+          senateBuys: Number(r.senate_buys) || 0,
+          senateSells: Number(r.senate_sells) || 0,
+        }));
+        const t = (trades || []).map(r => ({
+          id: r.id, ticker: r.ticker, type: r.type,
+          date: r.date, price: Number(r.price) || 0,
+          shares: Number(r.shares) || 0,
+          mkt: r.mkt || 'US', ccy: r.ccy || 'USD',
+          profit: Number(r.profit) || 0,
+        }));
+        const s = (senate || []).map(r => ({
+          id: r.id, name: r.name, party: r.party,
+          ticker: r.ticker, action: r.action, amount: r.amount,
+          date: r.date, sector: r.sector || '',
+          estPrice: Number(r.est_price) || 0,
+          priceNow: Number(r.price_now) || 0,
+          source: r.source || '',
+        }));
+        return { holdings: h, trades: t, senate: s };
+      },
+      async updateHoldings(holdings) {
+        if (!holdings || !holdings.length) return;
+        const rows = holdings.map(h => ({
+          id: h.id,
+          ticker: h.ticker, name: h.name, mkt: h.mkt,
+          sector: h.sector || '', ms_style: h.msStyle || '',
+          shares: h.shares, avg_cost: h.avgCost,
+          price: h.price, intrinsic: h.intrinsic || 0,
+          moat: h.moat || 'None',
+          div_yield: h.divYield || 0,
+          pe_ratio: h.peRatio || 0,
+          revenue_growth: h.revenueGrowth || 0,
+          senate_buys: h.senateBuys || 0,
+          senate_sells: h.senateSells || 0,
+        }));
+        return sbUpsert('holdings', rows);
+      },
+      async deleteTrade(id) {
+        return sbDelete('trades', 'id=eq.' + id);
+      },
+      async deleteHolding(ticker) {
+        return sbDelete('holdings', 'ticker=eq.' + encodeURIComponent(ticker));
+      },
+      async updateTrades(trades) {
+        if (!trades || !trades.length) return;
+        const rows = trades.map(t => ({
+          id: t.id, ticker: t.ticker, type: t.type,
+          date: t.date, price: t.price, shares: t.shares,
+          mkt: t.mkt || 'US', ccy: t.ccy || 'USD',
+          profit: t.profit || 0,
+        }));
+        return sbUpsert('trades', rows);
       }
+    };
 
-      try {
-        // Load all data from SQLite
-        const data = await window.portfolioDB.load();
-        window.__PORTFOLIO_DATA__ = data;
-
-        // Show DB path
-        const pathEl = document.getElementById('db-path');
-        if (pathEl) pathEl.textContent = '📁 ' + data.dbPath;
-
-        // Dynamically load the portfolio app script
-        const script = document.createElement('script');
-        script.type = 'text/babel';
-        script.setAttribute('data-type', 'module');
-
-        // Fetch the app source
-        const resp = await fetch('./app.jsx?v=' + Date.now()); // cache-bust
-        const src  = await resp.text();
-        script.textContent = src;
-        document.body.appendChild(script);
-
-      } catch (err) {
-        document.getElementById('loading').innerHTML =
-          `<div style="color:#FF4D6A;font-size:13px;padding:20px;font-family:monospace">
-             <b>Load Error:</b><br/>${err.message}<br/>
-             <pre style="font-size:10px;margin-top:8px;white-space:pre-wrap">${err.stack||''}</pre>
-           </div>`;
-      }
-    });
-  </script>
-  <script>
-    // Catch Babel transform errors and React render errors
-    window.addEventListener('error', function(e) {
-      var el = document.getElementById('loading');
-      if (el) {
-        el.style.display = 'flex';
-        el.innerHTML = '<div style="color:#FF4D6A;font-size:13px;padding:20px;font-family:monospace;text-align:left;max-width:90vw">' +
-          '<b>Runtime Error (please screenshot and send):</b><br/><br/>' +
-          '<b>Message:</b> ' + (e.message||'unknown') + '<br/>' +
-          '<b>File:</b> ' + (e.filename||'') + '<br/>' +
-          '<b>Line:</b> ' + e.lineno + ' Col: ' + e.colno + '<br/><br/>' +
-          '<pre style="font-size:10px;white-space:pre-wrap;overflow:auto;max-height:300px">' + 
-          ((e.error&&e.error.stack)||'no stack') + '</pre></div>';
-      }
-    });
+    // ── Load app.jsx via Babel ────────────────────────────────────────────────
+    try {
+      msg.textContent = 'Loading app...';
+      const resp = await fetch('./app.jsx?v=' + Date.now());
+      if (!resp.ok) throw new Error('Failed to fetch app.jsx: ' + resp.status);
+      const source = await resp.text();
+      msg.textContent = 'Compiling...';
+      const script = document.createElement('script');
+      script.type = 'text/babel';
+      script.setAttribute('data-type', 'module');
+      script.setAttribute('data-presets', 'react');
+      script.textContent = source;
+      document.body.appendChild(script);
+    } catch(err) {
+      document.getElementById('loading').innerHTML =
+        '<div style="color:#FF5577;font-size:13px;padding:24px;font-family:monospace;text-align:left;max-width:90vw">' +
+        '<b>Load Error:</b><br><br>' + err.message +
+        '<br><br><pre style="font-size:10px;white-space:pre-wrap">' +
+        (err.stack||'') + '</pre></div>';
+    }
+  })();
   </script>
 </body>
 </html>
