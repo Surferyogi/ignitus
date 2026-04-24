@@ -2267,12 +2267,14 @@ function App(){
             <input
               type="number"
               placeholder={screenMode==="BUY"?"e.g. 50000":"e.g. 30000"}
-              value={screenBudget}
+              defaultValue={screenBudget}
+              onBlur={e=>setScreenBudget(e.target.value)}
               onChange={e=>setScreenBudget(e.target.value)}
+              key={screenMode}
               style={{
                 flex:1,background:C.surface,border:`1px solid ${C.border}`,
                 color:C.text,borderRadius:8,padding:"8px 12px",fontSize:13,
-                outline:"none",
+                outline:"none",WebkitAppearance:"none",
               }}
             />
             <div style={{fontSize:11,color:C.muted,flexShrink:0}}>SGD</div>
@@ -3317,7 +3319,7 @@ function App(){
   ];
   const refreshTs=lastRefresh?lastRefresh.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null;
   return(
-    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,minHeight:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative"}}>
+    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,height:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {isLoading&&(
         <div style={{position:"fixed",inset:0,background:"#0A0D14",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,padding:20}}>
           <div style={{fontSize:30,fontWeight:800,color:"#00D4FF",letterSpacing:"-1px"}}>IGNITUS</div>
@@ -3328,7 +3330,7 @@ function App(){
         </div>
       )}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}::-webkit-scrollbar{display:none;}@keyframes pulse{0%,100%{opacity:0.4}50%{opacity:1}}@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes fadeDown{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(8px)}}`}</style>
-      <div style={{padding:"48px 18px 14px",background:`linear-gradient(180deg,${C.surface} 0%,${C.bg} 100%)`,borderBottom:`1px solid ${C.border}`}}>
+      <div style={{padding:"48px 18px 14px",background:`linear-gradient(180deg,${C.surface} 0%,${C.bg} 100%)`,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
@@ -3404,7 +3406,7 @@ function App(){
         </div>
       </div>
 
-      <div style={{overflowY:"auto",padding:"16px 18px 100px"}}>
+      <div style={{overflowY:"auto",flex:1,minHeight:0,padding:"16px 18px 80px",WebkitOverflowScrolling:"touch"}}>
         {/* Last refresh timestamp */}
         {refreshTs&&(
           <div style={{fontSize:13,color:C.muted,textAlign:"right",marginBottom:8,opacity:0.7}}>
