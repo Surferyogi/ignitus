@@ -4441,7 +4441,8 @@ function App(){
   ];
   const refreshTs=lastRefresh?lastRefresh.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null;
   return(
-    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,height:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",display:"flex",flexDirection:"column",overflow:sel?"hidden":"hidden"}}>
+  <>
+    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,height:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       {isLoading&&(
         <div style={{position:"fixed",inset:0,background:"#0A0D14",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,padding:20}}>
           <div style={{fontSize:30,fontWeight:800,color:"#00D4FF",letterSpacing:"-1px"}}>IGNITUS</div>
@@ -4528,7 +4529,7 @@ function App(){
         </div>
       </div>
 
-      <div style={{overflowY:sel?"hidden":"auto",flex:1,minHeight:0,padding:"16px 18px 80px",WebkitOverflowScrolling:"touch"}}>
+      <div style={{overflowY:"auto",flex:1,minHeight:0,padding:"16px 18px 80px",WebkitOverflowScrolling:"touch"}}>
         {/* Last refresh timestamp */}
         {refreshTs&&(
           <div style={{fontSize:13,color:C.muted,textAlign:"right",marginBottom:8,opacity:0.7}}>
@@ -4571,7 +4572,6 @@ function App(){
         </div>
       )}
 
-      {sel&&<ErrBoundary><HoldingDetail/></ErrBoundary>}
 
       {/* ── Delete Trade Confirmation Modal ──────────────────────────── */}
       {deleteConfirmTrade&&(
@@ -4659,6 +4659,11 @@ function App(){
       {holdingEditId!=null&&<EditHoldingModal/>}
       {deleteConfirm!=null&&<DeleteConfirmModal/>}
     </div>
+    {/* ── Modals rendered OUTSIDE the overflow:hidden App div ──────────────
+        On iOS Safari, position:fixed inside overflow:hidden loses scroll.
+        Rendering here (sibling of App div, inside #root) fixes this. ── */}
+    {sel&&<ErrBoundary><HoldingDetail/></ErrBoundary>}
+  </>
   );
 }
 
