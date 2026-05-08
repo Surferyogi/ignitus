@@ -407,6 +407,7 @@ function App(){
   const [insightTab,setInsightTab]=useState("performers");
   const [aiText,setAiText]=useState({});
   const [aiLoad,setAiLoad]=useState({});
+  const [insiderData,setInsiderData]=useState({});
   const [showTradeForm,setShowTradeForm]=useState(false);
   const [dupeWarning,setDupeWarning]=useState(null);   // {trade, pending} when duplicate detected
   const [deleteConfirmTrade,setDeleteConfirmTrade]=useState(null); // trade to confirm delete
@@ -950,6 +951,33 @@ function App(){
       }
     } catch(e) {
       console.warn('[moat] fetchMoatData silent error:', e.message); // non-critical
+    }
+  }
+
+
+  // ── Fetch insider trades from Quiver Quant for a single ticker ───────────
+  async function fetchInsiderTrades(ticker: string){
+    if(!ticker) return;
+    // Don't re-fetch if already loaded (cache per session)
+    if(insiderData[ticker]&&!insiderData[ticker].error) return;
+    setInsiderData(prev=>({...prev,[ticker]:{loading:true,trades:[],netBuys:0,netSells:0,sentiment:"neutral"}}));
+    try{
+      const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({action:"insider_trading",ticker}),
+      });
+      const d=await res.json();
+      setInsiderData(prev=>({...prev,[ticker]:{
+        loading:false,
+        trades:d.trades||[],
+        netBuys:d.netBuys||0,
+        netSells:d.netSells||0,
+        sentiment:d.sentiment||"neutral",
+        error:d.error||null,
+      }}));
+    }catch(e: any){
+      setInsiderData(prev=>({...prev,[ticker]:{loading:false,trades:[],error:e.message}}));
     }
   }
 
@@ -3779,6 +3807,8 @@ function App(){
     const w=wtTotal(h),pos=gainPct>=0;
     const tickerRealizedH=realizedPerTicker[h.ticker]||0; // total realized P&L for this stock
     const analysis=aiText[h.ticker],loading=aiLoad[h.ticker];
+    // Fetch insider trades when detail opens (cached per session)
+    React.useEffect(()=>{ fetchInsiderTrades(h.ticker); },[h.ticker]);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
@@ -4107,6 +4137,87 @@ function App(){
 
           <div style={card}><div style={cardT}>Analysis Scores</div>{[["Intrinsic Value",sc.iv],["Economic Moat",sc.mt],["Dividend Yield",sc.dv],["Overall",sc.all]].map(([l,v])=>(<div key={l} style={{marginBottom:8}}><div style={{fontSize:15,color:l==="Overall"?C.text:C.muted,marginBottom:3,fontWeight:l==="Overall"?700:400}}>{l}</div><ScoreBar score={v} max={10} color={l==="Overall"?C.accent:undefined}/></div>))}</div>
           <div style={card}><div style={cardT}>Key Stats</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>{[["P/E",fmt(h.peRatio)],["Div Yield",fmt(h.divYield)+"%"],["Sector",h.sector],["MS Style",h.msStyle],["Market",`${h.mkt} (${m.code})`],["Benchmark",m.index]].map(([l,v])=>(<div key={l}><div style={{fontSize:13,color:C.muted}}>{l}</div><div style={{fontSize:15,fontWeight:600}}>{v}</div></div>))}</div></div>
+
+          {/* ── INSIDER TRADING PANEL ─────────────────────────────────── */}
+          {(()=>{
+            const ins=insiderData[h.ticker];
+            if(!ins&&!insiderData[h.ticker]) return null;
+            const insLoading=ins?.loading;
+            const insTrades=ins?.trades||[];
+            const sentimentCol=ins?.sentiment==="bullish"?C.green:ins?.sentiment==="bearish"?C.red:C.gold;
+            const sentimentIcon=ins?.sentiment==="bullish"?"📈":ins?.sentiment==="bearish"?"📉":"➡️";
+            return(
+              <div style={{...card,borderLeft:`3px solid ${sentimentCol}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{fontSize:16}}>🏢</span>
+                    <div style={cardT}>Insider Transactions</div>
+                  </div>
+                  {ins&&!insLoading&&(
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {ins.netBuys>0&&<span style={{fontSize:12,fontWeight:700,color:C.green,background:C.green+"18",padding:"2px 8px",borderRadius:10}}>{ins.netBuys} BUY</span>}
+                      {ins.netSells>0&&<span style={{fontSize:12,fontWeight:700,color:C.red,background:C.red+"18",padding:"2px 8px",borderRadius:10}}>{ins.netSells} SELL</span>}
+                      <span style={{fontSize:12,color:sentimentCol,fontWeight:700}}>{sentimentIcon}</span>
+                    </div>
+                  )}
+                </div>
+                {insLoading?(
+                  <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"12px 0"}}>
+                    Loading insider data…
+                  </div>
+                ):ins?.error?(
+                  <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"8px 0"}}>
+                    Insider data not available for {h.ticker}
+                  </div>
+                ):insTrades.length===0?(
+                  <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"8px 0"}}>
+                    No recent insider transactions found
+                  </div>
+                ):(
+                  <>
+                    {/* Column headers */}
+                    <div style={{display:"grid",gridTemplateColumns:"80px 1fr 60px 70px",gap:"2px 8px",
+                      fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",
+                      letterSpacing:"0.05em",paddingBottom:6,borderBottom:`1px solid ${C.border}`,marginBottom:4}}>
+                      <div>Date</div>
+                      <div>Insider</div>
+                      <div>Action</div>
+                      <div style={{textAlign:"right"}}>Value</div>
+                    </div>
+                    {insTrades.map((t,i)=>(
+                      <div key={i} style={{display:"grid",gridTemplateColumns:"80px 1fr 60px 70px",
+                        gap:"2px 8px",padding:"5px 0",fontSize:13,
+                        borderBottom:i<insTrades.length-1?`1px solid ${C.border}22`:"none"}}>
+                        <div style={{fontSize:11,color:C.muted,alignSelf:"center"}}>{t.date}</div>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.name}</div>
+                          {t.role&&<div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.role}</div>}
+                        </div>
+                        <div style={{alignSelf:"center"}}>
+                          <span style={{fontSize:12,fontWeight:700,
+                            color:t.action==="BUY"?C.green:C.red,
+                            background:t.action==="BUY"?C.green+"18":C.red+"18",
+                            padding:"2px 6px",borderRadius:6}}>
+                            {t.action}
+                          </span>
+                        </div>
+                        <div style={{textAlign:"right",fontSize:12,fontWeight:700,alignSelf:"center",
+                          color:t.action==="BUY"?C.green:C.red}}>
+                          {t.value||"—"}
+                          {t.shares>0&&<div style={{fontSize:10,color:C.muted,fontWeight:400}}>
+                            {t.shares.toLocaleString()} sh
+                          </div>}
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{fontSize:11,color:C.muted,marginTop:8,textAlign:"right"}}>
+                      Source: Quiver Quant · SEC Form 4 filings
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}30`}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:18}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
