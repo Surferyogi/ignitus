@@ -653,7 +653,7 @@ function App(){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'screen',
-          holdings:holdings.map(h=>({ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price}))
+          holdings:activeHoldings.map(h=>({ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price}))
         }),
       });
       if(!res.ok){console.warn('[screen] fetch failed:',res.status);setScreenLoading(false);return;}
@@ -775,7 +775,7 @@ function App(){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           action:'alerts',
-          holdings:holdings.map(h=>({
+          holdings:activeHoldings.map(h=>({
             ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price
           }))
         }),
@@ -1379,20 +1379,30 @@ function App(){
   },[mktFilter,holdings,refreshKey]);
 
   const filtered=useMemo(()=>{
-    let h=mktFilter==="ALL"?holdings:holdings.filter(x=>x.mkt===mktFilter);
+    // Active holdings only — exclude fully sold (shares=0) from ALL analysis/insights
+    let h=(mktFilter==="ALL"?holdings:holdings.filter(x=>x.mkt===mktFilter))
+      .filter(x=>!x.fullySold&&x.shares>0);
     if(search)h=h.filter(x=>x.ticker.toLowerCase().includes(search.toLowerCase())||x.name.toLowerCase().includes(search.toLowerCase()));
     return h;
   },[mktFilter,search,holdings,refreshKey]);
 
-  const byGain=useMemo(()=>[...holdings].sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost)),[holdings,refreshKey]);
+  // Active holdings for insights/analysis (no market filter, no search — full universe)
+  const activeHoldings=useMemo(()=>
+    holdings.filter(h=>!h.fullySold&&h.shares>0)
+  ,[holdings,refreshKey]);
+
+  const byGain=useMemo(()=>[...activeHoldings]
+    .filter(h=>h.avgCost>0) // exclude stocks with no cost basis from gain ranking
+    .sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost))
+  ,[activeHoldings,refreshKey]);
   const top10=byGain.slice(0,10);
   const worst10=[...byGain].reverse().slice(0,10);
-  const buffettList=useMemo(()=>[...holdings].map(h=>{
+  const buffettList=useMemo(()=>[...activeHoldings].map(h=>{
     const compIV=valuations[h.ticker]?.valuations?.average||0;
     const effIV=compIV>0?compIV:(h.intrinsic||0);
     const hScored={...h,intrinsic:effIV};
     return {...hScored,...buffettScore(hScored)};
-  }).sort((a,b)=>b.score-a.score),[holdings,valuations,refreshKey]);
+  }).sort((a,b)=>b.score-a.score),[activeHoldings,valuations,refreshKey]);
 
   async function analyse(h){
     if(aiText[h.ticker])return;
@@ -1815,8 +1825,8 @@ function App(){
   const pill=a=>({padding:"6px 13px",borderRadius:20,fontSize:14,fontWeight:a?700:500,background:a?C.accent:"transparent",color:a?C.bg:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const smPill=a=>({padding:"5px 11px",borderRadius:14,fontSize:14,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:16,outline:"none",boxSizing:"border-box"};
-  const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:50,overflow:"hidden"};
-  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:20,paddingBottom:40,width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"94vh",height:"94vh",overflowY:"scroll",overflowX:"hidden",WebkitOverflowScrolling:"touch",position:"relative",boxSizing:"border-box"};
+  const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:50};
+  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 48px",width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"92vh",overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",position:"relative",boxSizing:"border-box"};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
@@ -1940,7 +1950,7 @@ function App(){
         {(()=>{
           let src2=holdingSort==="div"
             ?filtered.filter(h=>(h.divYield||0)>0)  // hide zero-dividend stocks
-            :[...filtered];
+            :filtered.filter(h=>!h.fullySold&&h.shares>0); // exclude sold from all sorts
           if(holdingSort==="default") src2.sort((a,b)=>a.ticker.localeCompare(b.ticker)); // A→Z
           else if(holdingSort==="best") src2.sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost));
           else if(holdingSort==="worst") src2.sort((a,b)=>((a.price-a.avgCost)/a.avgCost)-((b.price-b.avgCost)/b.avgCost));
@@ -3813,7 +3823,7 @@ function App(){
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
       <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
-        <div style={mCard}>
+        <div style={mCard} onTouchMove={e=>e.stopPropagation()}>
           {/* Header: back arrow top-left, title centre, action buttons below */}
           <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
             <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:20,cursor:"pointer",padding:"12px 18px",lineHeight:1,flexShrink:0,borderRadius:12,fontWeight:700,marginRight:12}}>←</button>
