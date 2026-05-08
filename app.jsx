@@ -1826,7 +1826,7 @@ function App(){
   const smPill=a=>({padding:"5px 11px",borderRadius:14,fontSize:14,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:16,outline:"none",boxSizing:"border-box"};
   const modal={position:"fixed",inset:0,zIndex:50};
-  const mCard={position:"fixed",left:0,right:0,bottom:0,top:"6vh",background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",overflowY:"scroll",overflowX:"hidden",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",boxSizing:"border-box",zIndex:51};
+  const mCard={position:"fixed",left:0,right:0,bottom:0,top:"6vh",background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",overflowY:"scroll",overflowX:"hidden",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",touchAction:"pan-y",boxSizing:"border-box",zIndex:51};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
@@ -3816,6 +3816,24 @@ function App(){
     const sgdVal=toSGDlive(localVal,h.mkt),sgdCost=toSGDlive(localCost,h.mkt),sgdGain=toSGDlive(localGain,h.mkt),sgdDiv=toSGDlive(localDiv,h.mkt);
     const w=wtTotal(h),pos=gainPct>=0;
     const tickerRealizedH=realizedPerTicker[h.ticker]||0; // total realized P&L for this stock
+    // Lock body scroll when holding detail is open — prevents iOS from scrolling page behind modal
+    React.useEffect(()=>{
+      if(sel){
+        document.body.style.overflow='hidden';
+        document.body.style.position='fixed';
+        document.body.style.width='100%';
+      } else {
+        document.body.style.overflow='';
+        document.body.style.position='';
+        document.body.style.width='';
+      }
+      return()=>{
+        document.body.style.overflow='';
+        document.body.style.position='';
+        document.body.style.width='';
+      };
+    },[sel]);
+
     const analysis=aiText[h.ticker],loading=aiLoad[h.ticker];
     // Fetch insider trades when detail opens (cached per session)
     React.useEffect(()=>{ fetchInsiderTrades(h.ticker); },[h.ticker]);
@@ -4423,7 +4441,7 @@ function App(){
   ];
   const refreshTs=lastRefresh?lastRefresh.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null;
   return(
-    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,height:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,height:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",display:"flex",flexDirection:"column",overflow:sel?"hidden":"hidden"}}>
       {isLoading&&(
         <div style={{position:"fixed",inset:0,background:"#0A0D14",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,padding:20}}>
           <div style={{fontSize:30,fontWeight:800,color:"#00D4FF",letterSpacing:"-1px"}}>IGNITUS</div>
@@ -4510,7 +4528,7 @@ function App(){
         </div>
       </div>
 
-      <div style={{overflowY:"auto",flex:1,minHeight:0,padding:"16px 18px 80px",WebkitOverflowScrolling:"touch"}}>
+      <div style={{overflowY:sel?"hidden":"auto",flex:1,minHeight:0,padding:"16px 18px 80px",WebkitOverflowScrolling:"touch"}}>
         {/* Last refresh timestamp */}
         {refreshTs&&(
           <div style={{fontSize:13,color:C.muted,textAlign:"right",marginBottom:8,opacity:0.7}}>
