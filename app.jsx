@@ -407,7 +407,6 @@ function App(){
   const [insightTab,setInsightTab]=useState("performers");
   const [aiText,setAiText]=useState({});
   const [aiLoad,setAiLoad]=useState({});
-  const [insiderData,setInsiderData]=useState({});
   const [showTradeForm,setShowTradeForm]=useState(false);
   const [dupeWarning,setDupeWarning]=useState(null);   // {trade, pending} when duplicate detected
   const [deleteConfirmTrade,setDeleteConfirmTrade]=useState(null); // trade to confirm delete
@@ -954,32 +953,6 @@ function App(){
     }
   }
 
-
-  // ── Fetch insider trades from Quiver Quant for a single ticker ───────────
-  async function fetchInsiderTrades(ticker){
-    if(!ticker) return;
-    // Don't re-fetch if already loaded (cache per session)
-    if(insiderData[ticker]&&!insiderData[ticker].error) return;
-    setInsiderData(prev=>({...prev,[ticker]:{loading:true,trades:[],netBuys:0,netSells:0,sentiment:"neutral"}}));
-    try{
-      const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({action:"insider_trading",ticker}),
-      });
-      const d=await res.json();
-      setInsiderData(prev=>({...prev,[ticker]:{
-        loading:false,
-        trades:d.trades||[],
-        netBuys:d.netBuys||0,
-        netSells:d.netSells||0,
-        sentiment:d.sentiment||"neutral",
-        error:d.error||null,
-      }}));
-    }catch(e){
-      setInsiderData(prev=>({...prev,[ticker]:{loading:false,trades:[],error:e.message}}));
-    }
-  }
 
   // ── Resolve proper company names for holdings stored as ticker symbol ────────
   // Fires on startup whenever name === ticker (unnamed holding)
@@ -1825,8 +1798,8 @@ function App(){
   const pill=a=>({padding:"6px 13px",borderRadius:20,fontSize:14,fontWeight:a?700:500,background:a?C.accent:"transparent",color:a?C.bg:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const smPill=a=>({padding:"5px 11px",borderRadius:14,fontSize:14,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:16,outline:"none",boxSizing:"border-box"};
-  const modal={position:"fixed",inset:0,zIndex:50};
-  const mCard={position:"fixed",left:0,right:0,bottom:0,top:"6vh",background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",overflowY:"scroll",overflowX:"hidden",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",touchAction:"pan-y",boxSizing:"border-box",zIndex:51};
+  const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:9999};
+  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"92vh",overflowY:"auto",WebkitOverflowScrolling:"touch",position:"relative",boxSizing:"border-box"};"pan-y",boxSizing:"border-box",zIndex:51};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
@@ -3816,34 +3789,49 @@ function App(){
     const sgdVal=toSGDlive(localVal,h.mkt),sgdCost=toSGDlive(localCost,h.mkt),sgdGain=toSGDlive(localGain,h.mkt),sgdDiv=toSGDlive(localDiv,h.mkt);
     const w=wtTotal(h),pos=gainPct>=0;
     const tickerRealizedH=realizedPerTicker[h.ticker]||0; // total realized P&L for this stock
-    // Lock body scroll when holding detail is open — prevents iOS from scrolling page behind modal
-    React.useEffect(()=>{
-      if(sel){
-        document.body.style.overflow='hidden';
-        document.body.style.position='fixed';
-        document.body.style.width='100%';
-      } else {
-        document.body.style.overflow='';
-        document.body.style.position='';
-        document.body.style.width='';
-      }
-      return()=>{
-        document.body.style.overflow='';
-        document.body.style.position='';
-        document.body.style.width='';
-      };
-    },[sel]);
-
     const analysis=aiText[h.ticker],loading=aiLoad[h.ticker];
-    // Fetch insider trades when detail opens (cached per session)
-    React.useEffect(()=>{ fetchInsiderTrades(h.ticker); },[h.ticker]);
+
+    // ── Insider data is LOCAL state — does NOT cause App re-render ──────────
+    // This was the root cause of scroll breaking: App-level insiderData state
+    // caused full App re-renders immediately after modal opened, which confused
+    // iOS Safari's touch/scroll gesture recognizer during the settle window.
+    const [insiderData,setInsiderData]=React.useState({});
+
+    async function fetchInsiderTrades(ticker){
+      if(!ticker) return;
+      if(insiderData[ticker]&&!insiderData[ticker].error) return;
+      setInsiderData(prev=>({...prev,[ticker]:{loading:true,trades:[],netBuys:0,netSells:0,sentiment:"neutral"}}));
+      try{
+        const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"insider_trading",ticker}),
+        });
+        const d=await res.json();
+        setInsiderData(prev=>({...prev,[ticker]:{
+          loading:false,
+          trades:d.trades||[],
+          netBuys:d.netBuys||0,
+          netSells:d.netSells||0,
+          sentiment:d.sentiment||"neutral",
+          error:d.error||null,
+        }}));
+      }catch(e){
+        setInsiderData(prev=>({...prev,[ticker]:{loading:false,trades:[],error:e.message}}));
+      }
+    }
+
+    // Delay fetch by 600ms — let modal fully settle before any re-render
+    React.useEffect(()=>{
+      const t=setTimeout(()=>fetchInsiderTrades(h.ticker), 600);
+      return ()=>clearTimeout(t);
+    },[h.ticker]);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
-    return(
-      <div style={modal}>
-        {/* Dark backdrop — tap to close */}
-        <div onClick={()=>setSel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:50}}/>
-        {/* Scrollable sheet */}
+    // createPortal renders directly into document.body — bypasses ALL parent overflow/position constraints
+    return window.ReactDOM.createPortal(
+      <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
+        <div style={mCard}>{/* Scrollable sheet */}
         <div style={mCard}>
           {/* Header: back arrow top-left, title centre, action buttons below */}
           <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
@@ -4427,10 +4415,8 @@ function App(){
           </div>
         </div>
       </div>
-    );
+    , document.body);
   }
-
-  const TABS=[
     {id:"portfolio",icon:"📊",label:"Portfolio"},
     {id:"insights", icon:"💡",label:"Insights"},
     {id:"indices",  icon:"🌍",label:"Markets"},
@@ -4659,9 +4645,6 @@ function App(){
       {holdingEditId!=null&&<EditHoldingModal/>}
       {deleteConfirm!=null&&<DeleteConfirmModal/>}
     </div>
-    {/* ── Modals rendered OUTSIDE the overflow:hidden App div ──────────────
-        On iOS Safari, position:fixed inside overflow:hidden loses scroll.
-        Rendering here (sibling of App div, inside #root) fixes this. ── */}
     {sel&&<ErrBoundary><HoldingDetail/></ErrBoundary>}
   </>
   );
