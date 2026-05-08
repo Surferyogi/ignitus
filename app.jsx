@@ -956,7 +956,7 @@ function App(){
 
 
   // ── Fetch insider trades from Quiver Quant for a single ticker ───────────
-  async function fetchInsiderTrades(ticker: string){
+  async function fetchInsiderTrades(ticker){
     if(!ticker) return;
     // Don't re-fetch if already loaded (cache per session)
     if(insiderData[ticker]&&!insiderData[ticker].error) return;
@@ -976,7 +976,7 @@ function App(){
         sentiment:d.sentiment||"neutral",
         error:d.error||null,
       }}));
-    }catch(e: any){
+    }catch(e){
       setInsiderData(prev=>({...prev,[ticker]:{loading:false,trades:[],error:e.message}}));
     }
   }
