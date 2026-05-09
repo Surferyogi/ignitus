@@ -3831,7 +3831,7 @@ function App(){
     return(
       <div style={{minHeight:"100%"}}>
         {/* Back button — sticky at top */}
-        <div style={{display:"flex",alignItems:"center",marginBottom:12,position:"sticky",top:0,background:C.bg,zIndex:10,paddingTop:4,paddingBottom:8,marginLeft:-18,marginRight:-18,paddingLeft:18,paddingRight:18}}>
+        <div style={{display:"flex",alignItems:"center",marginBottom:12,position:"sticky",top:0,background:C.bg,zIndex:10,paddingTop:12,paddingBottom:10,marginLeft:0,marginRight:0,paddingLeft:18,paddingRight:18}}>
           <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:20,cursor:"pointer",padding:"10px 16px",lineHeight:1,borderRadius:12,fontWeight:700,marginRight:12}}>←</button>
           <div style={{flex:1}}>
             <div style={{fontWeight:800,fontSize:18,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
@@ -3842,8 +3842,7 @@ function App(){
             <button onClick={()=>confirmDeleteHolding(h.id)} style={{background:"transparent",border:`1px solid ${C.red}44`,color:C.red,fontSize:13,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:600}}>🗑 Delete</button>
           </div>
         </div>
-        <div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+        <div style={{padding:"0 18px"}}>id",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
               <div style={{fontSize:13,color:C.muted,marginBottom:2}}>Avg Cost</div>
               <div style={{fontSize:18,fontWeight:800}}>{fmtL(h.avgCost,h.mkt)}</div>
@@ -4511,7 +4510,7 @@ function App(){
         </div>
       </div>
 
-      <div style={{overflowY:"auto",flex:1,minHeight:0,padding:"16px 18px 80px",WebkitOverflowScrolling:"touch"}}>
+      <div style={{overflowY:"auto",flex:1,minHeight:0,padding:sel?"0 0 80px":"16px 18px 80px",WebkitOverflowScrolling:"touch"}}>
         {/* Last refresh timestamp */}
         {refreshTs&&(
           <div style={{fontSize:13,color:C.muted,textAlign:"right",marginBottom:8,opacity:0.7}}>
