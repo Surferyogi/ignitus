@@ -3842,17 +3842,7 @@ function App(){
             <button onClick={()=>confirmDeleteHolding(h.id)} style={{background:"transparent",border:`1px solid ${C.red}44`,color:C.red,fontSize:13,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:600}}>🗑 Delete</button>
           </div>
         </div>
-        <div>name}</div>
-              <div style={{fontSize:14,color:C.mutedLight,marginTop:1}}>{m.index} · YTD {m.idxYtd>=0?"+":""}{m.idxYtd}%</div>
-            </div>
-          </div>
-          {/* Action buttons in their own row - well separated */}
-          <div style={{display:"flex",gap:8,marginBottom:14}}>
-            <button onClick={()=>openEditHolding(h)} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.accent}`,background:C.accent+"12",color:C.accent,cursor:"pointer",fontWeight:700,fontSize:15}}>✏️ Edit</button>
-            <button onClick={()=>{setSel(null);confirmDeleteHolding(h.id);}} style={{flex:1,padding:"8px",borderRadius:8,border:`1px solid ${C.red}55`,background:C.red+"12",color:C.red,cursor:"pointer",fontWeight:700,fontSize:15}}>🗑 Delete</button>
-          </div>
-
-          {/* Avg Cost / Price / Intrinsic */}
+        <div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
               <div style={{fontSize:13,color:C.muted,marginBottom:2}}>Avg Cost</div>
