@@ -3828,10 +3828,8 @@ function App(){
     },[h.ticker]);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
-    // createPortal renders directly into document.body — bypasses ALL parent overflow/position constraints
-    return window.ReactDOM.createPortal(
+    return(
       <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
-        <div style={mCard}>{/* Scrollable sheet */}
         <div style={mCard}>
           {/* Header: back arrow top-left, title centre, action buttons below */}
           <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
@@ -4415,8 +4413,10 @@ function App(){
           </div>
         </div>
       </div>
-    , document.body);
+    );
   }
+
+  const TABS=[
     {id:"portfolio",icon:"📊",label:"Portfolio"},
     {id:"insights", icon:"💡",label:"Insights"},
     {id:"indices",  icon:"🌍",label:"Markets"},
