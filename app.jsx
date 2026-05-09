@@ -1798,8 +1798,8 @@ function App(){
   const pill=a=>({padding:"6px 13px",borderRadius:20,fontSize:14,fontWeight:a?700:500,background:a?C.accent:"transparent",color:a?C.bg:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const smPill=a=>({padding:"5px 11px",borderRadius:14,fontSize:14,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:16,outline:"none",boxSizing:"border-box"};
-  const modal={position:"fixed",inset:0,zIndex:9999};
-  const mCard={position:"fixed",left:0,right:0,bottom:0,top:"8vh",background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",overflowY:"scroll",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",boxSizing:"border-box"};
+  const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:9999};
+  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",width:"100%",maxWidth:430,margin:"0 auto",height:"92vh",overflowY:"scroll",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",boxSizing:"border-box"};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
@@ -3829,11 +3829,8 @@ function App(){
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
-      <div style={modal}>
-        {/* Backdrop — tap anywhere on dark area to close */}
-        <div onClick={()=>setSel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)"}}/>
-        {/* Scrollable card — position:fixed with explicit bounds so iOS knows exact scroll height */}
-        <div style={mCard}>
+      <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
+        <div style={mCard} onClick={e=>e.stopPropagation()}>
           {/* Header: back arrow top-left, title centre, action buttons below */}
           <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
             <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:20,cursor:"pointer",padding:"12px 18px",lineHeight:1,flexShrink:0,borderRadius:12,fontWeight:700,marginRight:12}}>←</button>
