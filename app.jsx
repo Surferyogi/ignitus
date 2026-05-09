@@ -3829,14 +3829,20 @@ function App(){
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
-      <div style={modal} onClick={e=>{if(e.target===e.currentTarget)setSel(null);}}>
-        <div style={mCard} onClick={e=>e.stopPropagation()}>
-          {/* Header: back arrow top-left, title centre, action buttons below */}
-          <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
-            <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:20,cursor:"pointer",padding:"12px 18px",lineHeight:1,flexShrink:0,borderRadius:12,fontWeight:700,marginRight:12}}>←</button>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:800,fontSize:20,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
-              <div style={{fontSize:15,color:C.muted}}>{h.name}</div>
+      <div style={{minHeight:"100%"}}>
+        {/* Back button — sticky at top */}
+        <div style={{display:"flex",alignItems:"center",marginBottom:12,position:"sticky",top:0,background:C.bg,zIndex:10,paddingTop:4,paddingBottom:8,marginLeft:-18,marginRight:-18,paddingLeft:18,paddingRight:18}}>
+          <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:20,cursor:"pointer",padding:"10px 16px",lineHeight:1,borderRadius:12,fontWeight:700,marginRight:12}}>←</button>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,fontSize:18,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
+            <div style={{fontSize:13,color:C.muted}}>{h.name}</div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>openEditHolding(h)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.accent,fontSize:13,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:600}}>✏️ Edit</button>
+            <button onClick={()=>confirmDeleteHolding(h.id)} style={{background:"transparent",border:`1px solid ${C.red}44`,color:C.red,fontSize:13,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:600}}>🗑 Delete</button>
+          </div>
+        </div>
+        <div>name}</div>
               <div style={{fontSize:14,color:C.mutedLight,marginTop:1}}>{m.index} · YTD {m.idxYtd>=0?"+":""}{m.idxYtd}%</div>
             </div>
           </div>
@@ -4257,7 +4263,7 @@ function App(){
               );
             })()}
           </div>
-          <div style={{height:24}}/>
+          <div style={{height:40}}/>
         </div>
       </div>
     );
@@ -4522,13 +4528,16 @@ function App(){
             Last refreshed: {refreshTs}
           </div>
         )}
-        {tab==="portfolio"&&<PortfolioView/>}
-        {tab==="insights" &&<InsightsView/>}
-        {tab==="indices"  &&<IndexView/>}
-        {tab==="trades"   &&<TradesView/>}
-        {tab==="alerts"   &&<AlertsView/>}
-        {tab==="summary"  &&<SummaryView/>}
-        {tab==="recon"    &&<ReconciliationView/>}
+        {/* When a stock is selected, show detail view IN the scroll container — not as a modal */}
+        {/* This reuses the already-working iOS scroll context instead of fighting fixed overlays */}
+        {sel&&<ErrBoundary><HoldingDetail/></ErrBoundary>}
+        {!sel&&tab==="portfolio"&&<PortfolioView/>}
+        {!sel&&tab==="insights" &&<InsightsView/>}
+        {!sel&&tab==="indices"  &&<IndexView/>}
+        {!sel&&tab==="trades"   &&<TradesView/>}
+        {!sel&&tab==="alerts"   &&<AlertsView/>}
+        {!sel&&tab==="summary"  &&<SummaryView/>}
+        {!sel&&tab==="recon"    &&<ReconciliationView/>}
       </div>
 
       {/* Floating refresh button — visible when there are pending changes */}
@@ -4645,7 +4654,6 @@ function App(){
       {holdingEditId!=null&&<EditHoldingModal/>}
       {deleteConfirm!=null&&<DeleteConfirmModal/>}
     </div>
-    {sel&&<ErrBoundary><HoldingDetail/></ErrBoundary>}
   </>
   );
 }
