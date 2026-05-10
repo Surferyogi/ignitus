@@ -1769,7 +1769,7 @@ function App(){
       mkt:p.mkt||'SG',
       ccy:p.ccy||'SGD',
     });
-    if(p.ticker) setTickerSearchTerm(p.ticker);
+    if(p.ticker){setTickerSearchTerm(p.ticker);if(searchInputRef.current)searchInputRef.current.value=p.ticker;}
     setShowPasteParser(false);
     setShowTradeForm(true);
     setEditTradeId(null);
@@ -1925,17 +1925,19 @@ function App(){
             ref={searchInputRef}
             style={{...inp,paddingRight:search?32:12,marginBottom:0}}
             placeholder={`Search ${filtered.length} holdings...`}
-            value={search}
-            onChange={e=>{
-              setSearch(e.target.value);
-              requestAnimationFrame(()=>{
-                if(searchInputRef.current) searchInputRef.current.focus();
-              });
+            defaultValue={search}
+            onInput={e=>{
+              // Use onInput (fires on every keystroke) but DON'T call setSearch
+              // — instead debounce the state update so the input never re-renders
+              const v=e.target.value;
+              clearTimeout(searchInputRef._t);
+              searchInputRef._t=setTimeout(()=>setSearch(v),150);
             }}
+            onBlur={e=>setSearch(e.target.value)}
           />
           {search&&(
             <button
-              onClick={()=>setSearch("")}
+              onClick={()=>{setSearch("");if(searchInputRef.current)searchInputRef.current.value="";}}
               style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
                 background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",
                 lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center"}}
@@ -2593,8 +2595,8 @@ function App(){
             <div style={{marginBottom:8}}>
               <div style={lbl}>Stock Search — Name or Ticker Symbol</div>
               <div style={{display:"flex",gap:6}}>
-                <input ref={searchInputRef} style={{...iField,flex:1}} placeholder="e.g. NVIDIA or NVDA or D05.SI" value={tickerSearchTerm} onChange={e=>{setTickerSearchTerm(e.target.value);setTickerCheck({status:"idle",message:"",suggestions:[]});}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();lookupTicker(tickerSearchTerm);}}}/>
-                <button onClick={()=>lookupTicker(tickerSearchTerm)} style={{padding:"7px 12px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accent+"18",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
+                <input ref={searchInputRef} style={{...iField,flex:1}} placeholder="e.g. NVIDIA or NVDA or D05.SI" defaultValue={tickerSearchTerm} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();lookupTicker(searchInputRef.current?.value||"");}}} onBlur={e=>{setTickerSearchTerm(e.target.value);}}/>
+                <button onClick={()=>lookupTicker(searchInputRef.current?.value||tickerSearchTerm)}rm)} style={{padding:"7px 12px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accent+"18",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
                   {tickerCheck.status==="loading"?"...":"Search"}
                 </button>
               </div>
@@ -2606,12 +2608,12 @@ function App(){
                       <div style={{fontSize:14,color:C.green,fontWeight:700}}>Confirmed: {tickerCheck.confirmed}</div>
                       <div style={{fontSize:14,color:C.text}}>{tickerCheck.message}</div>
                     </div>
-                    <div style={{fontSize:14,fontWeight:700,padding:"2px 8px",borderRadius:5,background:C.green,color:"#000",cursor:"pointer"}} onClick={()=>{setTickerCheck({status:"idle",message:"",suggestions:[]});setTickerSearchTerm("");}}>OK ✕</div>
+                    <div style={{fontSize:14,fontWeight:700,padding:"2px 8px",borderRadius:5,background:C.green,color:"#000",cursor:"pointer"}} onClick={()=>{setTickerCheck({status:"idle",message:"",suggestions:[]});setTickerSearchTerm("");if(searchInputRef.current)searchInputRef.current.value="";}}>OK ✕</div>
                   </div>
                   {tickerCheck.suggestions&&tickerCheck.suggestions.length>0&&(
                     <div style={{marginTop:6,fontSize:14,color:C.muted}}>
                       Also matches: {tickerCheck.suggestions.map((s,i)=>(
-                        <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck(prev=>({...prev,status:"found",message:s.name,confirmed:s.ticker,suggestions:[]}));setTickerSearchTerm(s.ticker);}} style={{marginLeft:4,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,fontSize:14,cursor:"pointer"}}>
+                        <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck(prev=>({...prev,status:"found",message:s.name,confirmed:s.ticker,suggestions:[]}));setTickerSearchTerm(s.ticker);if(searchInputRef.current)searchInputRef.current.value=s.ticker;}} style={{marginLeft:4,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,fontSize:14,cursor:"pointer"}}>
                           {s.ticker}
                         </button>
                       ))}
@@ -2624,7 +2626,7 @@ function App(){
                   <div style={{fontSize:14,color:C.gold,fontWeight:700,marginBottom:5}}>{tickerCheck.message}</div>
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     {tickerCheck.suggestions.map((s,i)=>(
-                      <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck({status:"found",message:s.name,confirmed:s.ticker,suggestions:[]});setTickerSearchTerm(s.ticker);}} style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${C.gold}66`,background:C.gold+"12",color:C.text,fontSize:14,cursor:"pointer",textAlign:"left"}}>
+                      <button key={i} onClick={()=>{setTradeForm(f=>({...f,ticker:s.ticker}));setTickerCheck({status:"found",message:s.name,confirmed:s.ticker,suggestions:[]});setTickerSearchTerm(s.ticker);if(searchInputRef.current)searchInputRef.current.value=s.ticker;}} style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${C.gold}66`,background:C.gold+"12",color:C.text,fontSize:14,cursor:"pointer",textAlign:"left"}}>
                         <div style={{fontWeight:700,fontSize:14}}>{s.ticker}</div>
                         <div style={{fontSize:13,color:C.muted}}>{s.name}</div>
                       </button>
