@@ -436,6 +436,8 @@ function App(){
   const [indicesCachedAt,setIndicesCachedAt]=useState(null);  // ISO string of last successful live fetch
   const [valuations,setValuations]=useState({});   // {TICKER: {analystTarget, dcf, graham, peFair, average, recommendation}}
   const [moatUpdatedAt,setMoatUpdatedAt]=useState(null); // FIX 5: when moat_map was last seeded
+  const [moatRefreshing,setMoatRefreshing]=useState(false); // Option A: refresh from DB
+  const [moatAiLoading,setMoatAiLoading]=useState({}); // Option C: per-ticker AI assessment
   const [valLoading,setValLoading]=useState({});
 
   const [dbStatus,setDbStatus]=useState('ready'); // 'ready' | 'saving' | 'saved' | 'error'
@@ -956,6 +958,84 @@ function App(){
 
   // ── Resolve proper company names for holdings stored as ticker symbol ────────
   // Fires on startup whenever name === ticker (unnamed holding)
+  // ── Option A: Refresh all moats from Supabase meta table ──────────────────
+  async function refreshMoatFromDB(){
+    setMoatRefreshing(true);
+    try{
+      await fetchMoatData(holdings);
+      setMoatUpdatedAt(new Date().toLocaleDateString('en-SG',{day:'2-digit',month:'short',year:'numeric'})+' (refreshed)');
+    }catch(e){ console.warn('[moat-refresh]',e); }
+    setMoatRefreshing(false);
+  }
+
+  // ── Option C: AI-powered moat assessment for a single stock ───────────────
+  // Uses Claude API to evaluate Wide/Narrow/None moat with reasoning.
+  // Stores result back to holdings state + Supabase.
+  async function assessMoatWithAI(h){
+    if(moatAiLoading[h.ticker]) return;
+    setMoatAiLoading(prev=>({...prev,[h.ticker]:true}));
+    try{
+      const prompt = "You are a Buffett-style equity analyst. Assess the economic moat of this company:\n\n"
+        +"Company: "+h.name+" ("+h.ticker+")\n"
+        +"Sector: "+h.sector+"\n"
+        +"Market: "+h.mkt+"\n"
+        +"P/E Ratio: "+(h.peRatio||'N/A')+"\n"
+        +"Dividend Yield: "+(h.divYield||0)+"% \n"
+        +"Revenue Growth: "+(h.revenueGrowth||'N/A')+"%\n"
+        +"Morningstar Style: "+(h.msStyle||'N/A')+"\n\n"
+        +"Rate the economic moat as exactly one of: Wide, Narrow, or None.\n"
+        +"Respond ONLY in this JSON format (no markdown, no extra text):\n"
+        +"{\"moat\":\"Wide|Narrow|None\",\"reason\":\"2-3 sentence explanation focusing on competitive advantages, pricing power, switching costs, or network effects.\"}";
+
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:300,
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      const d = await res.json();
+      const raw = d.content?.[0]?.text||"{}";
+      let parsed;
+      try{ parsed = JSON.parse(raw); }catch(e){ parsed={}; }
+      const newMoat = ['Wide','Narrow','None'].includes(parsed.moat)?parsed.moat:h.moat;
+      const newReason = parsed.reason||"";
+      const now = new Date().toLocaleDateString('en-SG',{day:'2-digit',month:'short',year:'numeric'});
+
+      // Update holdings state
+      const updated = holdings.map(x=>x.ticker===h.ticker
+        ?{...x,moat:newMoat,moatReason:newReason,moatUpdatedAt:now}:x);
+      setHoldings(updated);
+
+      // Persist to Supabase holdings table
+      if(window.portfolioDB) window.portfolioDB.updateHoldings(updated).catch(e=>console.warn('[moat-ai] DB:',e));
+
+      // Also update the moat_map in meta table
+      const SB  = 'https://ckyshjxznltdkxfvhfdy.supabase.co';
+      const KEY = 'sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+      const HDR = {'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+      const metaRes = await fetch(`${SB}/rest/v1/meta?key=eq.moat_map`,{headers:HDR});
+      if(metaRes.ok){
+        const rows = await metaRes.json();
+        let moat_map = {};
+        if(rows.length){
+          try{ const p=JSON.parse(rows[0].value); moat_map=p.moat_map||{}; }catch(e){}
+        }
+        moat_map[h.ticker]={moat:newMoat,sector:h.sector,msStyle:h.msStyle||''};
+        const payload = JSON.stringify({moat_map, updatedAt:now});
+        if(rows.length){
+          await fetch(`${SB}/rest/v1/meta?key=eq.moat_map`,{method:'PATCH',headers:{...HDR,'Prefer':'return=minimal'},body:JSON.stringify({value:payload})});
+        } else {
+          await fetch(`${SB}/rest/v1/meta`,{method:'POST',headers:{...HDR,'Prefer':'return=minimal'},body:JSON.stringify({key:'moat_map',value:payload})});
+        }
+      }
+      console.log(`[moat-ai] ${h.ticker}: ${newMoat} — ${newReason}`);
+    }catch(e){ console.error('[moat-ai]',e); }
+    setMoatAiLoading(prev=>({...prev,[h.ticker]:false}));
+  }
+
   async function fetchMissingNames(currentHoldings){
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
     const unnamed=(currentHoldings||holdings).filter(h=>
@@ -2114,18 +2194,26 @@ function App(){
         
         {insightTab==="buffett"&&(
           <>
-            {/* FIX 5: Moat data freshness notice */}
-            {moatUpdatedAt&&(
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                background:C.surface,borderRadius:8,padding:"6px 10px",marginBottom:8,
-                border:`1px dashed ${C.border}`}}>
-                <div style={{fontSize:13,color:C.muted}}>
-                  <span style={{fontWeight:700,color:C.gold}}>⚠ Moat ratings</span> sourced from Morningstar.
-                  Last refreshed: <b style={{color:C.text}}>{moatUpdatedAt}</b>
+            {/* Moat data freshness + Refresh button */}
+            <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",marginBottom:10,border:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:moatUpdatedAt?4:0}}>
+                <div>
+                  <span style={{fontWeight:700,color:C.gold,fontSize:14}}>🏰 Economic Moat Ratings</span>
+                  {moatUpdatedAt&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>Last updated: <b style={{color:C.text}}>{moatUpdatedAt}</b></div>}
                 </div>
-                <span style={{fontSize:13,color:C.muted,fontStyle:"italic"}}>Re-run moat SQL quarterly</span>
+                <button onClick={()=>refreshMoatFromDB()} disabled={moatRefreshing}
+                  style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.gold}`,
+                    background:moatRefreshing?C.surface:C.gold+"18",color:moatRefreshing?C.muted:C.gold,
+                    fontSize:13,fontWeight:700,cursor:moatRefreshing?"not-allowed":"pointer",
+                    display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+                  {moatRefreshing?"⏳ Refreshing…":"🔄 Refresh All"}
+                </button>
               </div>
-            )}
+              <div style={{fontSize:12,color:C.muted}}>
+                Morningstar source · Click <b>🔄 Refresh All</b> to sync from database,
+                or use <b>🤖 AI Assess</b> on any stock card for an instant AI-powered rating.
+              </div>
+            </div>
             <div style={{...card,background:"#1A1200",border:`1px solid ${C.gold}30`}}>
               <div style={{fontSize:14,color:C.gold,lineHeight:1.6}}>
                 <b>"Price is what you pay. Value is what you get."</b><br/>
@@ -4148,7 +4236,63 @@ function App(){
             </div>
           )}
 
-          <div style={card}><div style={cardT}>Analysis Scores</div>{[["Intrinsic Value",sc.iv],["Economic Moat",sc.mt],["Dividend Yield",sc.dv],["Overall",sc.all]].map(([l,v])=>(<div key={l} style={{marginBottom:8}}><div style={{fontSize:15,color:l==="Overall"?C.text:C.muted,marginBottom:3,fontWeight:l==="Overall"?700:400}}>{l}</div><ScoreBar score={v} max={10} color={l==="Overall"?C.accent:undefined}/></div>))}</div>
+          <div style={card}>
+            <div style={cardT}>Analysis Scores</div>
+            {[["Intrinsic Value",sc.iv],["Economic Moat",sc.mt],["Dividend Yield",sc.dv],["Overall",sc.all]].map(([l,v])=>(
+              <div key={l} style={{marginBottom:8}}>
+                <div style={{fontSize:15,color:l==="Overall"?C.text:C.muted,marginBottom:3,fontWeight:l==="Overall"?700:400}}>{l}</div>
+                <ScoreBar score={v} max={10} color={l==="Overall"?C.accent:undefined}/>
+              </div>
+            ))}
+          </div>
+
+          {/* ── ECONOMIC MOAT CARD with AI Assess button ─────────────────── */}
+          {(()=>{
+            const aiLoading=moatAiLoading[h.ticker];
+            const moatCol=h.moat==="Wide"?C.green:h.moat==="Narrow"?C.gold:C.muted;
+            const moatBg=h.moat==="Wide"?"#1A2E1A":h.moat==="Narrow"?"#2A2A1A":C.surface;
+            return(
+              <div style={{...card,borderLeft:`3px solid ${moatCol}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{fontSize:16}}>🏰</span>
+                    <div style={cardT}>Economic Moat</div>
+                  </div>
+                  <button onClick={()=>assessMoatWithAI(h)} disabled={!!aiLoading}
+                    style={{padding:"5px 10px",borderRadius:8,
+                      border:`1px solid ${aiLoading?C.border:C.accent}`,
+                      background:aiLoading?C.surface:C.accent+"18",
+                      color:aiLoading?C.muted:C.accent,
+                      fontSize:12,fontWeight:700,cursor:aiLoading?"not-allowed":"pointer",
+                      display:"flex",alignItems:"center",gap:4}}>
+                    {aiLoading?"⏳ Assessing…":"🤖 AI Assess"}
+                  </button>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:h.moatReason?8:0}}>
+                  <span style={{fontSize:22,fontWeight:800,padding:"4px 14px",borderRadius:8,
+                    background:moatBg,color:moatCol,border:`1px solid ${moatCol}44`}}>
+                    {h.moat||"Narrow"}
+                  </span>
+                  <div>
+                    <div style={{fontSize:13,color:C.muted}}>Moat Score</div>
+                    <div style={{fontSize:16,fontWeight:700,color:moatCol}}>{sc.mt}/10</div>
+                  </div>
+                </div>
+                {h.moatReason&&(
+                  <div style={{fontSize:13,color:C.mutedLight,lineHeight:1.6,
+                    background:C.surface,borderRadius:6,padding:"8px 10px",
+                    borderLeft:`2px solid ${moatCol}`}}>
+                    {h.moatReason}
+                  </div>
+                )}
+                {h.moatUpdatedAt&&(
+                  <div style={{fontSize:11,color:C.muted,marginTop:6,textAlign:"right"}}>
+                    AI assessed: {h.moatUpdatedAt}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div style={card}><div style={cardT}>Key Stats</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>{[["P/E",fmt(h.peRatio)],["Div Yield",fmt(h.divYield)+"%"],["Sector",h.sector],["MS Style",h.msStyle],["Market",`${h.mkt} (${m.code})`],["Benchmark",m.index]].map(([l,v])=>(<div key={l}><div style={{fontSize:13,color:C.muted}}>{l}</div><div style={{fontSize:15,fontWeight:600}}>{v}</div></div>))}</div></div>
 
           {/* ── INSIDER TRADING PANEL ─────────────────────────────────── */}
