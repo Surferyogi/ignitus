@@ -3842,7 +3842,8 @@ function App(){
             <button onClick={()=>confirmDeleteHolding(h.id)} style={{background:"transparent",border:`1px solid ${C.red}44`,color:C.red,fontSize:13,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontWeight:600}}>🗑 Delete</button>
           </div>
         </div>
-        <div style={{padding:"0 18px"}}>id",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+        <div style={{padding:"0 18px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
               <div style={{fontSize:13,color:C.muted,marginBottom:2}}>Avg Cost</div>
               <div style={{fontSize:18,fontWeight:800}}>{fmtL(h.avgCost,h.mkt)}</div>
