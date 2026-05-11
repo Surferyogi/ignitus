@@ -437,7 +437,8 @@ function App(){
   const [valuations,setValuations]=useState({});   // {TICKER: {analystTarget, dcf, graham, peFair, average, recommendation}}
   const [moatUpdatedAt,setMoatUpdatedAt]=useState(null); // FIX 5: when moat_map was last seeded
   const [moatRefreshing,setMoatRefreshing]=useState(false); // Option A: refresh from DB
-  const [moatAiLoading,setMoatAiLoading]=useState({}); // Option C: per-ticker AI assessment
+  const [moatAiLoading,setMoatAiLoading]=useState({}); // Option C: per-ticker AI assessm
+  const [showSoldStocks,setShowSoldStocks]=useState(false); // toggle sold stocks section per marketent
   const [valLoading,setValLoading]=useState({});
 
   const [dbStatus,setDbStatus]=useState('ready'); // 'ready' | 'saving' | 'saved' | 'error'
@@ -1926,14 +1927,7 @@ function App(){
             style={{...inp,paddingRight:search?32:12,marginBottom:0}}
             placeholder={`Search ${filtered.length} holdings...`}
             defaultValue={search}
-            onInput={e=>{
-              // Use onInput (fires on every keystroke) but DON'T call setSearch
-              // — instead debounce the state update so the input never re-renders
-              const v=e.target.value;
-              clearTimeout(searchInputRef._t);
-              searchInputRef._t=setTimeout(()=>setSearch(v),150);
-            }}
-            onBlur={e=>setSearch(e.target.value)}
+            onChange={e=>{setSearch(e.target.value);}}
           />
           {search&&(
             <button
@@ -2114,6 +2108,68 @@ function App(){
             </div>
           );
         })}
+
+        {/* ── Closed Positions Toggle ───────────────────────────────── */}
+        {(()=>{
+          const soldInMarket=holdings.filter(h=>(h.fullySold||h.shares===0)&&
+            (mktFilter==="ALL"||h.mkt===mktFilter));
+          if(soldInMarket.length===0) return null;
+          return(
+            <>
+              <button onClick={()=>setShowSoldStocks(s=>!s)} style={{
+                width:"100%",marginTop:10,marginBottom:showSoldStocks?10:0,
+                padding:"10px 14px",borderRadius:10,
+                border:`1px solid ${C.muted}44`,
+                background:showSoldStocks?C.surface:"transparent",
+                color:C.muted,cursor:"pointer",
+                display:"flex",justifyContent:"space-between",alignItems:"center",
+                fontSize:14,fontWeight:600}}>
+                <span>✓ Closed Positions ({soldInMarket.length})</span>
+                <span style={{fontSize:12}}>{showSoldStocks?"▲ Hide":"▼ Show"}</span>
+              </button>
+              {showSoldStocks&&soldInMarket.map(h=>{
+                const tickerRealized=realizedPerTicker[h.ticker]||0;
+                return(
+                  <div key={h.id} style={{...card,opacity:0.65,
+                    borderLeft:`3px solid ${C.muted}`,cursor:"pointer"}}
+                    onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                      background:C.muted+"15",borderRadius:6,padding:"4px 10px",marginBottom:8,
+                      border:`1px solid ${C.muted}22`}}>
+                      <span style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:"0.06em"}}>✓ FULLY SOLD</span>
+                      <span style={{fontSize:12,color:C.muted}}>Holdings: 0</span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                          <span style={{fontWeight:800,fontSize:17}}>{h.ticker}</span>
+                          <Chip mkt={h.mkt}/>
+                        </div>
+                        <div style={{fontSize:14,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{h.name}</div>
+                        <div style={{fontSize:13,color:C.muted,marginTop:2}}>Avg Cost: <b>N/A</b></div>
+                      </div>
+                      <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+                        <div style={{fontSize:16,fontWeight:800}}>{fmtL(h.price,h.mkt)}</div>
+                        <div style={{fontSize:13,color:C.muted}}>0 sh</div>
+                      </div>
+                    </div>
+                    {tickerRealized!==0&&(
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                        marginTop:8,padding:"6px 10px",borderRadius:7,
+                        background:tickerRealized>=0?C.green+"12":C.red+"12",
+                        border:`1px solid ${tickerRealized>=0?C.green:C.red}30`}}>
+                        <span style={{fontSize:13,color:C.muted}}>Realized P&amp;L</span>
+                        <span style={{fontSize:14,fontWeight:800,color:tickerRealized>=0?C.green:C.red}}>
+                          {tickerRealized>=0?"+":"-"}{fmtS(Math.abs(tickerRealized))}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          );
+        })()}
       </>
     );
   }
