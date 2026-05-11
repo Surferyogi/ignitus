@@ -2596,7 +2596,7 @@ function App(){
               <div style={lbl}>Stock Search — Name or Ticker Symbol</div>
               <div style={{display:"flex",gap:6}}>
                 <input ref={searchInputRef} style={{...iField,flex:1}} placeholder="e.g. NVIDIA or NVDA or D05.SI" defaultValue={tickerSearchTerm} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();lookupTicker(searchInputRef.current?.value||"");}}} onBlur={e=>{setTickerSearchTerm(e.target.value);}}/>
-                <button onClick={()=>lookupTicker(searchInputRef.current?.value||tickerSearchTerm)}rm)} style={{padding:"7px 12px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accent+"18",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
+                <button onClick={()=>lookupTicker(searchInputRef.current?.value||tickerSearchTerm)} style={{padding:"7px 12px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accent+"18",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
                   {tickerCheck.status==="loading"?"...":"Search"}
                 </button>
               </div>
