@@ -1938,8 +1938,7 @@ function App(){
           />
           {searchLive&&(
             <button
-              onClick={()=>{setSearch("");setSearchLive("");if(searchInputRef.current)searchInputRef.current.value="";}}}
-              style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
+              onClick={()=>{setSearch("");setSearchLive("");if(searchInputRef.current)searchInputRef.current.value="";}}              style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
                 background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",
                 lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center"}}
             >✕</button>
