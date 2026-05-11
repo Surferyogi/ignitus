@@ -399,8 +399,10 @@ function App(){
   const [chartPeriod,setChartPeriod]=useState("6m");
   const [detailPeriod,setDetailPeriod]=useState("6m");
   const [groupBy,setGroupBy]=useState("sector");
-  const [search,setSearch]=useState("");
+  const [search,setSearch]=useState("");         // applied to filter — updates 300ms after typing
+  const [searchLive,setSearchLive]=useState(""); // raw live value — only used for clear button visibility
   const searchInputRef=React.useRef(null); // preserve focus across re-renders
+  const searchDebounceRef=React.useRef(null); // debounce timer — prevents re-render on each keystroke
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
   const [tradeType,setTradeType]=useState("ALL");
@@ -1924,14 +1926,19 @@ function App(){
         <div style={{position:"relative",marginBottom:10}}>
           <input
             ref={searchInputRef}
-            style={{...inp,paddingRight:search?32:12,marginBottom:0}}
-            placeholder={`Search ${filtered.length} holdings...`}
-            defaultValue={search}
-            onChange={e=>{setSearch(e.target.value);}}
+            style={{...inp,paddingRight:searchLive?32:12,marginBottom:0}}
+            placeholder="Search holdings by name or ticker..."
+            defaultValue=""
+            onInput={e=>{
+              const v=e.target.value;
+              setSearchLive(v);
+              clearTimeout(searchDebounceRef.current);
+              searchDebounceRef.current=setTimeout(()=>setSearch(v),300);
+            }}
           />
-          {search&&(
+          {searchLive&&(
             <button
-              onClick={()=>{setSearch("");if(searchInputRef.current)searchInputRef.current.value="";}}
+              onClick={()=>{setSearch("");setSearchLive("");if(searchInputRef.current)searchInputRef.current.value="";}}}
               style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
                 background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",
                 lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center"}}
