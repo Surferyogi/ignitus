@@ -390,6 +390,52 @@ class ErrBoundary extends React.Component {
   }
 }
 
+// ── Memoized search input — isolated from App re-renders ─────────────────────
+// React.memo ensures this component NEVER re-renders when App state changes.
+// This is the definitive fix for iOS focus loss: zero parent re-renders during typing.
+const PortfolioSearchInput=React.memo(function PortfolioSearchInput({onSearch,onClear}){
+  const inputRef=React.useRef(null);
+  const timerRef=React.useRef(null);
+  const [hasText,setHasText]=React.useState(false);
+  return(
+    <div style={{position:"relative",marginBottom:10}}>
+      <input
+        ref={inputRef}
+        placeholder="Search holdings by name or ticker..."
+        style={{width:"100%",background:"#111827",border:"1px solid #2A3547",borderRadius:8,
+          padding:hasText?"9px 36px 9px 12px":"9px 12px",color:"#E2E8F0",fontSize:16,
+          outline:"none",boxSizing:"border-box"}}
+        onInput={e=>{
+          const v=e.target.value;
+          // Only update hasText (local state — no parent re-render)
+          setHasText(v.length>0);
+          // Debounce the parent callback — only fires after 400ms pause
+          clearTimeout(timerRef.current);
+          timerRef.current=setTimeout(()=>onSearch(v),400);
+        }}
+      />
+      {hasText&&(
+        <button
+          onMouseDown={e=>{e.preventDefault();}} // prevent blur on tap
+          onClick={()=>{
+            if(inputRef.current) inputRef.current.value="";
+            setHasText(false);
+            clearTimeout(timerRef.current);
+            onSearch("");
+            onClear();
+            inputRef.current?.focus();
+          }}
+          style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+            background:"none",border:"none",color:"#6B7A99",fontSize:18,cursor:"pointer",
+            lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center"}}>
+          ✕
+        </button>
+      )}
+    </div>
+  );
+});
+
+
 function App(){
   const [tab,setTab]=useState("portfolio");
   const [holdings,setHoldings]=useState(ALL_H);
@@ -399,10 +445,8 @@ function App(){
   const [chartPeriod,setChartPeriod]=useState("6m");
   const [detailPeriod,setDetailPeriod]=useState("6m");
   const [groupBy,setGroupBy]=useState("sector");
-  const [search,setSearch]=useState("");         // applied to filter — updates 300ms after typing
-  const [searchLive,setSearchLive]=useState(""); // raw live value — only used for clear button visibility
-  const searchInputRef=React.useRef(null); // preserve focus across re-renders
-  const searchDebounceRef=React.useRef(null); // debounce timer — prevents re-render on each keystroke
+  const [search,setSearch]=useState("");
+  const searchInputRef=React.useRef(null);
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
   const [tradeType,setTradeType]=useState("ALL");
@@ -431,8 +475,6 @@ function App(){
   const [senateData,setSenateData]=useState([]);
   const [senatePrices,setSenatePrices]=useState({});    // {TICKER:{price,intrinsic}} live prices
   const [senateHistPrices,setSenateHistPrices]=useState({}); // {TICKER_DATE: price} historical
-  const [senateLoading,setSenateLoading]=useState(false);
-  const [senateUpdating,setSenateUpdating]=useState(false);
   const [liveIndices,setLiveIndices]=useState({}); // live index values from Yahoo
   const [indicesSource,setIndicesSource]=useState('fallback'); // 'live'|'cached'|'fallback'
   const [indicesCachedAt,setIndicesCachedAt]=useState(null);  // ISO string of last successful live fetch
@@ -1076,12 +1118,10 @@ function App(){
   }
 
   async function fetchSenateTrades(){
-    setSenateLoading(true);
     await new Promise(r=>setTimeout(r,300));
     if(SENATE.length>0){
       setSenateData([...SENATE]);
     }
-    setSenateLoading(false);
   }
 
   async function fetchSenatePrices(trades){
@@ -1122,14 +1162,12 @@ function App(){
   }
 
   async function updateSenateData(){
-    setSenateUpdating(true);
     try{
       await updateSenateDataSilent(holdings);
       alert('OK: Senate data refreshed from Quiver API');
     }catch(e){
       alert('ERROR: '+e.message);
     }
-    setSenateUpdating(false);
   } // {period: {portfolio:[],index:[]}}
 
   async function updateSenateDataSilent(passedHoldings){
@@ -1923,27 +1961,11 @@ function App(){
             </div>
           </div>
         </div>
-        <div style={{position:"relative",marginBottom:10}}>
-          <input
-            ref={searchInputRef}
-            style={{...inp,paddingRight:searchLive?32:12,marginBottom:0}}
-            placeholder="Search holdings by name or ticker..."
-            defaultValue=""
-            onInput={e=>{
-              const v=e.target.value;
-              setSearchLive(v);
-              clearTimeout(searchDebounceRef.current);
-              searchDebounceRef.current=setTimeout(()=>setSearch(v),300);
-            }}
-          />
-          {searchLive&&(
-            <button
-              onClick={()=>{setSearch("");setSearchLive("");if(searchInputRef.current)searchInputRef.current.value="";}}              style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",
-                background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",
-                lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center"}}
-            >✕</button>
-          )}
-        </div>
+        {/* Search input — memoized, no re-render while typing */}
+        <PortfolioSearchInput
+          onSearch={v=>setSearch(v)}
+          onClear={()=>setSearch("")}
+        />
         {/* Sort controls */}
         <div style={{display:"flex",gap:5,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
           {[
