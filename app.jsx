@@ -2374,11 +2374,14 @@ function App(){
           let src2=holdingSort==="div"
             ?filtered.filter(h=>(h.divYield||0)>0)  // hide zero-dividend stocks
             :filtered.filter(h=>!h.fullySold&&h.shares>0); // exclude sold from all sorts
-          if(holdingSort==="default") src2.sort((a,b)=>a.ticker.localeCompare(b.ticker)); // A→Z
-          else if(holdingSort==="best") src2.sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost));
-          else if(holdingSort==="worst") src2.sort((a,b)=>((a.price-a.avgCost)/a.avgCost)-((b.price-b.avgCost)/b.avgCost));
-          else if(holdingSort==="value") src2.sort((a,b)=>toSGDlive(b.price*b.shares,b.mkt)-toSGDlive(a.price*a.shares,a.mkt));
-          else if(holdingSort==="div") src2.sort((a,b)=>(b.divYield||0)-(a.divYield||0));
+          // When searching, filtered is already relevance-sorted — don't override with holdingSort
+          if(!searchRef.current){
+            if(holdingSort==="default") src2.sort((a,b)=>a.ticker.localeCompare(b.ticker)); // A→Z
+            else if(holdingSort==="best") src2.sort((a,b)=>((b.price-b.avgCost)/b.avgCost)-((a.price-a.avgCost)/a.avgCost));
+            else if(holdingSort==="worst") src2.sort((a,b)=>((a.price-a.avgCost)/a.avgCost)-((b.price-b.avgCost)/b.avgCost));
+            else if(holdingSort==="value") src2.sort((a,b)=>toSGDlive(b.price*b.shares,b.mkt)-toSGDlive(a.price*a.shares,a.mkt));
+            else if(holdingSort==="div") src2.sort((a,b)=>(b.divYield||0)-(a.divYield||0));
+          }
           return src2;
         })().map(h=>{
           const localVal=h.price*h.shares,localCost=h.avgCost*h.shares,localGain=localVal-localCost;
