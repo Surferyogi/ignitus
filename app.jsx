@@ -669,19 +669,25 @@ function App(){
       });
       if(!res.ok){console.warn('[dividends] fetch failed:',res.status);return;}
       const d=await res.json();
-      const divYields=d.divYields||{};
-      const peRatios=d.peRatios||{}; // FIX 1: live PE ratios from Finnhub (same call)
+      const divYields       = d.divYields        || {};
+      const peRatios        = d.peRatios         || {};
+      const intrinsicValues = d.intrinsicValues  || {}; // Graham Number for non-US; live DCF for US
+      const revenueGrowths  = d.revenueGrowths   || {}; // revenue/EPS growth % — all markets
       const count=Object.keys(divYields).length;
       const peCount=Object.keys(peRatios).length;
-      console.log(`[dividends] Got ${count}/${tickers.length} yields | ${peCount} PE ratios`);
+      console.log(`[dividends] Got ${count}/${tickers.length} yields | PE=${peCount} | intrinsic=${Object.keys(intrinsicValues).length} | revGrowth=${Object.keys(revenueGrowths).length}`);
       if(count===0&&peCount===0) return;
       setHoldings(prev=>{
         const updated=prev.map(h=>{
-          const dy=divYields[h.ticker];
-          const pe=peRatios[h.ticker];
+          const dy   = divYields[h.ticker];
+          const pe   = peRatios[h.ticker];
+          const intr = intrinsicValues[h.ticker];
+          const rg   = revenueGrowths[h.ticker];
           const changes={};
-          if(dy!==undefined) changes.divYield=dy; // 0 valid = non-dividend stock
-          if(pe!==undefined&&pe>0) changes.peRatio=pe; // live PE fixes Buffett score
+          if(dy   !== undefined)          changes.divYield      = dy;   // 0 valid = non-dividend
+          if(pe   !== undefined && pe>0)  changes.peRatio       = pe;
+          if(intr !== undefined && intr>0)changes.intrinsic     = intr; // Graham Number replaces stale DB value
+          if(rg   !== undefined && rg!==0)changes.revenueGrowth = rg;
           return Object.keys(changes).length>0?{...h,...changes}:h;
         });
         if(window.portfolioDB){
@@ -952,6 +958,21 @@ function App(){
       const d=await res.json();
       if(d&&!d.error){
         setValuations(p=>({...p,[ticker]:d}));
+        // Fix 6: persist live-computed intrinsic + PE to holdings and DB so values survive restart
+        const liveIntrinsic = d.valuations?.average || 0;
+        const livePE        = d.inputs?.pe          || 0;
+        if(liveIntrinsic > 0){
+          setHoldings(prev=>{
+            const upd=prev.map(h=>{
+              if(h.ticker!==ticker) return h;
+              const ch={intrinsic:liveIntrinsic};
+              if(livePE>0) ch.peRatio=livePE;
+              return {...h,...ch};
+            });
+            if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[valuation-persist]',e));
+            return upd;
+          });
+        }
         console.log('Valuation',ticker+':',d.valuations);
       }
     }catch(e){console.warn('fetchValuation:',e.message);}
@@ -1084,6 +1105,91 @@ function App(){
       console.log(`[moat-ai] ${h.ticker}: ${newMoat} — ${newReason}`);
     }catch(e){ console.error('[moat-ai]',e); }
     setMoatAiLoading(prev=>({...prev,[h.ticker]:false}));
+  }
+
+  // Fix 4: Bulk AI refresh — processes all active holdings in batches of 5
+  // Each batch is one Claude call returning JSON for all 5 stocks at once
+  async function refreshAllMoatsWithAI(){
+    if(moatRefreshing) return;
+    setMoatRefreshing(true);
+    const stocks=activeHoldings;
+    const BATCH=5;
+    const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
+    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+    const HDR={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+    const allUpdates={};
+
+    for(let i=0;i<stocks.length;i+=BATCH){
+      const batch=stocks.slice(i,i+BATCH);
+      setMoatUpdatedAt(`Refreshing ${Math.min(i+BATCH,stocks.length)}/${stocks.length}…`);
+      const prompt="You are a financial analyst. For each company below, rate its economic moat.\n"
+        +"Consider: brand strength, switching costs, network effects, cost advantages, regulatory barriers.\n"
+        +"Companies:\n"
+        +batch.map(h=>`${h.ticker}: ${h.name} (${h.sector}, ${h.mkt})`).join("\n")
+        +"\n\nRespond ONLY as a JSON array — no markdown, no preamble:\n"
+        +"[{\"ticker\":\"...\",\"moat\":\"Wide|Narrow|None\"},...]";
+      try{
+        const res=await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,
+            messages:[{role:"user",content:prompt}]})
+        });
+        const d=await res.json();
+        const raw=d.content?.[0]?.text||"[]";
+        let ratings=[];
+        try{ ratings=JSON.parse(raw); }catch(e){
+          const m=raw.match(/\[[\s\S]*\]/);
+          if(m) try{ ratings=JSON.parse(m[0]); }catch(e2){}
+        }
+        if(Array.isArray(ratings)){
+          ratings.forEach(r=>{
+            if(r.ticker&&['Wide','Narrow','None'].includes(r.moat)){
+              allUpdates[r.ticker]=r.moat;
+            }
+          });
+        }
+      }catch(e){ console.warn('[bulk-moat] batch error:',e); }
+      if(i+BATCH<stocks.length) await new Promise(r=>setTimeout(r,1500));
+    }
+
+    // Apply all updates in a single state + DB write
+    const now=new Date().toISOString();
+    const moat_map_patch={};
+    let changedCount=0;
+    setHoldings(prev=>{
+      const upd=prev.map(h=>{
+        const newMoat=allUpdates[h.ticker];
+        if(!newMoat||newMoat===h.moat) return h;
+        moat_map_patch[h.ticker]={moat:newMoat,sector:h.sector,msStyle:h.msStyle||''};
+        changedCount++;
+        return {...h,moat:newMoat};
+      });
+      if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[bulk-moat] DB:',e));
+      return upd;
+    });
+
+    // Merge changes into existing moat_map in meta table
+    try{
+      const metaRes=await fetch(`${SB}/rest/v1/meta?key=eq.moat_map`,{headers:HDR});
+      if(metaRes.ok){
+        const rows=await metaRes.json();
+        let existing={};
+        if(rows.length) try{ existing=JSON.parse(rows[0].value)?.moat_map||{}; }catch(e){}
+        const merged=JSON.stringify({moat_map:{...existing,...moat_map_patch},updatedAt:now});
+        if(rows.length){
+          await fetch(`${SB}/rest/v1/meta?key=eq.moat_map`,{method:'PATCH',
+            headers:{...HDR,'Prefer':'return=minimal'},body:JSON.stringify({value:merged})});
+        } else {
+          await fetch(`${SB}/rest/v1/meta?on_conflict=key`,{method:'POST',
+            headers:{...HDR,'Prefer':'resolution=merge-duplicates,return=minimal'},
+            body:JSON.stringify({key:'moat_map',value:merged})});
+        }
+      }
+    }catch(e){ console.warn('[bulk-moat] meta update:',e); }
+
+    console.log(`[bulk-moat] Done — ${Object.keys(allUpdates).length} rated, ${changedCount} changed`);
+    setMoatUpdatedAt(now);
+    setMoatRefreshing(false);
   }
 
   async function fetchMissingNames(currentHoldings){
@@ -1915,7 +2021,8 @@ function App(){
       ticker:h.ticker,name:h.name||"",mkt:h.mkt,sector:h.sector||"Technology",
       shares:String(h.shares),avgCost:String(h.avgCost),price:String(h.price),
       intrinsic:String(h.intrinsic||""),divYield:String(h.divYield||0),
-      peRatio:String(h.peRatio||0),moat:h.moat||"Narrow",msStyle:h.msStyle||"Large Blend"
+      peRatio:String(h.peRatio||0),moat:h.moat||"Narrow",msStyle:h.msStyle||"Large Blend",
+      heldSince:h.heldSince||""
     });
     setHoldingEditId(h.id);
     setSel(null);
@@ -1930,7 +2037,8 @@ function App(){
         ?{...h,ticker:f.ticker.trim().toUpperCase(),name:f.name||f.ticker,mkt:f.mkt,sector:f.sector,
            shares:s,avgCost:ac,price:pr,intrinsic:parseFloat(f.intrinsic)||pr*1.1,
            divYield:parseFloat(f.divYield)||0,peRatio:parseFloat(f.peRatio)||0,
-           moat:f.moat,msStyle:f.msStyle}
+           moat:f.moat,msStyle:f.msStyle,
+           heldSince:f.heldSince||null}
         :h
     ));
     setHoldingEditId(null);
@@ -2317,26 +2425,64 @@ function App(){
         
         {insightTab==="buffett"&&(
           <>
-            {/* Moat data freshness + Refresh button */}
-            <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",marginBottom:10,border:`1px solid ${C.border}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:moatUpdatedAt?4:0}}>
-                <div>
-                  <span style={{fontWeight:700,color:C.gold,fontSize:14}}>🏰 Economic Moat Ratings</span>
-                  {moatUpdatedAt&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>Last updated: <b style={{color:C.text}}>{moatUpdatedAt}</b></div>}
+            {/* Moat data freshness + Refresh buttons */}
+            {(()=>{
+              // Compute days since last moat update
+              const moatAgeDays=(()=>{
+                if(!moatUpdatedAt||moatUpdatedAt.startsWith('Refresh')) return null;
+                const d=new Date(moatUpdatedAt.replace(' (refreshed)',''));
+                if(isNaN(d.getTime())) return null;
+                return Math.floor((Date.now()-d.getTime())/86400000);
+              })();
+              const stale=moatAgeDays!==null&&moatAgeDays>90;
+              const ageLabel=moatAgeDays===null?null:moatAgeDays===0?'today':moatAgeDays===1?'yesterday':`${moatAgeDays}d ago`;
+              return(
+                <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",marginBottom:10,border:`1px solid ${stale?C.red+'60':C.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <div>
+                      <span style={{fontWeight:700,color:C.gold,fontSize:14}}>🏰 Economic Moat Ratings</span>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
+                        {ageLabel&&(
+                          <span style={{fontSize:12,padding:"1px 6px",borderRadius:4,
+                            background:stale?C.red+"22":C.green+"18",
+                            color:stale?C.red:C.green,fontWeight:700}}>
+                            {stale?'⚠ ':''}{ageLabel}
+                          </span>
+                        )}
+                        {moatUpdatedAt&&!moatUpdatedAt.startsWith('Refresh')&&(
+                          <span style={{fontSize:12,color:C.muted}}>
+                            {new Date(moatUpdatedAt.replace(' (refreshed)','')).toLocaleDateString('en-SG',{day:'2-digit',month:'short',year:'numeric'})}
+                          </span>
+                        )}
+                        {moatUpdatedAt?.startsWith('Refresh')&&(
+                          <span style={{fontSize:12,color:C.accent}}>{moatUpdatedAt}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      <button onClick={()=>refreshMoatFromDB()} disabled={moatRefreshing}
+                        style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.border}`,
+                          background:moatRefreshing?C.surface:C.border+"40",color:moatRefreshing?C.muted:C.mutedLight,
+                          fontSize:12,fontWeight:700,cursor:moatRefreshing?"not-allowed":"pointer"}}>
+                        🔄 DB
+                      </button>
+                      <button onClick={()=>refreshAllMoatsWithAI()} disabled={moatRefreshing}
+                        style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.gold}`,
+                          background:moatRefreshing?C.surface:C.gold+"18",color:moatRefreshing?C.muted:C.gold,
+                          fontSize:12,fontWeight:700,cursor:moatRefreshing?"not-allowed":"pointer"}}>
+                        {moatRefreshing?"⏳ Working…":"🤖 AI Refresh All"}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{fontSize:12,color:stale?C.red:C.muted}}>
+                    {stale
+                      ?`Ratings are ${moatAgeDays} days old — click 🤖 AI Refresh All to update all ${activeHoldings.length} stocks`
+                      :"Morningstar source · 🔄 DB syncs stored ratings · 🤖 AI Refresh All re-rates every stock with Claude"
+                    }
+                  </div>
                 </div>
-                <button onClick={()=>refreshMoatFromDB()} disabled={moatRefreshing}
-                  style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.gold}`,
-                    background:moatRefreshing?C.surface:C.gold+"18",color:moatRefreshing?C.muted:C.gold,
-                    fontSize:13,fontWeight:700,cursor:moatRefreshing?"not-allowed":"pointer",
-                    display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
-                  {moatRefreshing?"⏳ Refreshing…":"🔄 Refresh All"}
-                </button>
-              </div>
-              <div style={{fontSize:12,color:C.muted}}>
-                Morningstar source · Click <b>🔄 Refresh All</b> to sync from database,
-                or use <b>🤖 AI Assess</b> on any stock card for an instant AI-powered rating.
-              </div>
-            </div>
+              );
+            })()}
             <div style={{...card,background:"#1A1200",border:`1px solid ${C.gold}30`}}>
               <div style={{fontSize:14,color:C.gold,lineHeight:1.6}}>
                 <b>"Price is what you pay. Value is what you get."</b><br/>
@@ -4668,6 +4814,14 @@ function App(){
             <div>
               <div style={lbl}>Avg Cost ({MKT[f.mkt||"US"]?.symbol})</div>
               <input ref={holdingRefs.avgCost} type="number" style={iF} defaultValue={f.avgCost||""} onBlur={e=>setF(p=>({...p,avgCost:e.target.value}))}/>
+            </div>
+            <div style={{gridColumn:"1/-1"}}>
+              <div style={lbl}>Held Since <span style={{color:C.muted,fontWeight:400}}>(actual purchase date — used in performance chart)</span></div>
+              <input type="date" style={{...iF,colorScheme:"dark"}} defaultValue={f.heldSince||""}
+                onChange={e=>setF(p=>({...p,heldSince:e.target.value}))}
+                max={new Date().toISOString().split('T')[0]}/>
+              {f.heldSince&&<div style={{fontSize:12,color:C.green,marginTop:3}}>✓ Performance chart will show this stock from {f.heldSince}</div>}
+              {!f.heldSince&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>Optional — leave blank if unknown (chart uses full available history)</div>}
             </div>
           </div>
 
