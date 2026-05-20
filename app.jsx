@@ -403,34 +403,35 @@ const PortfolioSearchInput=React.memo(function PortfolioSearchInput({onSearch,on
         ref={inputRef}
         placeholder="Search holdings by name or ticker..."
         style={{width:"100%",background:"#111827",border:"1px solid #2A3547",borderRadius:8,
-          padding:hasText?"9px 36px 9px 12px":"9px 12px",color:"#E2E8F0",fontSize:16,
+          // Padding is CONSTANT — never changes during typing.
+          // Changing padding while input is focused causes iOS keyboard to dismiss.
+          padding:"9px 36px 9px 12px",color:"#E2E8F0",fontSize:16,
           outline:"none",boxSizing:"border-box"}}
         onInput={e=>{
           const v=e.target.value;
-          // Only update hasText (local state — no parent re-render)
           setHasText(v.length>0);
-          // Debounce the parent callback — only fires after 400ms pause
           clearTimeout(timerRef.current);
           timerRef.current=setTimeout(()=>onSearch(v),400);
         }}
       />
-      {hasText&&(
-        <button
-          onMouseDown={e=>{e.preventDefault();}} // prevent blur on tap
-          onClick={()=>{
-            if(inputRef.current) inputRef.current.value="";
-            setHasText(false);
-            clearTimeout(timerRef.current);
-            onSearch("");
-            onClear();
-            inputRef.current?.focus();
-          }}
-          style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-            background:"none",border:"none",color:"#6B7A99",fontSize:18,cursor:"pointer",
-            lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center"}}>
-          ✕
-        </button>
-      )}
+      {/* Clear button uses visibility, not conditional render — avoids layout shift */}
+      <button
+        onMouseDown={e=>e.preventDefault()}
+        onClick={()=>{
+          if(inputRef.current) inputRef.current.value="";
+          setHasText(false);
+          clearTimeout(timerRef.current);
+          onSearch("");
+          onClear();
+          inputRef.current?.focus();
+        }}
+        style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+          background:"none",border:"none",color:"#6B7A99",fontSize:18,cursor:"pointer",
+          lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center",
+          visibility:hasText?"visible":"hidden",
+          pointerEvents:hasText?"auto":"none"}}>
+        ✕
+      </button>
     </div>
   );
 });
@@ -1659,6 +1660,10 @@ function App(){
     setTimeout(()=>setRefreshAnim(false),800);
   }
 
+  // Stable search callbacks — same reference across re-renders so PortfolioSearchInput memo never triggers
+  const handleSearch=useCallback(v=>setSearch(v),[]);
+  const handleClear=useCallback(()=>setSearch(""),[]);
+
   const CCY=useMemo(()=>({
     USD:{symbol:"$",  r:fxRates.USD||1.27},
     SGD:{symbol:"S$", r:1.0},
@@ -2263,10 +2268,10 @@ function App(){
             </div>
           </div>
         </div>
-        {/* Search input — memoized, no re-render while typing */}
+        {/* Search input — memoized with stable callbacks so re-renders never cause focus loss */}
         <PortfolioSearchInput
-          onSearch={v=>setSearch(v)}
-          onClear={()=>setSearch("")}
+          onSearch={handleSearch}
+          onClear={handleClear}
         />
         {/* Sort controls */}
         <div style={{display:"flex",gap:5,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
@@ -3340,17 +3345,17 @@ function App(){
             placeholder={`Search ${shown.length} trade${shown.length!==1?"s":""}...`}
             defaultValue={tradeSearch}
             onInput={e=>setTradeSearch(e.target.value)}
-            style={{...inp,paddingRight:tradeSearch?32:12}}
+            style={{...inp,paddingRight:32}}
           />
-          {tradeSearch&&(
-            <button
-              onMouseDown={e=>e.preventDefault()}
-              onClick={()=>{setTradeSearch("");if(tradeSearchRef.current){tradeSearchRef.current.value="";tradeSearchRef.current.focus();}}}
-              style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-                background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center"}}>
-              ✕
-            </button>
-          )}
+          <button
+            onMouseDown={e=>e.preventDefault()}
+            onClick={()=>{setTradeSearch("");if(tradeSearchRef.current){tradeSearchRef.current.value="";tradeSearchRef.current.focus();}}}
+            style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+              background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",
+              visibility:tradeSearch?"visible":"hidden",
+              pointerEvents:tradeSearch?"auto":"none"}}>
+            ✕
+          </button>
         </div>
 
         {/* Trade list — all trades, latest first, no cap */}
