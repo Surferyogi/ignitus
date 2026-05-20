@@ -1786,7 +1786,22 @@ function App(){
     // Active holdings only — exclude fully sold (shares=0) from ALL analysis/insights
     let h=(mktFilter==="ALL"?holdings:holdings.filter(x=>x.mkt===mktFilter))
       .filter(x=>!x.fullySold&&x.shares>0);
-    if(searchRef.current)h=h.filter(x=>x.ticker.toLowerCase().includes(searchRef.current.toLowerCase())||x.name.toLowerCase().includes(searchRef.current.toLowerCase()));
+    if(searchRef.current){
+      const q=searchRef.current.trim().toUpperCase();
+      h=h.filter(x=>x.ticker.toUpperCase().includes(q)||x.name.toUpperCase().includes(q));
+      // Sort by relevance: exact ticker > ticker starts-with > ticker contains > name starts-with > name contains
+      h=h.sort((a,b)=>{
+        const score=x=>{
+          const t=x.ticker.toUpperCase(), n=x.name.toUpperCase();
+          if(t===q)              return 0; // exact ticker match
+          if(t.startsWith(q))    return 1; // ticker starts with query
+          if(t.includes(q))      return 2; // ticker contains query
+          if(n.startsWith(q))    return 3; // name starts with query
+          return 4;                         // name contains query
+        };
+        return score(a)-score(b);
+      });
+    }
     return h;
   },[mktFilter,searchVersion,holdings,refreshKey]);
 
