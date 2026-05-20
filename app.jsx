@@ -2254,7 +2254,9 @@ function App(){
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
 
-  function PortfolioView(){
+  // Render function (not a component) — avoids React treating it as a new component type on each App render,
+  // which would unmount+remount the subtree and destroy any focused input inside.
+  function renderPortfolioView(){
     const activeM=MKT[mktFilter];
     return(
       <>
@@ -2531,7 +2533,7 @@ function App(){
     );
   }
 
-  function InsightsView(){
+  function renderInsightsView(){
     return(
       <>
         <div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto"}}>
@@ -2783,12 +2785,12 @@ function App(){
             })}
           </>
         )}
-        {insightTab==="screen"&&<ScreenView/>}
+        {insightTab==="screen"&&renderScreenView()}
       </>
     );
   }
 
-  function IndexView(){
+  function renderIndexView(){
     const mktsInPort=[...new Set(holdings.map(h=>h.mkt))];
     const IDX_KEY={US:"US_SP500",SG:"SG_STI",JP:"JP_NIKKEI",CN:"CN_HSI",EU:"EU_CAC",GB:"GB_FTSE",AU:"AU_ASX"};
     const liveFor=(mkt)=>liveIndices[IDX_KEY[mkt]]||null;
@@ -2977,7 +2979,7 @@ function App(){
     );
   }
 
-  function TradesView(){
+  function renderTradesView(){
     const tradeSearchRef=React.useRef(null);
     const tradeClearRef=React.useRef(null);
     const showTradeClear=(show)=>{
@@ -3594,7 +3596,7 @@ function App(){
     setExporting(false);
   }
 
-  function ScreenView(){
+  function renderScreenView(){
     const budget=parseFloat(screenBudget)||0;
     const modeColor=screenMode==="BUY"?C.green:C.red;
     const topResults=screenResults.slice(0,10);
@@ -4460,7 +4462,7 @@ function App(){
     );
   }
 
-  function HoldingDetail(){
+  function renderHoldingDetail(){
     const h=sel;if(!h)return null;
     const [showAllBuy,setShowAllBuy]=useState(false);   // expand buy history
     const [showAllSell,setShowAllSell]=useState(false); // expand sell history
@@ -5101,7 +5103,7 @@ function App(){
     );
   }
 
-  function EditHoldingModal(){
+  function renderEditHoldingModal(){
     if(holdingEditId==null)return null;
     const f=holdingForm,setF=setHoldingForm;
     const h=holdings.find(x=>x.id===holdingEditId);
@@ -5376,11 +5378,11 @@ function App(){
         )}
         {/* When a stock is selected, show detail view IN the scroll container — not as a modal */}
         {/* This reuses the already-working iOS scroll context instead of fighting fixed overlays */}
-        {sel&&<ErrBoundary><HoldingDetail/></ErrBoundary>}
-        {!sel&&tab==="portfolio"&&<PortfolioView/>}
-        {!sel&&tab==="insights" &&<InsightsView/>}
-        {!sel&&tab==="indices"  &&<IndexView/>}
-        {!sel&&tab==="trades"   &&<TradesView/>}
+        {sel&&<ErrBoundary>{renderHoldingDetail()}</ErrBoundary>}
+        {!sel&&tab==="portfolio"&&renderPortfolioView()}
+        {!sel&&tab==="insights" &&renderInsightsView()}
+        {!sel&&tab==="indices"  &&renderIndexView()}
+        {!sel&&tab==="trades"   &&renderTradesView()}
         {!sel&&tab==="alerts"   &&<AlertsView/>}
         {!sel&&tab==="summary"  &&<SummaryView/>}
         {!sel&&tab==="recon"    &&<ReconciliationView/>}
@@ -5497,7 +5499,7 @@ function App(){
           </div>
         </div>
       )}
-      {holdingEditId!=null&&<EditHoldingModal/>}
+      {holdingEditId!=null&&renderEditHoldingModal()}
       {deleteConfirm!=null&&<DeleteConfirmModal/>}
     </div>
   </>
