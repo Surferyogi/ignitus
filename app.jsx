@@ -2494,7 +2494,7 @@ function App(){
                   ℹ Portfolio % = total return from avg cost (actual purchase). Index figures shown for multi-period reference. For time-aligned comparison, use the PerfChart above.
                 </div>
 
-                {/* Dividend yield row */}
+                {/* Dividend yield row — gross and net (after withholding tax) */}
                 {(()=>{
                   const mktH=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0);
                   const mktVal=mktH.reduce((s,h)=>s+h.price*h.shares,0);
@@ -2502,14 +2502,34 @@ function App(){
                   const mktDivYield=mktVal>0?mktDiv/mktVal*100:0;
                   const divStocksCount=mktH.filter(h=>h.divYield>0).length;
                   if(mktDivYield<=0)return null;
+                  const taxRate=getDivTax(mkt);
+                  const mktDivNet=mktDiv*(1-taxRate);
+                  const mktDivYieldNet=mktVal>0?mktDivNet/mktVal*100:0;
+                  const taxLabel=fmtTax(mkt);
+                  const sgdGross=toSGDlive(mktDiv,mkt);
+                  const sgdNet=toSGDlive(mktDivNet,mkt);
                   return(
                     <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:8}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:14}}>
-                        <span style={{color:C.muted}}>Annual Dividend</span>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:taxLabel?5:0}}>
+                        <div>
+                          <div style={{fontSize:13,color:C.muted,marginBottom:1}}>Annual Dividend</div>
+                          <div style={{fontSize:12,color:C.muted}}>{divStocksCount} paying stocks</div>
+                        </div>
                         <div style={{textAlign:"right"}}>
-                          <span style={{fontWeight:700,color:C.gold}}>{fmt(mktDivYield,2)}% yield</span>
-                          <span style={{color:C.muted,fontSize:13,marginLeft:6}}>{fmtS(toSGDlive(mktDiv,mkt))}/yr</span>
-                          <span style={{color:C.muted,fontSize:13,marginLeft:6}}>({divStocksCount} paying)</span>
+                          {/* Gross row */}
+                          <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"flex-end",marginBottom:3}}>
+                            <span style={{fontSize:12,color:C.muted}}>Gross</span>
+                            <span style={{fontWeight:700,color:C.gold,fontSize:15}}>{fmt(mktDivYield,2)}%</span>
+                            <span style={{color:C.muted,fontSize:13}}>{fmtS(sgdGross)}/yr</span>
+                          </div>
+                          {/* Net row — only shown when there's a WHT */}
+                          {taxLabel&&(
+                            <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}>
+                              <span style={{fontSize:12,color:C.muted}}>Net ({taxLabel})</span>
+                              <span style={{fontWeight:700,color:C.green,fontSize:15}}>{fmt(mktDivYieldNet,2)}%</span>
+                              <span style={{color:C.muted,fontSize:13}}>{fmtS(sgdNet)}/yr</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
