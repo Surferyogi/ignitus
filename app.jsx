@@ -1562,25 +1562,30 @@ function App(){
       const totalSellShares=sells.reduce((s,t)=>s+t.shares,0);
       const netShares=totalBuyShares-totalSellShares;
 
-      // Weighted average cost (WAVG): total buy cost / total buy shares
-      // Avg cost is unchanged by sells — remaining shares keep same avg cost
-      const computedAvgCost=totalBuyShares>0?totalBuyCost/totalBuyShares:baseH?.avgCost||0;
+      // Avg cost: preserve stored DBS-sourced value as authoritative source.
+      // Trades DB is supplementary — it does NOT hold complete buy history for all stocks.
+      // Stored avgCost was set from DBS bank statements and must not be overridden by trades.
+      // Exception: fully sold (set to 0) or brand-new stock with no stored avg (use trades).
+      const computedAvgCost=totalBuyShares>0?totalBuyCost/totalBuyShares:0;
       const isFullySold=netShares<=0;
+      const avgCostFinal=isFullySold?0
+        :(baseH?.avgCost>0?baseH.avgCost  // ← DBS authoritative: preserve stored value
+          :parseFloat(computedAvgCost.toFixed(4))); // ← new stock only: derive from trades
 
       if(baseH){
         rebuilt.push({
           ...baseH,
           shares:isFullySold?0:netShares,
-          avgCost:isFullySold?0:parseFloat(computedAvgCost.toFixed(4)),
+          avgCost:avgCostFinal,
           fullySold:isFullySold, // flag for UI
         });
       } else {
-        // New ticker from trades not yet in holdings
+        // New ticker from trades not yet in holdings — use trades-computed avg as the starting point
         rebuilt.push({
           id:Date.now()+Math.random(),ticker,name:ticker,mkt:detectMktFromTicker(ticker)||buys[0]?.mkt||"US",
           sector:"Technology",msStyle:"Large Blend",
           shares:isFullySold?0:netShares,
-          avgCost:isFullySold?0:parseFloat(computedAvgCost.toFixed(4)),
+          avgCost:avgCostFinal,
           price:computedAvgCost,intrinsic:computedAvgCost*1.1,
           moat:"Narrow",divYield:0,senateBuys:0,senateSells:0,peRatio:20,revenueGrowth:0,
           fullySold:isFullySold,
@@ -1654,7 +1659,17 @@ function App(){
     }
 
     setTrades(newTrades);
-    const rebuiltH=rebuildHoldingsFromTrades(newTrades, holdings);
+    // For new BUY: blend new shares incrementally with stored DBS avgCost
+    // (never recompute from full trade history — it would override authoritative stored values)
+    let holdingsForRebuild=holdings;
+    if(type==="BUY"&&editTradeId==null){
+      const buyH=holdings.find(h=>h.ticker===tU);
+      if(buyH&&buyH.shares>0&&buyH.avgCost>0){
+        const blendedAvg=parseFloat(((buyH.shares*buyH.avgCost+s*p)/(buyH.shares+s)).toFixed(4));
+        holdingsForRebuild=holdings.map(h=>h.ticker===tU?{...h,avgCost:blendedAvg}:h);
+      }
+    }
+    const rebuiltH=rebuildHoldingsFromTrades(newTrades, holdingsForRebuild);
     setHoldings(rebuiltH);
     if(window.portfolioDB){window.portfolioDB.updateHoldings(rebuiltH).catch(e=>console.error('DB:',e));}
     setShowTradeForm(false);
