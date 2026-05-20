@@ -353,7 +353,7 @@ function MktSelector({mktFilter,setMktFilter,holdings}){
   return(
     <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:4}}>
       {mkts.map(m=>{
-        const cnt=m==="ALL"?holdings.length:holdings.filter(h=>h.mkt===m).length;
+        const cnt=m==="ALL"?holdings.filter(h=>Number(h.shares)>0).length:holdings.filter(h=>h.mkt===m&&Number(h.shares)>0).length;
         const active=mktFilter===m;
         return(
           <button key={m} onClick={()=>setMktFilter(m)} style={{flexShrink:0,padding:"9px 13px",borderRadius:12,cursor:"pointer",background:active?C.accent:C.card,color:active?"#000":C.text,border:`1px solid ${active?C.accent:C.border}`,textAlign:"center",minWidth:64}}>
@@ -2451,7 +2451,7 @@ function App(){
           <div style={cardT}>Sector Breakdown by Market (Charles Schwab Classification)</div>
           {[...new Set(holdings.map(h=>h.mkt))].map(mkt=>{
             const m=MKT[mkt]||MKT.US;
-            const mktHoldings=holdings.filter(h=>h.mkt===mkt);
+            const mktHoldings=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0);
             const mktTotal=mktHoldings.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
             if(mktTotal===0)return null;
             const sectorsInMkt=SECTORS.map((sec,i)=>{
@@ -3877,11 +3877,11 @@ function App(){
         <div style={card}>
           <div style={cardT}>Portfolio Overview (SGD)</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-            <div style={sbox(C.accent)}><div style={{fontSize:13,color:C.muted}}>Total Value</div><div style={{fontSize:20,fontWeight:800}}>{fmtS(totalValSGD)}</div><div style={{fontSize:13,color:C.muted}}>{holdings.length} stocks</div></div>
+            <div style={sbox(C.accent)}><div style={{fontSize:13,color:C.muted}}>Total Value</div><div style={{fontSize:20,fontWeight:800}}>{fmtS(totalValSGD)}</div><div style={{fontSize:13,color:C.muted}}>{holdings.filter(h=>Number(h.shares)>0).length} stocks</div></div>
             <div style={sbox()}><div style={{fontSize:13,color:C.muted}}>Total Cost</div><div style={{fontSize:20,fontWeight:800}}>{fmtS(totalCostSGD)}</div></div>
             <div style={sbox(unrealSGD>=0?C.green:C.red)}><div style={{fontSize:13,color:C.muted}}>Unrealized P&amp;L</div><div style={{fontSize:18,fontWeight:800,color:unrealSGD>=0?C.green:C.red}}>{unrealSGD>=0?"+":"-"}{fmtS(Math.abs(unrealSGD))}</div><div style={{fontSize:14,fontWeight:700,color:unrealSGD>=0?C.green:C.red}}>{fmtPct(unrealPct)}</div></div>
             <div style={sbox(realizedSGD>=0?C.gold:C.red)}><div style={{fontSize:13,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:18,fontWeight:800,color:realizedSGD>=0?C.gold:C.red}}>{realizedSGD>=0?"+":"-"}{fmtS(Math.abs(realizedSGD))}</div><div style={{fontSize:13,color:C.muted}}>Closed trades</div></div>
-            <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Stocks</div><div style={{fontSize:24,fontWeight:800,color:C.purple}}>{holdings.length}</div></div>
+            <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Stocks</div><div style={{fontSize:24,fontWeight:800,color:C.purple}}>{holdings.filter(h=>Number(h.shares)>0).length}</div></div>
             <div style={{...sbox(C.gold),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Annual Div</div><div style={{fontSize:17,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGD)}</div><div style={{fontSize:13,color:C.muted}}>{fmt(totalValSGD?totalDivSGD/totalValSGD*100:0)}% yield</div></div>
           </div>
         </div>
@@ -3890,7 +3890,7 @@ function App(){
           {[...new Set(holdings.map(h=>h.mkt))].map((mktKey,i)=>{
             const m=MKT[mktKey]||MKT.US;
             const col=[C.accent,C.green,C.gold,C.purple,C.red,"#FF8C42","#62D2E8"][i%7];
-            const mktHoldings=holdings.filter(h=>h.mkt===mktKey);
+            const mktHoldings=holdings.filter(h=>h.mkt===mktKey&&Number(h.shares)>0);
             const localVal=mktHoldings.reduce((s,h)=>s+h.price*h.shares,0);
             const sgdVal=mktHoldings.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
             const sgdCost=mktHoldings.reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0);
