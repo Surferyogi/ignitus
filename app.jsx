@@ -222,7 +222,7 @@ function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fet
   const key=mktFilter+"_"+period;
   const chartData=perfChartData?.[key];
   const isLoading=perfChartLoading?.[key];
-  const PLBL={"30d":"30 Days","6m":"6 Months","1y":"1 Year","5y":"5 Years","all":"Since First Buy"};
+  const PLBL={"30d":"30 Days","6m":"6 Months","1y":"1 Year","5y":"5 Years","all":"Max Available"};
 
   useEffect(()=>{
     if(holdings.length>0&&fetchPerfChartData) fetchPerfChartData(mktFilter,period);
@@ -555,7 +555,8 @@ function App(){
         setHoldings(mktCorrected);
         setTrades(tradeMktFixCount>0?tradesMktFixed:tradesWithProfit);
         const fb={};
-        (data.trades||[]).filter(t=>t.type==='BUY').forEach(t=>{
+        // Exclude Opening Balance transactions (dated 2000-01-01) — synthetic, not actual purchase dates
+        (data.trades||[]).filter(t=>t.type==='BUY'&&t.date>'2000-01-01').forEach(t=>{
           if(!fb[t.ticker]||t.date<fb[t.ticker])fb[t.ticker]=t.date;
         });
         FIRST_BUY=fb;
@@ -2391,21 +2392,30 @@ function App(){
         <div style={{...cardT,paddingLeft:0}}>Your Markets vs Benchmarks</div>
         {mktsInPort.map(mkt=>{
           const m=MKT[mkt]||MKT.US;
-          const cnt=holdings.filter(h=>h.mkt===mkt).length;
-          const portCost=holdings.filter(h=>h.mkt===mkt).reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0);
-          const portVal=holdings.filter(h=>h.mkt===mkt).reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+          const cnt=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0).length;
+          const portCost=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0).reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0);
+          const portVal=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0).reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
           const portPct=portCost?(portVal-portCost)/portCost*100:0;
           const lvIdx=liveFor(mkt);
-          const idxYtdLive=lvIdx?.ytd??m.idxYtd;
-          const beat=portPct>idxYtdLive;
+
+          // Multi-period index returns (from upgraded live_indices)
+          const idxYtd   = lvIdx?.ytd      ?? m.idxYtd;
+          const idx1y    = lvIdx?.return1y  ?? null;
+          const idx3y    = lvIdx?.return3y  ?? null;
+          const idx5y    = lvIdx?.return5y  ?? null;
+          // Primary comparison: 1Y index return is the standard benchmark period
+          const primaryIdx = idx1y ?? idxYtd;
+          const beat = portPct > primaryIdx;
+
           return(
             <div key={mkt} style={{...card,borderLeft:`3px solid ${beat?C.green:C.mutedLight}`}}>
               <div style={{...row,marginBottom:8}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:17,display:"flex",alignItems:"center",gap:6,marginBottom:4}}>{m.index}<Chip mkt={mkt}/></div>
-                  <div style={{display:"flex",gap:5}}>
-                    <Tag col={idxYtdLive>=0?C.green:C.red}>Index YTD {idxYtdLive>=0?"+":""}{fmt(idxYtdLive,1)}%</Tag>
-                    <Tag col={beat?C.green:C.red}>{beat?"Outperforming":"Underperforming"}</Tag>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                    <Tag col={idxYtd>=0?C.green:C.red}>YTD {idxYtd>=0?"+":""}{fmt(idxYtd,1)}%</Tag>
+                    {idx1y!==null&&<Tag col={idx1y>=0?C.green:C.red}>1Y {idx1y>=0?"+":""}{fmt(idx1y,1)}%</Tag>}
+                    <Tag col={beat?C.green:C.red}>{beat?"↑ Beating 1Y":"↓ Below 1Y"}</Tag>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -2425,27 +2435,54 @@ function App(){
                   })()}
                 </div>
               </div>
-              <div style={{background:C.surface,borderRadius:8,padding:"8px 10px"}}>
-                <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:4}}>
-                  <span style={{fontSize:13,color:C.muted,width:48}}>Portfolio</span>
-                  <div style={{flex:1,height:5,borderRadius:2,background:C.border,overflow:"hidden"}}><div style={{width:`${Math.min(Math.abs(portPct)/35*100,100)}%`,height:"100%",background:portPct>=0?C.green:C.red,borderRadius:2}}/></div>
-                  <span style={{fontSize:13,fontWeight:700,color:portPct>=0?C.green:C.red,width:40,textAlign:"right"}}>{portPct>=0?"+":""}{fmt(portPct,1)}%</span>
+              <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+
+                {/* Portfolio return — since actual purchase (cost basis) */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
+                  <div>
+                    <div style={{fontSize:13,color:C.muted,fontWeight:600}}>Your portfolio</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:1}}>since purchase · cost basis</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:20,fontWeight:800,color:portPct>=0?C.green:C.red}}>{portPct>=0?"+":""}{fmt(portPct,1)}%</div>
+                    <div style={{fontSize:12,color:C.muted}}>{fmtS(portVal)}</div>
+                  </div>
                 </div>
-                <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:6}}>
-                  <span style={{fontSize:13,color:C.muted,width:48}}>Index</span>
-                  <div style={{flex:1,height:5,borderRadius:2,background:C.border,overflow:"hidden"}}><div style={{width:`${Math.min(Math.abs(idxYtdLive)/35*100,100)}%`,height:"100%",background:m.idxYtd>=0?C.accent:C.red,opacity:0.5,borderRadius:2}}/></div>
-                  <span style={{fontSize:13,fontWeight:700,color:C.mutedLight,width:40,textAlign:"right"}}>{idxYtdLive>=0?"+":""}{fmt(idxYtdLive,1)}%</span>
+
+                {/* Index returns — multiple periods for honest reference */}
+                <div style={{marginBottom:6}}>
+                  <div style={{fontSize:12,color:C.muted,fontWeight:700,marginBottom:6,letterSpacing:"0.04em",textTransform:"uppercase"}}>{m.index} Reference Returns</div>
+                  {[
+                    ["YTD (Jan 1)",  idxYtd,  true],
+                    ["1 Year",       idx1y,   idx1y!==null],
+                    ["3 Year",       idx3y,   idx3y!==null],
+                    ["5 Year",       idx5y,   idx5y!==null],
+                  ].filter(([,,show])=>show).map(([lbl,val])=>(
+                    <div key={lbl} style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
+                      <span style={{fontSize:13,color:C.muted,width:72,flexShrink:0}}>{lbl}</span>
+                      <div style={{flex:1,height:4,borderRadius:2,background:C.border,overflow:"hidden"}}>
+                        <div style={{width:`${Math.min(Math.abs(val)/50*100,100)}%`,height:"100%",background:val>=0?C.accent:C.red,opacity:0.6,borderRadius:2}}/>
+                      </div>
+                      <span style={{fontSize:13,fontWeight:700,color:val>=0?C.accent:C.red,width:46,textAlign:"right"}}>{val>=0?"+":""}{fmt(val,1)}%</span>
+                    </div>
+                  ))}
                 </div>
+
+                {/* Note */}
+                <div style={{fontSize:11,color:C.muted,fontStyle:"italic",marginTop:6,lineHeight:1.4}}>
+                  ℹ Portfolio % = total return from avg cost (actual purchase). Index figures shown for multi-period reference. For time-aligned comparison, use the PerfChart above.
+                </div>
+
                 {/* Dividend yield row */}
                 {(()=>{
-                  const mktH=holdings.filter(h=>h.mkt===mkt);
+                  const mktH=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0);
                   const mktVal=mktH.reduce((s,h)=>s+h.price*h.shares,0);
                   const mktDiv=mktH.reduce((s,h)=>s+(h.divYield||0)/100*h.price*h.shares,0);
                   const mktDivYield=mktVal>0?mktDiv/mktVal*100:0;
                   const divStocksCount=mktH.filter(h=>h.divYield>0).length;
                   if(mktDivYield<=0)return null;
                   return(
-                    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:6,marginTop:2}}>
+                    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:8}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:14}}>
                         <span style={{color:C.muted}}>Annual Dividend</span>
                         <div style={{textAlign:"right"}}>
@@ -2457,7 +2494,7 @@ function App(){
                     </div>
                   );
                 })()}
-                <div style={{...row,fontSize:14,marginTop:4}}><span style={{color:C.muted}}>{cnt} stocks</span><span style={{fontWeight:700}}>{fmtS(portVal)}</span></div>
+                <div style={{...row,fontSize:14,marginTop:8}}><span style={{color:C.muted}}>{cnt} stocks</span><span style={{fontWeight:700}}>{fmtS(portVal)}</span></div>
               </div>
             </div>
           );
@@ -3646,7 +3683,10 @@ function App(){
 
         const sharesMismatch=hasTrades&&Math.abs(h.shares-calcShares)>0.001;
         const avgMismatch=hasTrades&&h.avgCost>0&&calcAvg>0&&Math.abs(h.avgCost-calcAvg)>0.01;
-        const hasMismatch=sharesMismatch||avgMismatch;
+        // Only genuine reconciliation errors (share count wrong) trigger MISMATCH
+        // Avg-only differences are informational — stored DBS value is authoritative
+        const hasMismatch=sharesMismatch;
+        const avgOnlyDiscrepancy=!sharesMismatch&&avgMismatch;
 
         return{
           h,
@@ -3657,11 +3697,14 @@ function App(){
           sharesMismatch,
           avgMismatch,
           hasMismatch,
+          avgOnlyDiscrepancy,
         };
       }).sort((a,b)=>{
-        // Mismatches first, then no-trades, then OK
+        // Share mismatches first, then avg discrepancies, then no-trades, then OK
         if(a.hasMismatch&&!b.hasMismatch) return -1;
         if(!a.hasMismatch&&b.hasMismatch) return 1;
+        if(a.avgOnlyDiscrepancy&&!b.avgOnlyDiscrepancy) return -1;
+        if(!a.avgOnlyDiscrepancy&&b.avgOnlyDiscrepancy) return 1;
         if(!a.hasTrades&&b.hasTrades) return -1;
         if(a.hasTrades&&!b.hasTrades) return 1;
         return a.h.ticker.localeCompare(b.h.ticker);
@@ -3669,13 +3712,15 @@ function App(){
     },[holdings,trades]);
 
     const mismatchCount=reconData.filter(r=>r.hasMismatch).length;
+    const avgDiffCount=reconData.filter(r=>r.avgOnlyDiscrepancy).length;
     const noTradeCount=reconData.filter(r=>!r.hasTrades).length;
-    const okCount=reconData.filter(r=>r.hasTrades&&!r.hasMismatch).length;
+    const okCount=reconData.filter(r=>r.hasTrades&&!r.hasMismatch&&!r.avgOnlyDiscrepancy).length;
 
     const displayed=reconData.filter(r=>{
       if(reconFilter==="mismatch") return r.hasMismatch;
+      if(reconFilter==="avgdiff") return r.avgOnlyDiscrepancy;
       if(reconFilter==="notrade") return !r.hasTrades;
-      if(reconFilter==="ok") return r.hasTrades&&!r.hasMismatch;
+      if(reconFilter==="ok") return r.hasTrades&&!r.hasMismatch&&!r.avgOnlyDiscrepancy;
       return true;
     });
 
@@ -3711,14 +3756,18 @@ function App(){
             Compares stored holdings against trade records. Runs a full WAVG simulation per ticker.
             Tap any row to inspect all trades. Approve fixes one by one.
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,textAlign:"center"}}>
             <div style={{background:C.red+"18",borderRadius:8,padding:"8px 4px"}}>
               <div style={{fontSize:22,fontWeight:800,color:C.red}}>{mismatchCount}</div>
-              <div style={{fontSize:12,color:C.muted}}>Mismatches</div>
+              <div style={{fontSize:12,color:C.muted}}>Share Mismatches</div>
+            </div>
+            <div style={{background:C.accent+"18",borderRadius:8,padding:"8px 4px"}}>
+              <div style={{fontSize:22,fontWeight:800,color:C.accent}}>{avgDiffCount}</div>
+              <div style={{fontSize:12,color:C.muted}}>Avg Discrepancies</div>
             </div>
             <div style={{background:C.gold+"18",borderRadius:8,padding:"8px 4px"}}>
               <div style={{fontSize:22,fontWeight:800,color:C.gold}}>{noTradeCount}</div>
-              <div style={{fontSize:12,color:C.muted}}>No trades</div>
+              <div style={{fontSize:12,color:C.muted}}>No Trades</div>
             </div>
             <div style={{background:C.green+"18",borderRadius:8,padding:"8px 4px"}}>
               <div style={{fontSize:22,fontWeight:800,color:C.green}}>{okCount}</div>
@@ -3729,7 +3778,7 @@ function App(){
 
         {/* Filter pills */}
         <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto"}}>
-          {[["all","All",""],["mismatch","❌ Mismatch",C.red],["notrade","⚠ No Trades",C.gold],["ok","✅ OK",C.green]].map(([key,label,col])=>(
+          {[["all","All",""],["mismatch","❌ Shares",C.red],["avgdiff","ℹ Avg Diff",C.accent],["notrade","⚠ No Trades",C.gold],["ok","✅ OK",C.green]].map(([key,label,col])=>(
             <button key={key} onClick={()=>setReconFilter(key)}
               style={reconFilter===key
                 ?{...PILL_ACTIVE,...(col?{background:col+"22",color:col,borderColor:col}:{})}
@@ -3744,8 +3793,8 @@ function App(){
           const isExpanded=expandedTicker===r.h.ticker;
           const isFixed=fixed[r.h.ticker];
           const isFix=fixing[r.h.ticker];
-          const status=isFixed?"fixed":r.hasMismatch?"mismatch":!r.hasTrades?"notrade":"ok";
-          const borderCol=status==="mismatch"?C.red:status==="notrade"?C.gold:status==="fixed"?C.green:C.border;
+          const status=isFixed?"fixed":r.sharesMismatch?"mismatch":r.avgOnlyDiscrepancy?"avgdiff":!r.hasTrades?"notrade":"ok";
+          const borderCol=status==="mismatch"?C.red:status==="avgdiff"?C.accent:status==="notrade"?C.gold:status==="fixed"?C.green:C.border;
 
           return(
             <div key={r.h.ticker} style={{...card,borderLeft:`4px solid ${borderCol}`,marginBottom:8}}>
@@ -3757,6 +3806,7 @@ function App(){
                     <span style={{fontWeight:800,fontSize:16}}>{r.h.ticker}</span>
                     <Chip mkt={r.h.mkt}/>
                     {status==="mismatch"&&<span style={{fontSize:12,color:C.red,fontWeight:700,background:C.red+"15",padding:"1px 6px",borderRadius:4}}>❌ MISMATCH</span>}
+                    {status==="avgdiff"&&<span style={{fontSize:12,color:C.accent,fontWeight:700,background:C.accent+"15",padding:"1px 6px",borderRadius:4}}>ℹ AVG DIFF</span>}
                     {status==="notrade"&&<span style={{fontSize:12,color:C.gold,fontWeight:700,background:C.gold+"15",padding:"1px 6px",borderRadius:4}}>⚠ NO TRADES</span>}
                     {status==="ok"&&<span style={{fontSize:12,color:C.green,fontWeight:700}}>✅</span>}
                     {status==="fixed"&&<span style={{fontSize:12,color:C.green,fontWeight:700,background:C.green+"15",padding:"1px 6px",borderRadius:4}}>✅ FIXED</span>}
@@ -3776,11 +3826,11 @@ function App(){
                     </div>
                     <div>
                       <div style={{color:C.muted,marginBottom:1}}>Stored avg cost</div>
-                      <div style={{fontWeight:700,color:r.avgMismatch?C.red:C.text}}>{fmtL(r.h.avgCost,r.h.mkt)}</div>
+                      <div style={{fontWeight:700,color:r.sharesMismatch&&r.avgMismatch?C.red:C.text}}>{fmtL(r.h.avgCost,r.h.mkt)}</div>
                     </div>
                     <div>
                       <div style={{color:C.muted,marginBottom:1}}>Calc. avg cost</div>
-                      <div style={{fontWeight:700,color:r.avgMismatch?C.green:C.text}}>
+                      <div style={{fontWeight:700,color:r.sharesMismatch&&r.avgMismatch?C.green:C.muted}}>
                         {r.hasTrades?fmtL(r.calcAvg,r.h.mkt):"—"}
                       </div>
                     </div>
@@ -3792,8 +3842,8 @@ function App(){
                 </div>
               </div>
 
-              {/* Fix button */}
-              {r.hasMismatch&&!isFixed&&(
+              {/* Fix button — only for genuine share count mismatches */}
+              {r.sharesMismatch&&!isFixed&&(
                 <div style={{marginTop:10}} onClick={e=>e.stopPropagation()}>
                   <button onClick={()=>applyFix(r)} disabled={isFix} style={{
                     width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.green}`,
@@ -3803,6 +3853,15 @@ function App(){
                   }}>
                     {isFix?"Applying fix...":"✅ Apply Fix — set shares="+r.calcShares+" avg="+fmtL(r.calcAvg,r.h.mkt)}
                   </button>
+                </div>
+              )}
+              {/* Info note for avg-only discrepancies — stored DBS value is authoritative */}
+              {r.avgOnlyDiscrepancy&&!isFixed&&(
+                <div style={{marginTop:10,padding:"8px 10px",borderRadius:8,background:C.accent+"10",border:`1px solid ${C.accent}30`}}>
+                  <div style={{fontSize:12,color:C.accent,fontWeight:700,marginBottom:2}}>ℹ Avg cost note</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>
+                    Stored value ({fmtL(r.h.avgCost,r.h.mkt)}) is the authoritative DBS cost basis. Trade history is supplementary and may not reflect all historical purchases. No fix needed.
+                  </div>
                 </div>
               )}
 
@@ -4086,7 +4145,7 @@ function App(){
               );
             })()}
             <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:C.muted,marginTop:3}}>
-              <span>{detailPeriod==="all"&&FIRST_BUY[h.ticker]?"First buy: "+FIRST_BUY[h.ticker]:{"30d":"30 days ago","6m":"6 months ago","1y":"1 year ago","5y":"5 years ago","all":"Start"}[detailPeriod]}</span>
+              <span>{detailPeriod==="all"&&FIRST_BUY[h.ticker]?("First buy: "+FIRST_BUY[h.ticker]):{"30d":"30 days ago","6m":"6 months ago","1y":"1 year ago","5y":"5 years ago","all":"Max available"}[detailPeriod]}</span>
               <span>{fmtL(h.price,h.mkt)}</span>
             </div>
           </div>
