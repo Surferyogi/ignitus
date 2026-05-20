@@ -4423,16 +4423,10 @@ function App(){
             const growthSrc=inp.growthSource||'default 5%';
 
             const allSources=[
-              {label:"FMP DCF",         val:vals.fmpDcf,        ok:!!(avail.fmpDcfAvailable&&vals.fmpDcf>0),
-               note:"FMP pre-computed DCF (free API)",
-               na:"📂 No DCF data from FMP for this ticker"},
-              {label:"DCF (FCF-based)", val:vals.dcfFCF,        ok:!!(avail.dcfFCFAvailable&&vals.dcfFCF>0),
-               note:"FCF/sh × "+growthUsed+"% growth · 10% disc.",
-               na:"📂 No Free Cash Flow data"},
-              {label:"DCF (EPS-based)", val:vals.dcfEPS,        ok:!!(avail.dcfEPSAvailable&&vals.dcfEPS>0),
-               note:"EPS × "+growthUsed+"% growth · 10% disc.",
+              {label:"DCF (EPS-based)", val:vals.dcfEPS,     ok:!!(avail.dcfEPSAvailable&&vals.dcfEPS>0),
+               note:"EPS × "+growthUsed+"% growth · "+(inp.discountRate||10)+"% disc.",
                na:"📂 No EPS data from Finnhub"},
-              {label:"Peter Lynch",     val:vals.peterLynch,    ok:!!(avail.peterLynchAvailable&&vals.peterLynch>0),
+              {label:"Peter Lynch",     val:vals.peterLynch, ok:!!(avail.peterLynchAvailable&&vals.peterLynch>0),
                note:"EPS × "+growthUsed+"% growth = PEG 1.0",
                na:"📂 No EPS or growth data"},
             ];
@@ -4449,7 +4443,7 @@ function App(){
                   {rec.totalAnalysts>0&&<span style={{fontSize:13,fontWeight:700,padding:"2px 8px",borderRadius:4,background:recCol+"22",color:recCol}}>{recText} ({rec.totalAnalysts} analysts)</span>}
                 </div>
                 <div style={{fontSize:14,color:C.mutedLight,marginBottom:6}}>
-                  Current: <b style={{color:C.text}}>${fmt(priceLive)}</b> · EPS ${fmt(inp.eps)} · FCF/sh ${fmt(inp.fcfPerShare)} · Growth <b style={{color:C.gold}}>{growthUsed}%</b> <span style={{color:C.muted}}>({growthSrc})</span>
+                  Current: <b style={{color:C.text}}>${fmt(priceLive)}</b> · EPS ${fmt(inp.eps)} · Growth <b style={{color:C.gold}}>{growthUsed}%</b> <span style={{color:C.muted}}>({growthSrc})</span>
                 </div>
                 {/* Column headers */}
                 <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:12,color:C.muted,marginBottom:4,paddingBottom:4,borderBottom:`1px solid ${C.border}33`,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>
@@ -4498,7 +4492,7 @@ function App(){
                     <div style={{fontWeight:800,color:C.purple}}>AVERAGE</div>
                     <div style={{fontWeight:800,textAlign:"right",color:C.purple}}>${fmt(computedAvg)}</div>
                     <div style={{fontWeight:800,textAlign:"right",color:avgUpside>=0?C.green:C.red}}>{avgUpside>=0?"+":""}{fmt(avgUpside,1)}%</div>
-                    <div style={{fontSize:13,color:C.muted,textAlign:"right"}}>{availCount} of 4 models</div>
+                    <div style={{fontSize:13,color:C.muted,textAlign:"right"}}>{availCount} of 2 models</div>
                   </div>
                 ):(
                   <div style={{textAlign:"center",fontSize:14,color:C.muted,marginTop:10,padding:"8px",background:C.surface,borderRadius:6}}>
@@ -4508,8 +4502,8 @@ function App(){
 
                 {/* Disclaimer */}
                 <div style={{fontSize:13,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
-                  <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = how over/undervalued the stock is at today's price according to each model. Negative = overvalued (model says fair value is below market price); Positive = undervalued. <b>FMP DCF</b> is a professionally pre-computed DCF. <b>DCF (FCF/EPS)</b> use your growth rate from Finnhub. <b>Peter Lynch</b> says fair P/E = growth rate. The AVERAGE drives the Buffett score and the Intrinsic tile above.
-                  {availCount<4&&<><br/><span style={{color:C.gold}}>Strikethrough rows</span>: data unavailable on Finnhub/FMP free tier.</>}
+                  <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = over/undervaluation at today's price. Negative = overvalued. <b>DCF (EPS)</b> discounts 5 years of projected earnings at {(inp.discountRate||10)}%. <b>Peter Lynch</b> says a fairly valued stock has P/E equal to its growth rate (PEG = 1.0). The AVERAGE of these two drives the Buffett score and Intrinsic tile.
+                  {availCount===0&&<><br/><span style={{color:C.red}}>No models available — Finnhub returned insufficient EPS data for this ticker.</span></>}
                 </div>
               </div>
             );
