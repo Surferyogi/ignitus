@@ -98,7 +98,10 @@
           revenueGrowth: Number(r.revenue_growth) || 0,
           senateBuys: Number(r.senate_buys) || 0,
           senateSells: Number(r.senate_sells) || 0,
-          heldSince: r.held_since || null,   // actual purchase date (YYYY-MM-DD), null if unknown
+          heldSince: r.held_since || null,
+          isEtf: r.is_etf || false,
+          intrinsicMethod: r.intrinsic_method || null,
+          intrinsicUpdatedAt: r.intrinsic_updated_at || null,
         }));
         const t = (trades || []).map(r => ({
           id: r.id, ticker: r.ticker, type: r.type,
@@ -132,6 +135,9 @@
           senate_buys: h.senateBuys || 0,
           senate_sells: h.senateSells || 0,
           held_since: h.heldSince || null,
+          is_etf: h.isEtf || false,
+          intrinsic_method: h.intrinsicMethod || null,
+          intrinsic_updated_at: h.intrinsicUpdatedAt || null,
         }));
         return sbUpsert('holdings', rows);
       },
