@@ -479,9 +479,11 @@ function App(){
   const [indicesSource,setIndicesSource]=useState('fallback'); // 'live'|'cached'|'fallback'
   const [indicesCachedAt,setIndicesCachedAt]=useState(null);  // ISO string of last successful live fetch
   const [valuations,setValuations]=useState({});   // {TICKER: {analystTarget, dcf, graham, peFair, average, recommendation}}
-  const [moatUpdatedAt,setMoatUpdatedAt]=useState(null); // FIX 5: when moat_map was last seeded
-  const [moatRefreshing,setMoatRefreshing]=useState(false); // Option A: refresh from DB
-  const [moatAiLoading,setMoatAiLoading]=useState({}); // Option C: per-ticker AI assessm
+  const [moatUpdatedAt,setMoatUpdatedAt]=useState(null);
+  const [moatRefreshing,setMoatRefreshing]=useState(false);
+  const [moatAiLoading,setMoatAiLoading]=useState({});
+  const [intrinsicRefreshing,setIntrinsicRefreshing]=useState(false);
+  const [intrinsicUpdatedAt,setIntrinsicUpdatedAt]=useState(null); // ISO string from meta // Option C: per-ticker AI assessm
   const [showSoldStocks,setShowSoldStocks]=useState(false); // toggle sold stocks section per marketent
   const [valLoading,setValLoading]=useState({});
 
@@ -579,8 +581,29 @@ function App(){
         fetchSenateTrades();
         updateSenateDataSilent(data.holdings);
         fetchMoatData(data.holdings);
-        // Resolve proper names for any holding where name === ticker (unnamed stocks)
         fetchMissingNames(mktCorrected);
+        // Compute intrinsic values on load + check for quarterly AI refresh
+        computeAllIntrinsic(data.holdings);
+        (async()=>{
+          try{
+            const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
+            const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+            const r=await fetch(`${SB}/rest/v1/meta?key=eq.intrinsic_refresh_at`,
+              {headers:{'apikey':KEY,'Authorization':'Bearer '+KEY}});
+            if(r.ok){
+              const rows=await r.json();
+              if(rows.length>0){
+                setIntrinsicUpdatedAt(rows[0].value);
+                const ageDays=Math.floor((Date.now()-new Date(rows[0].value).getTime())/86400000);
+                if(ageDays>90){
+                  console.log(`[intrinsic] Stale ${ageDays}d — auto-triggering AI refresh`);
+                  // Small delay so UI is ready before kicking off
+                  setTimeout(()=>refreshAllIntrinsicWithAI(),8000);
+                }
+              }
+            }
+          }catch(e){}
+        })();
 
       } else {
         setLoadMsg('WARNING: holdings empty. data='+JSON.stringify(data).slice(0,200));
@@ -1192,6 +1215,135 @@ function App(){
     setMoatRefreshing(false);
   }
 
+  // ── Intrinsic Value: formula-based refresh (edge function) ────────────────
+  // Fetches analyst targets from Yahoo v10/quoteSummary + REIT yield model.
+  // Also stores last-run timestamp in meta for quarterly staleness tracking.
+  async function computeAllIntrinsic(currentHoldings){
+    const src=currentHoldings||holdings;
+    if(!src.length) return;
+    const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
+    const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
+    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+    const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+    try{
+      const res=await fetch(EDGE_URL,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:'compute_intrinsic',
+          holdings:src.map(h=>({ticker:h.ticker,mkt:h.mkt,sector:h.sector||'',
+            divYield:h.divYield||0,price:h.price||0,name:h.name||'',isEtf:h.isEtf||false}))
+        })
+      });
+      if(!res.ok) return;
+      const d=await res.json();
+      const analystTargets = d.analystTargets || {}; // Option A
+      const reitValues     = d.reitValues     || {}; // REIT yield model
+      const grahamValues   = d.grahamValues   || {}; // Option C — Graham Number
+      const dcfValues      = d.dcfValues      || {}; // Option C — DCF (EPS)
+      const total = Object.keys(analystTargets).length + Object.keys(reitValues).length
+                  + Object.keys(grahamValues).length   + Object.keys(dcfValues).length;
+      console.log(`[compute_intrinsic] analyst=${Object.keys(analystTargets).length} reit=${Object.keys(reitValues).length} graham=${Object.keys(grahamValues).length} dcf=${Object.keys(dcfValues).length}`);
+      if(total===0) return;
+      const now=new Date().toISOString();
+      setHoldings(prev=>{
+        const upd=prev.map(h=>{
+          if(h.isEtf) return{...h,intrinsic:0,intrinsicMethod:'etf',intrinsicUpdatedAt:now};
+          const reit    = reitValues[h.ticker];
+          const analyst = analystTargets[h.ticker];
+          const graham  = grahamValues[h.ticker];
+          const dcf     = dcfValues[h.ticker];
+          // Priority: REIT yield > analyst consensus > Graham Number > DCF (EPS)
+          if(reit    > 0) return{...h,intrinsic:reit,           intrinsicMethod:'reit_yield', intrinsicUpdatedAt:now};
+          if(analyst?.target > 0) return{...h,intrinsic:analyst.target,intrinsicMethod:'analyst',    intrinsicUpdatedAt:now};
+          if(graham  > 0) return{...h,intrinsic:graham,         intrinsicMethod:'graham',     intrinsicUpdatedAt:now};
+          if(dcf     > 0) return{...h,intrinsic:dcf,            intrinsicMethod:'dcf_eps',    intrinsicUpdatedAt:now};
+          return h; // no data from this pass — keep existing value
+        });
+        if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic] DB:',e));
+        return upd;
+      });
+      // Persist refresh timestamp to meta
+      setIntrinsicUpdatedAt(now);
+      fetch(`${SB}/rest/v1/meta?on_conflict=key`,{
+        method:'POST',headers:{...SBH,'Prefer':'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify({key:'intrinsic_refresh_at',value:now})
+      }).catch(()=>{});
+    }catch(e){console.warn('[compute_intrinsic]',e.message);}
+  }
+
+  // ── Intrinsic Value: AI web search refresh ────────────────────────────────
+  // Uses Claude with web_search to find analyst consensus targets for all stocks.
+  // Slower (1–2 min for full portfolio) but finds data for any global stock.
+  // Run quarterly or when formula-based refresh finds no analyst coverage.
+  async function refreshAllIntrinsicWithAI(){
+    if(intrinsicRefreshing) return;
+    setIntrinsicRefreshing(true);
+    const stocks=activeHoldings.filter(h=>!h.isEtf);
+    const BATCH=3; // 3 stocks per Claude call to keep responses focused
+    const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
+    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+    const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+    const allResults={};
+
+    for(let i=0;i<stocks.length;i+=BATCH){
+      const batch=stocks.slice(i,i+BATCH);
+      setIntrinsicUpdatedAt(`AI searching ${Math.min(i+BATCH,stocks.length)}/${stocks.length}…`);
+      const prompt=
+        "Search for the current analyst consensus price target for each stock below. "
+        +"Use web search to find recent data from Bloomberg, Reuters, Refinitiv, or broker research. "
+        +"For REITs, find NAV (net asset value) per unit instead if available.\n\n"
+        +batch.map(h=>`${h.ticker} – ${h.name} (${h.mkt}, current price ${h.price})`).join("\n")
+        +"\n\nReturn ONLY a JSON array (no markdown, no preamble):\n"
+        +'[{"ticker":"...","intrinsic":123.45,"n_analysts":5,"source":"brief note"},...]';
+      try{
+        const res=await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            model:"claude-sonnet-4-20250514",max_tokens:600,
+            tools:[{"type":"web_search_20250305","name":"web_search"}],
+            messages:[{role:"user",content:prompt}]
+          })
+        });
+        const d=await res.json();
+        // Extract final text block (after any tool use blocks)
+        const textBlocks=(d.content||[]).filter(c=>c.type==="text");
+        const raw=textBlocks[textBlocks.length-1]?.text||"[]";
+        let results=[];
+        try{results=JSON.parse(raw);}catch(e){
+          const m=raw.match(/\[[\s\S]*?\]/);
+          if(m) try{results=JSON.parse(m[0]);}catch(e2){}
+        }
+        if(Array.isArray(results)){
+          results.forEach(r=>{
+            if(r.ticker&&r.intrinsic>0) allResults[r.ticker]={intrinsic:r.intrinsic,source:r.source||""};
+          });
+        }
+      }catch(e){console.warn('[intrinsic-ai] batch error:',e);}
+      if(i+BATCH<stocks.length) await new Promise(r=>setTimeout(r,1500));
+    }
+
+    // Apply all results at once
+    const now=new Date().toISOString();
+    setHoldings(prev=>{
+      const upd=prev.map(h=>{
+        if(h.isEtf) return h;
+        const u=allResults[h.ticker];
+        if(!u||u.intrinsic<=0) return h;
+        return{...h,intrinsic:u.intrinsic,intrinsicMethod:'ai_search'};
+      });
+      if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic-ai] DB:',e));
+      return upd;
+    });
+    // Persist refresh timestamp
+    fetch(`${SB}/rest/v1/meta?on_conflict=key`,{
+      method:'POST',headers:{...SBH,'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({key:'intrinsic_refresh_at',value:now})
+    }).catch(()=>{});
+    console.log(`[intrinsic-ai] Done — ${Object.keys(allResults).length}/${stocks.length} updated`);
+    setIntrinsicUpdatedAt(now);
+    setIntrinsicRefreshing(false);
+  }
+
   async function fetchMissingNames(currentHoldings){
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
     const unnamed=(currentHoldings||holdings).filter(h=>
@@ -1619,12 +1771,14 @@ function App(){
   ,[activeHoldings,refreshKey]);
   const top10=byGain.slice(0,10);
   const worst10=[...byGain].reverse().slice(0,10);
-  const buffettList=useMemo(()=>[...activeHoldings].map(h=>{
-    const compIV=valuations[h.ticker]?.valuations?.average||0;
-    const effIV=compIV>0?compIV:(h.intrinsic||0);
-    const hScored={...h,intrinsic:effIV};
-    return {...hScored,...buffettScore(hScored)};
-  }).sort((a,b)=>b.score-a.score),[activeHoldings,valuations,refreshKey]);
+  const buffettList=useMemo(()=>[...activeHoldings]
+    .filter(h=>!h.isEtf) // ETFs have no intrinsic value — exclude from Buffett scoring
+    .map(h=>{
+      const compIV=valuations[h.ticker]?.valuations?.average||0;
+      const effIV=compIV>0?compIV:(h.intrinsic||0);
+      const hScored={...h,intrinsic:effIV};
+      return {...hScored,...buffettScore(hScored)};
+    }).sort((a,b)=>b.score-a.score),[activeHoldings,valuations,refreshKey]);
 
   async function analyse(h){
     if(aiText[h.ticker])return;
@@ -2489,6 +2643,71 @@ function App(){
                 Score: Moat 30pts + Dividend 20pts + Upside 25pts + Fair PE 15pts + Gain track 10pts
               </div>
             </div>
+            {/* Intrinsic Value refresh block */}
+            {(()=>{
+              const intrinsicAgeDays=(()=>{
+                if(!intrinsicUpdatedAt||intrinsicUpdatedAt.includes('search')) return null;
+                const d=new Date(intrinsicUpdatedAt);
+                return isNaN(d.getTime())?null:Math.floor((Date.now()-d.getTime())/86400000);
+              })();
+              const intrinsicStale=intrinsicAgeDays!==null&&intrinsicAgeDays>90;
+              const ageLabel=intrinsicAgeDays===null?null:intrinsicAgeDays===0?'today':intrinsicAgeDays===1?'yesterday':`${intrinsicAgeDays}d ago`;
+              const etfCount    = activeHoldings.filter(h=>h.isEtf).length;
+              const reitCount   = activeHoldings.filter(h=>!h.isEtf&&h.intrinsicMethod==='reit_yield').length;
+              const analystCount= activeHoldings.filter(h=>h.intrinsicMethod==='analyst').length;
+              const grahamCount = activeHoldings.filter(h=>h.intrinsicMethod==='graham').length;
+              const dcfCount    = activeHoldings.filter(h=>h.intrinsicMethod==='dcf_eps').length;
+              const aiCount     = activeHoldings.filter(h=>h.intrinsicMethod==='ai_search').length;
+              const noMethod    = activeHoldings.filter(h=>!h.isEtf&&!h.intrinsicMethod).length;
+              return(
+                <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",marginBottom:10,border:`1px solid ${intrinsicStale?C.red+'60':C.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <div>
+                      <span style={{fontWeight:700,color:C.purple,fontSize:14}}>💎 Intrinsic Value Sources</span>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
+                        {ageLabel&&(
+                          <span style={{fontSize:12,padding:"1px 6px",borderRadius:4,
+                            background:intrinsicStale?C.red+"22":C.green+"18",
+                            color:intrinsicStale?C.red:C.green,fontWeight:700}}>
+                            {intrinsicStale?'⚠ ':''}{ageLabel}
+                          </span>
+                        )}
+                        {intrinsicUpdatedAt?.includes('search')&&(
+                          <span style={{fontSize:12,color:C.accent}}>{intrinsicUpdatedAt}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      <button onClick={()=>computeAllIntrinsic()} disabled={intrinsicRefreshing}
+                        style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.border}`,
+                          background:intrinsicRefreshing?C.surface:C.border+"40",color:intrinsicRefreshing?C.muted:C.mutedLight,
+                          fontSize:12,fontWeight:700,cursor:intrinsicRefreshing?"not-allowed":"pointer"}}>
+                        🔄 Formula
+                      </button>
+                      <button onClick={()=>refreshAllIntrinsicWithAI()} disabled={intrinsicRefreshing}
+                        style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.purple}`,
+                          background:intrinsicRefreshing?C.surface:C.purple+"18",color:intrinsicRefreshing?C.muted:C.purple,
+                          fontSize:12,fontWeight:700,cursor:intrinsicRefreshing?"not-allowed":"pointer"}}>
+                        {intrinsicRefreshing?"⏳ Searching…":"🤖 AI Web Refresh"}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,fontSize:11,flexWrap:"wrap",marginBottom:4}}>
+                    <span style={{color:C.muted}}>🚫 ETF: <b style={{color:C.text}}>{etfCount}</b></span>
+                    {analystCount>0&&<span style={{color:C.green}}>📊 Analyst: <b>{analystCount}</b></span>}
+                    {reitCount>0  &&<span style={{color:C.gold}}>🏢 REIT yield: <b>{reitCount}</b></span>}
+                    {grahamCount>0&&<span style={{color:C.accent}}>📐 Graham: <b>{grahamCount}</b></span>}
+                    {dcfCount>0   &&<span style={{color:C.accentDim}}>📈 DCF·EPS: <b>{dcfCount}</b></span>}
+                    {aiCount>0    &&<span style={{color:C.purple}}>🤖 AI Web: <b>{aiCount}</b></span>}
+                    {noMethod>0   &&<span style={{color:C.red}}>⚠ None: <b>{noMethod}</b></span>}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>
+                    <b>🔄 Formula</b>: REIT yield model + Yahoo analyst targets (Option A) + Graham/DCF fallback (Option C) ·
+                    <b> 🤖 AI Web Refresh</b>: Claude web-searches analyst targets for every stock · Auto-runs if &gt;90 days stale
+                  </div>
+                </div>
+              );
+            })()}
             {[
               {filter:(h)=>h.action==="BUY MORE"||h.action==="ADD GRADUALLY",title:"Buy More (Score 65+)",emptyMsg:"No strong buys at current prices"},
               {filter:(h)=>h.action==="HOLD",title:"Hold (Score 35-64)",emptyMsg:"No holds identified"},
@@ -4290,11 +4509,30 @@ function App(){
               {showGainPct&&<div style={{fontSize:13,color:pos?C.green:C.red,fontWeight:700}}>{fmtPct(gainPct)}</div>}
             </div>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
-              <div style={{fontSize:13,color:C.muted,marginBottom:2}}>
-                Intrinsic {computedIV>0&&<span style={{color:C.purple,fontSize:12,fontWeight:700}}>● calc</span>}
-              </div>
-              <div style={{fontSize:18,fontWeight:800}}>{effectiveIV>0?fmtL(effectiveIV,h.mkt):"—"}</div>
-              <div style={{fontSize:13,color:upside>=0?C.green:C.red,fontWeight:700}}>{effectiveIV>0?((upside>=0?"+":"")+fmt(upside,1)+"%"):"no data"}</div>
+              {h.isEtf?(
+                <>
+                  <div style={{fontSize:13,color:C.muted,marginBottom:2}}>Intrinsic</div>
+                  <div style={{fontSize:15,fontWeight:700,color:C.muted}}>N/A</div>
+                  <div style={{fontSize:12,color:C.muted}}>ETF / Fund</div>
+                </>
+              ):(
+                <>
+                  <div style={{fontSize:13,color:C.muted,marginBottom:2}}>
+                    Intrinsic {(()=>{
+                      if(computedIV>0) return <span style={{color:C.purple,fontSize:11,fontWeight:700}}>●calc</span>;
+                      const m=h.intrinsicMethod;
+                      if(m==='analyst')    return <span style={{color:C.green,  fontSize:10,fontWeight:700,background:C.green+'15',padding:"1px 4px",borderRadius:3}}>analyst</span>;
+                      if(m==='reit_yield') return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'15', padding:"1px 4px",borderRadius:3}}>yield</span>;
+                      if(m==='graham')     return <span style={{color:C.accent, fontSize:10,fontWeight:700,background:C.accent+'15',padding:"1px 4px",borderRadius:3}}>Graham</span>;
+                      if(m==='dcf_eps')    return <span style={{color:C.accentDim,fontSize:10,fontWeight:700,background:C.accentDim+'20',padding:"1px 4px",borderRadius:3}}>DCF</span>;
+                      if(m==='ai_search')  return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>🤖AI</span>;
+                      return null;
+                    })()}
+                  </div>
+                  <div style={{fontSize:18,fontWeight:800}}>{effectiveIV>0?fmtL(effectiveIV,h.mkt):"—"}</div>
+                  <div style={{fontSize:13,color:upside>=0?C.green:C.red,fontWeight:700}}>{effectiveIV>0?((upside>=0?"+":"")+fmt(upside,1)+"%"):"no data"}</div>
+                </>
+              )}
             </div>
           </div>
 
