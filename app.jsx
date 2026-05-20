@@ -2249,7 +2249,7 @@ function App(){
   const smPill=a=>({padding:"5px 11px",borderRadius:14,fontSize:14,fontWeight:a?700:500,background:a?C.surface:C.bg,color:a?C.accent:C.muted,border:`1px solid ${a?C.accent:C.border}`,cursor:"pointer"});
   const inp={width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:16,outline:"none",boxSizing:"border-box"};
   const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:9999};
-  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",width:"100%",maxWidth:430,margin:"0 auto",height:"92vh",overflowY:"scroll",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",boxSizing:"border-box"};
+  const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",width:"100%",maxWidth:430,margin:"0 auto",flex:1,minHeight:0,overflowY:"scroll",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",boxSizing:"border-box"};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
@@ -5275,7 +5275,12 @@ function App(){
   const refreshTs=lastRefresh?lastRefresh.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):null;
   return(
   <>
-    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,height:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",background:C.bg,
+      height:"100%",minHeight:"-webkit-fill-available",
+      color:C.text,maxWidth:430,margin:"0 auto",position:"relative",
+      display:"flex",flexDirection:"column",
+      /* overflow:hidden removed — causes iOS keyboard to dismiss inputs */
+    }}>
       {isLoading&&(
         <div style={{position:"fixed",inset:0,background:"#0A0D14",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,padding:20}}>
           <div style={{fontSize:30,fontWeight:800,color:"#00D4FF",letterSpacing:"-1px"}}>IGNITUS</div>
