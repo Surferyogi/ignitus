@@ -450,6 +450,7 @@ function App(){
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
   const [tradeType,setTradeType]=useState("ALL");
+  const [tradeSearch,setTradeSearch]=useState(""); // lifted to App so it survives TradesView remounts
   const [insightTab,setInsightTab]=useState("performers");
   const [aiText,setAiText]=useState({});
   const [aiLoad,setAiLoad]=useState({});
@@ -2948,7 +2949,6 @@ function App(){
   }
 
   function TradesView(){
-    const [tradeSearch,setTradeSearch]=React.useState("");
     const tradeSearchRef=React.useRef(null);
 
     // All shown trades: filter by type + search, sorted latest first
@@ -3019,7 +3019,6 @@ function App(){
               placeholder={"e.g. Fr DBS: Your Sell for Ord Sh, Hotung Investment Holdings Ltd (SG) has been filled on 07 May 2026 09:03:28. Filled price: SGD 1.64. Filled Qty: 3800. Qty left: 0."}
               defaultValue={pasteText}
               onBlur={e=>setPasteText(e.target.value)}
-              onChange={e=>setPasteText(e.target.value)}
               style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px",fontSize:12,resize:"vertical",boxSizing:"border-box",fontFamily:"monospace",lineHeight:1.5}}
             />
             <div style={{display:"flex",gap:8,marginTop:8}}>
@@ -3332,19 +3331,21 @@ function App(){
           {["ALL","BUY","SELL"].map(t=><button key={t} style={pill(tradeType===t)} onClick={()=>setTradeType(t)}>{t}</button>)}
         </div>
 
-        {/* Trade search */}
+        {/* Trade search — uncontrolled input to prevent focus loss on App re-renders */}
         <div style={{position:"relative",marginBottom:10}}>
           <input
             ref={tradeSearchRef}
             placeholder={`Search ${shown.length} trade${shown.length!==1?"s":""}...`}
             defaultValue={tradeSearch}
-            onChange={e=>setTradeSearch(e.target.value)}
+            onInput={e=>setTradeSearch(e.target.value)}
             style={{...inp,paddingRight:tradeSearch?32:12}}
           />
           {tradeSearch&&(
-            <button onClick={()=>{setTradeSearch("");if(tradeSearchRef.current)tradeSearchRef.current.value="";}}
+            <button
+              onMouseDown={e=>e.preventDefault()}
+              onClick={()=>{setTradeSearch("");if(tradeSearchRef.current){tradeSearchRef.current.value="";tradeSearchRef.current.focus();}}}
               style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-                background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",lineHeight:1}}>
+                background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center"}}>
               ✕
             </button>
           )}
@@ -5051,6 +5052,7 @@ function App(){
               <div style={lbl}>Held Since <span style={{color:C.muted,fontWeight:400}}>(actual purchase date — used in performance chart)</span></div>
               <input type="date" style={{...iF,colorScheme:"dark"}} defaultValue={f.heldSince||""}
                 onChange={e=>setF(p=>({...p,heldSince:e.target.value}))}
+                onBlur={e=>setF(p=>({...p,heldSince:e.target.value}))}
                 max={new Date().toISOString().split('T')[0]}/>
               {f.heldSince&&<div style={{fontSize:12,color:C.green,marginTop:3}}>✓ Performance chart will show this stock from {f.heldSince}</div>}
               {!f.heldSince&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>Optional — leave blank if unknown (chart uses full available history)</div>}
