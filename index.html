@@ -98,6 +98,7 @@
           revenueGrowth: Number(r.revenue_growth) || 0,
           senateBuys: Number(r.senate_buys) || 0,
           senateSells: Number(r.senate_sells) || 0,
+          heldSince: r.held_since || null,   // actual purchase date (YYYY-MM-DD), null if unknown
         }));
         const t = (trades || []).map(r => ({
           id: r.id, ticker: r.ticker, type: r.type,
@@ -130,6 +131,7 @@
           revenue_growth: h.revenueGrowth || 0,
           senate_buys: h.senateBuys || 0,
           senate_sells: h.senateSells || 0,
+          held_since: h.heldSince || null,
         }));
         return sbUpsert('holdings', rows);
       },
