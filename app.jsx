@@ -390,54 +390,68 @@ class ErrBoundary extends React.Component {
   }
 }
 
-// ── Memoized search input — isolated from App re-renders ─────────────────────
-// React.memo ensures this component NEVER re-renders when App state changes.
-// This is the definitive fix for iOS focus loss: zero parent re-renders during typing.
-// ── Memoized search input — zero React state, zero re-renders while typing ────
-// Clear button visibility is managed via a DOM ref (not useState) so no React
-// render cycle fires at all when the user types. iOS keeps focus throughout.
+// ── Search input with explicit Search button ──────────────────────────────────
+// No debounce, no timers, no state updates while typing.
+// User types freely, taps Search (or presses Enter) to filter.
+// This is the only reliable way to prevent iOS keyboard dismissal.
 const PortfolioSearchInput=React.memo(function PortfolioSearchInput({onSearch,onClear}){
   const inputRef=React.useRef(null);
-  const timerRef=React.useRef(null);
   const clearRef=React.useRef(null);
 
-  const showClear=(show)=>{
-    if(!clearRef.current) return;
-    clearRef.current.style.visibility=show?'visible':'hidden';
-    clearRef.current.style.pointerEvents=show?'auto':'none';
+  const doSearch=()=>{
+    const v=(inputRef.current?.value||"").trim();
+    if(clearRef.current){
+      clearRef.current.style.visibility=v?"visible":"hidden";
+      clearRef.current.style.pointerEvents=v?"auto":"none";
+    }
+    onSearch(v);
+  };
+
+  const doClear=()=>{
+    if(inputRef.current) inputRef.current.value="";
+    if(clearRef.current){
+      clearRef.current.style.visibility="hidden";
+      clearRef.current.style.pointerEvents="none";
+    }
+    onSearch("");
+    onClear();
+    inputRef.current?.focus();
   };
 
   return(
-    <div style={{position:"relative",marginBottom:10}}>
-      <input
-        ref={inputRef}
-        placeholder="Search holdings by name or ticker..."
-        style={{width:"100%",background:"#111827",border:"1px solid #2A3547",borderRadius:8,
-          padding:"9px 36px 9px 12px",color:"#E2E8F0",fontSize:16,
-          outline:"none",boxSizing:"border-box"}}
-        onInput={e=>{
-          const v=e.target.value;
-          showClear(v.length>0);            // direct DOM — no React state, no re-render
-          clearTimeout(timerRef.current);
-          timerRef.current=setTimeout(()=>onSearch(v),400);
-        }}
-      />
+    <div style={{display:"flex",gap:6,marginBottom:10}}>
+      <div style={{position:"relative",flex:1}}>
+        <input
+          ref={inputRef}
+          placeholder="Search by name or ticker…"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          inputMode="search"
+          style={{width:"100%",background:"#111827",border:"1px solid #2A3547",borderRadius:8,
+            padding:"9px 36px 9px 12px",color:"#E2E8F0",fontSize:16,
+            outline:"none",boxSizing:"border-box"}}
+          onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();doSearch();}}}
+        />
+        <button
+          ref={clearRef}
+          onMouseDown={e=>e.preventDefault()}
+          onClick={doClear}
+          style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+            background:"none",border:"none",color:"#6B7A99",fontSize:18,cursor:"pointer",
+            lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center",
+            visibility:"hidden",pointerEvents:"none"}}>
+          ✕
+        </button>
+      </div>
       <button
-        ref={clearRef}
         onMouseDown={e=>e.preventDefault()}
-        onClick={()=>{
-          if(inputRef.current) inputRef.current.value="";
-          showClear(false);
-          clearTimeout(timerRef.current);
-          onSearch("");
-          onClear();
-          inputRef.current?.focus();
-        }}
-        style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-          background:"none",border:"none",color:"#6B7A99",fontSize:18,cursor:"pointer",
-          lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center",
-          visibility:"hidden",pointerEvents:"none"}}>
-        ✕
+        onClick={doSearch}
+        style={{flexShrink:0,padding:"9px 16px",borderRadius:8,
+          background:"#3B82F6",border:"none",color:"#fff",
+          fontSize:15,fontWeight:700,cursor:"pointer"}}>
+        Search
       </button>
     </div>
   );
@@ -453,7 +467,6 @@ function App(){
   const [chartPeriod,setChartPeriod]=useState("6m");
   const [detailPeriod,setDetailPeriod]=useState("6m");
   const [groupBy,setGroupBy]=useState("sector");
-  const [search,setSearch]=useState("");
   const searchInputRef=React.useRef(null);
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
@@ -1667,9 +1680,11 @@ function App(){
     setTimeout(()=>setRefreshAnim(false),800);
   }
 
-  // Stable search callbacks — same reference across re-renders so PortfolioSearchInput memo never triggers
-  const handleSearch=useCallback(v=>setSearch(v),[]);
-  const handleClear=useCallback(()=>setSearch(""),[]);
+  const searchRef=React.useRef("");  // search value stored in ref — never causes App re-render
+  const [searchVersion,setSearchVersion]=useState(0); // tick-counter: increments only after debounce fires
+  // handleSearch: debounce is now inside PortfolioSearchInput (400ms), so this fires once after pause
+  const handleSearch=useCallback(v=>{searchRef.current=v;setSearchVersion(n=>n+1);},[]);
+  const handleClear=useCallback(()=>{searchRef.current="";setSearchVersion(n=>n+1);},[]);
 
   const CCY=useMemo(()=>({
     USD:{symbol:"$",  r:fxRates.USD||1.27},
@@ -1771,9 +1786,9 @@ function App(){
     // Active holdings only — exclude fully sold (shares=0) from ALL analysis/insights
     let h=(mktFilter==="ALL"?holdings:holdings.filter(x=>x.mkt===mktFilter))
       .filter(x=>!x.fullySold&&x.shares>0);
-    if(search)h=h.filter(x=>x.ticker.toLowerCase().includes(search.toLowerCase())||x.name.toLowerCase().includes(search.toLowerCase()));
+    if(searchRef.current)h=h.filter(x=>x.ticker.toLowerCase().includes(searchRef.current.toLowerCase())||x.name.toLowerCase().includes(searchRef.current.toLowerCase()));
     return h;
-  },[mktFilter,search,holdings,refreshKey]);
+  },[mktFilter,searchVersion,holdings,refreshKey]);
 
   // Active holdings for insights/analysis (no market filter, no search — full universe)
   const activeHoldings=useMemo(()=>
