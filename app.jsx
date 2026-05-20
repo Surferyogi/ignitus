@@ -983,7 +983,9 @@ function App(){
       if(d&&!d.error){
         setValuations(p=>({...p,[ticker]:d}));
         // Fix 6: persist live-computed intrinsic + PE to holdings and DB so values survive restart
-        const liveIntrinsic = d.valuations?.average || 0;
+        // Best available: Finnhub DCF avg → Finnhub analyst target → Yahoo analyst target
+        const liveIntrinsic = d.valuations?.average || d.valuations?.analystTarget
+                            || d.valuations?.yahooTarget || 0;
         const livePE        = d.inputs?.pe          || 0;
         if(liveIntrinsic > 0){
           setHoldings(prev=>{
@@ -4434,7 +4436,9 @@ function App(){
     const m=MKT[h.mkt]||MKT.US;
     const valData=valuations[h.ticker];
     const computedIV=valData?.valuations?.average||0;
-    const effectiveIV=computedIV>0?computedIV:(h.intrinsic||0);
+    const finnhubAnalystIV=valData?.valuations?.analystTarget||0;
+    // effectiveIV priority: Finnhub avg > Finnhub analyst target > stored Option A/B/C
+    const effectiveIV=computedIV>0?computedIV:finnhubAnalystIV>0?finnhubAnalystIV:(h.intrinsic||0);
     const hScored={...h,intrinsic:effectiveIV};
     const sc=scoreH(hScored),r=getRec(hScored),bs=buffettScore(hScored);
     const gainPct=h.avgCost>0?((h.price-h.avgCost)/h.avgCost)*100:0;
@@ -4661,18 +4665,39 @@ function App(){
             const growthUsed=inp.growthUsed||5;
             const growthSrc=inp.growthSource||'default 5%';
 
-            const allSources=[
-              {label:"DCF (EPS-based)", val:vals.dcfEPS,     ok:!!(avail.dcfEPSAvailable&&vals.dcfEPS>0),
+            // Stored Option A/B/C value from computeAllIntrinsic / AI refresh
+            const storedIV=h.intrinsic||0;
+            const storedMethod=h.intrinsicMethod||null;
+            const MLABELS={
+              analyst:   'Analyst Consensus (Yahoo)',
+              graham:    'Graham Number (Yahoo)',
+              dcf_eps:   'DCF·EPS (Yahoo)',
+              reit_yield:'REIT Yield Model',
+              ai_search: 'AI Web Search',
+            };
+            const storedLabel=storedMethod?(MLABELS[storedMethod]||storedMethod):'Stored Estimate';
+            const hasStoredIV=storedIV>0&&storedMethod!=='etf';
+
+            // Finnhub-based quantitative model rows
+            const finnhubSources=[
+              {label:"DCF (EPS-based)", val:vals.dcfEPS,    ok:!!(avail.dcfEPSAvailable&&vals.dcfEPS>0),
                note:"EPS × "+growthUsed+"% growth · "+(inp.discountRate||10)+"% disc.",
                na:"📂 No EPS data from Finnhub"},
-              {label:"Peter Lynch",     val:vals.peterLynch, ok:!!(avail.peterLynchAvailable&&vals.peterLynch>0),
+              {label:"Peter Lynch",     val:vals.peterLynch,ok:!!(avail.peterLynchAvailable&&vals.peterLynch>0),
                note:"EPS × "+growthUsed+"% growth = PEG 1.0",
                na:"📂 No EPS or growth data"},
             ];
-            const availCount=allSources.filter(s=>s.ok).length;
-
+            const finnhubAvailCount=finnhubSources.filter(s=>s.ok).length;
             const computedAvg=vals.average||0;
-            const avgUpside=priceLive>0&&computedAvg>0?((computedAvg-priceLive)/priceLive*100):0;
+
+            // Best available estimate: Finnhub avg → Finnhub analyst target → stored Option A/B/C
+            const finnhubAnalystTgt=vals.analystTarget||0;
+            const bestAvg=computedAvg>0?computedAvg:finnhubAnalystTgt>0?finnhubAnalystTgt:storedIV>0?storedIV:0;
+            const bestAvgUpside=priceLive>0&&bestAvg>0?((bestAvg-priceLive)/priceLive*100):0;
+            const bestAvgLabel=computedAvg>0?`${finnhubAvailCount} of 2 Finnhub models`
+                              :finnhubAnalystTgt>0?`Finnhub analyst target (${vals.numAnalysts||0})`
+                              :storedIV>0?storedLabel:'—';
+
             const recText=rec.score>=0.7?"Strong Buy":rec.score>=0.3?"Buy":rec.score>=-0.3?"Hold":rec.score>=-0.7?"Sell":"Strong Sell";
             const recCol=rec.score>=0.3?C.green:rec.score>=-0.3?C.gold:C.red;
             return(
@@ -4684,24 +4709,17 @@ function App(){
                 <div style={{fontSize:14,color:C.mutedLight,marginBottom:6}}>
                   Current: <b style={{color:C.text}}>${fmt(priceLive)}</b> · EPS ${fmt(inp.eps)} · Growth <b style={{color:C.gold}}>{growthUsed}%</b> <span style={{color:C.muted}}>({growthSrc})</span>
                 </div>
-                {/* Column headers */}
-                <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:12,color:C.muted,marginBottom:4,paddingBottom:4,borderBottom:`1px solid ${C.border}33`,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>
-                  <div>Model</div>
-                  <div style={{textAlign:"right"}}>Value</div>
-                  <div style={{textAlign:"right"}}>vs Price</div>
-                  <div style={{textAlign:"right"}}>Source</div>
-                </div>
 
-                {/* Column headers */}
-                <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:12,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                {/* Single column header */}
+                <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:12,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`,color:C.muted,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>
                   <div>Model</div>
                   <div style={{textAlign:"right"}}>Fair Value</div>
                   <div style={{textAlign:"right"}}>vs Market</div>
                   <div style={{textAlign:"right"}}>Method</div>
                 </div>
 
-                {/* Model rows — available ones full, unavailable with N/A */}
-                {allSources.map((s,i)=>{
+                {/* Finnhub quantitative model rows */}
+                {finnhubSources.map((s,i)=>{
                   if(s.ok){
                     const upside=priceLive>0?((s.val-priceLive)/priceLive*100):0;
                     const col=upside>=15?C.green:upside>=0?C.gold:C.red;
@@ -4715,7 +4733,7 @@ function App(){
                     );
                   } else {
                     return(
-                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px dashed ${C.border}44`,opacity:0.55}}>
+                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px dashed ${C.border}44`,opacity:0.45}}>
                         <div style={{fontWeight:600,color:C.mutedLight,textDecoration:"line-through"}}>{s.label}</div>
                         <div style={{textAlign:"right",color:C.muted,fontSize:16,letterSpacing:2}}>· · ·</div>
                         <div style={{textAlign:"right",color:C.muted,fontSize:16,letterSpacing:2}}>· · ·</div>
@@ -4725,24 +4743,44 @@ function App(){
                   }
                 })}
 
-                {/* Average row */}
-                {computedAvg>0?(
+                {/* Option A/B/C: stored intrinsic from computeAllIntrinsic / AI refresh */}
+                {hasStoredIV&&(()=>{
+                  const upside=priceLive>0?((storedIV-priceLive)/priceLive*100):0;
+                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
+                  const srcColor=storedMethod==='analyst'?C.green:storedMethod==='ai_search'?C.purple:C.accent;
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${srcColor}30`,background:srcColor+"06",borderRadius:4,padding:"6px 4px"}}>
+                      <div style={{fontWeight:700,color:srcColor}}>{storedLabel}</div>
+                      <div style={{fontWeight:700,textAlign:"right"}}>${fmt(storedIV)}</div>
+                      <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
+                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>
+                        {storedMethod==='analyst'?'Yahoo quoteSummary'
+                          :storedMethod==='ai_search'?'🤖 AI web search'
+                          :storedMethod==='graham'?'√(22.5·EPS·BVPS)'
+                          :storedMethod==='dcf_eps'?'5-yr DCF·EPS'
+                          :'stored value'}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Best available estimate row */}
+                {bestAvg>0?(
                   <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:15,marginTop:8,paddingTop:8,borderTop:`2px solid ${C.purple}44`}}>
-                    <div style={{fontWeight:800,color:C.purple}}>AVERAGE</div>
-                    <div style={{fontWeight:800,textAlign:"right",color:C.purple}}>${fmt(computedAvg)}</div>
-                    <div style={{fontWeight:800,textAlign:"right",color:avgUpside>=0?C.green:C.red}}>{avgUpside>=0?"+":""}{fmt(avgUpside,1)}%</div>
-                    <div style={{fontSize:13,color:C.muted,textAlign:"right"}}>{availCount} of 2 models</div>
+                    <div style={{fontWeight:800,color:C.purple}}>BEST ESTIMATE</div>
+                    <div style={{fontWeight:800,textAlign:"right",color:C.purple}}>${fmt(bestAvg)}</div>
+                    <div style={{fontWeight:800,textAlign:"right",color:bestAvgUpside>=0?C.green:C.red}}>{bestAvgUpside>=0?"+":""}{fmt(bestAvgUpside,1)}%</div>
+                    <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>{bestAvgLabel}</div>
                   </div>
                 ):(
                   <div style={{textAlign:"center",fontSize:14,color:C.muted,marginTop:10,padding:"8px",background:C.surface,borderRadius:6}}>
-                    ⚠ No models available — Finnhub returned insufficient data for this ticker
+                    ⚠ No data available — run 🔄 Formula or 🤖 AI Web Refresh in Buffett tab
                   </div>
                 )}
 
                 {/* Disclaimer */}
-                <div style={{fontSize:13,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
-                  <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = over/undervaluation at today's price. Negative = overvalued. <b>DCF (EPS)</b> discounts 5 years of projected earnings at {(inp.discountRate||10)}%. <b>Peter Lynch</b> says a fairly valued stock has P/E equal to its growth rate (PEG = 1.0). The AVERAGE of these two drives the Buffett score and Intrinsic tile.
-                  {availCount===0&&<><br/><span style={{color:C.red}}>No models available — Finnhub returned insufficient EPS data for this ticker.</span></>}
+                <div style={{fontSize:12,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
+                  <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = over/undervaluation at today's price. Negative = overvalued. <b>DCF (EPS)</b> discounts 5 years of projected earnings. <b>Peter Lynch</b> = PEG 1.0 fair value. <b style={{color:C.green}}>Analyst Consensus</b> / <b style={{color:C.purple}}>AI Web Search</b> = analyst price targets from Yahoo or web. <b>BEST ESTIMATE</b> drives the Intrinsic tile above.
                 </div>
               </div>
             );
