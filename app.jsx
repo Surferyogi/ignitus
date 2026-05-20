@@ -4693,14 +4693,32 @@ function App(){
                na:"📂 No EPS or growth data"},
             ];
             const finnhubAvailCount=finnhubSources.filter(s=>s.ok).length;
-            const computedAvg=vals.average||0;
+            const computedAvg=vals.average||0; // Finnhub DCF+Lynch average
 
-            // Best available estimate: Finnhub avg → Finnhub analyst target → stored Option A/B/C
+            // Analyst consensus rows (shown separately — real price targets from professionals)
             const finnhubAnalystTgt=vals.analystTarget||0;
-            const bestAvg=computedAvg>0?computedAvg:finnhubAnalystTgt>0?finnhubAnalystTgt:storedIV>0?storedIV:0;
+            const yahooTgt=vals.yahooTarget||0;
+            // Show Yahoo target only if meaningfully different from Finnhub (>5% gap)
+            const showYahooTgt=yahooTgt>0&&(finnhubAnalystTgt===0||Math.abs(yahooTgt-finnhubAnalystTgt)/finnhubAnalystTgt>0.05);
+
+            // BEST ESTIMATE: true average of ALL available data sources
+            // Analyst targets get their own contribution alongside model outputs
+            const allPts=[
+              finnhubAnalystTgt>0?finnhubAnalystTgt:0,
+              showYahooTgt?yahooTgt:0,
+              computedAvg>0?computedAvg:0,   // DCF+Lynch avg
+              // Include stored value ONLY if it comes from an analyst (avoids double-count with DCF models)
+              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search')?storedIV:0,
+            ].filter(v=>v>0);
+            const bestAvg=allPts.length>0?allPts.reduce((s,v)=>s+v,0)/allPts.length:storedIV>0?storedIV:0;
             const bestAvgUpside=priceLive>0&&bestAvg>0?((bestAvg-priceLive)/priceLive*100):0;
-            const bestAvgLabel=computedAvg>0?`${finnhubAvailCount} of 2 Finnhub models`
-                              :finnhubAnalystTgt>0?`Finnhub analyst target (${vals.numAnalysts||0})`
+            const bestAvgSources=[
+              finnhubAnalystTgt>0?`Analyst (${vals.numAnalysts||rec.totalAnalysts||0})`:null,
+              showYahooTgt?'Yahoo analyst':null,
+              computedAvg>0?'DCF+Lynch':null,
+              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search')?storedLabel:null,
+            ].filter(Boolean);
+            const bestAvgLabel=bestAvgSources.length>0?`avg of: ${bestAvgSources.join(' · ')}`
                               :storedIV>0?storedLabel:'—';
 
             const recText=rec.score>=0.7?"Strong Buy":rec.score>=0.3?"Buy":rec.score>=-0.3?"Hold":rec.score>=-0.7?"Sell":"Strong Sell";
@@ -4747,6 +4765,32 @@ function App(){
                     );
                   }
                 })}
+
+                {/* Analyst consensus rows — Finnhub + Yahoo. These are the most reliable for well-covered stocks. */}
+                {finnhubAnalystTgt>0&&(()=>{
+                  const upside=priceLive>0?((finnhubAnalystTgt-priceLive)/priceLive*100):0;
+                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.green}30`,background:C.green+"06",borderRadius:4,padding:"6px 4px"}}>
+                      <div style={{fontWeight:700,color:C.green}}>Analyst Consensus</div>
+                      <div style={{fontWeight:700,textAlign:"right"}}>${fmt(finnhubAnalystTgt)}</div>
+                      <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
+                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>Finnhub · {vals.numAnalysts||rec.totalAnalysts||0} analysts</div>
+                    </div>
+                  );
+                })()}
+                {showYahooTgt&&(()=>{
+                  const upside=priceLive>0?((yahooTgt-priceLive)/priceLive*100):0;
+                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.green}30`,background:C.green+"06",borderRadius:4,padding:"6px 4px"}}>
+                      <div style={{fontWeight:700,color:C.green}}>Analyst Consensus</div>
+                      <div style={{fontWeight:700,textAlign:"right"}}>${fmt(yahooTgt)}</div>
+                      <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
+                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>Yahoo quoteSummary</div>
+                    </div>
+                  );
+                })()}
 
                 {/* Option A/B/C: stored intrinsic from computeAllIntrinsic / AI refresh */}
                 {hasStoredIV&&(()=>{
