@@ -555,9 +555,13 @@ function App(){
         setHoldings(mktCorrected);
         setTrades(tradeMktFixCount>0?tradesMktFixed:tradesWithProfit);
         const fb={};
-        // Exclude Opening Balance transactions (dated 2000-01-01) — synthetic, not actual purchase dates
+        // Real trade dates (excludes Opening Balance synthetic date 2000-01-01)
         (data.trades||[]).filter(t=>t.type==='BUY'&&t.date>'2000-01-01').forEach(t=>{
           if(!fb[t.ticker]||t.date<fb[t.ticker])fb[t.ticker]=t.date;
+        });
+        // held_since from holdings overrides trade-derived dates (most authoritative)
+        (data.holdings||[]).forEach(h=>{
+          if(h.held_since&&(!fb[h.ticker]||h.held_since<fb[h.ticker]))fb[h.ticker]=h.held_since;
         });
         FIRST_BUY=fb;
         if(data.senate&&data.senate.length>0){
@@ -1263,7 +1267,8 @@ function App(){
     if(perfChartLoading[key]) return;
     setPerfChartLoading(prev=>({...prev,[key]:true}));
 
-    const subset=(mktFilter==="ALL"?holdings:holdings.filter(h=>h.mkt===mktFilter));
+    const subset=(mktFilter==="ALL"?holdings:holdings.filter(h=>h.mkt===mktFilter))
+                  .filter(h=>Number(h.shares)>0);
     if(subset.length===0){setPerfChartLoading(prev=>({...prev,[key]:false}));return;}
 
     const INDEX_ETFS={ALL:"SPY",US:"SPY",SG:"ES3.SI",CN:"2800.HK",JP:"^N225",EU:"CSPX.L"};
@@ -1280,14 +1285,23 @@ function App(){
       if(!res.ok) throw new Error("HTTP "+res.status);
       const d=await res.json();
 
-      const indexCloses=d.indexCloses||[];
+      const indexCloses    = d.indexCloses    || [];
+      const indexTimestamps= d.indexTimestamps|| []; // Unix seconds per point
       const holdingHistories=d.holdingHistories||{};
       if(indexCloses.length<2) throw new Error("No index data");
 
       const n=indexCloses.length;
 
+      // Build portfolio series gated by held_since dates
+      // For each chart point, only include stocks the user actually owned at that date
       const portfolioSeries=Array.from({length:n},(_,i)=>{
+        const pointMs = indexTimestamps[i] ? indexTimestamps[i]*1000 : 0; // Unix ms
         return top.reduce((s,h)=>{
+          // Gate: if we know when the stock was bought, exclude it before that date
+          if(pointMs>0 && h.heldSince){
+            const heldMs=new Date(h.heldSince).getTime();
+            if(pointMs < heldMs) return s; // Not yet owned at this point
+          }
           const hc=holdingHistories[h.ticker];
           if(!hc||hc.length<2) return s+toSGDlive(h.price*h.shares,h.mkt);
           const idx=Math.round((i/(n-1||1))*(hc.length-1));
@@ -1295,8 +1309,15 @@ function App(){
         },0);
       });
 
-      setPerfChartData(prev=>({...prev,[key]:{portfolio:portfolioSeries,index:indexCloses}}));
-      console.log("PerfChart loaded:",mktFilter,period,"pts:",n,"holdings:",Object.keys(holdingHistories).length);
+      // Remove leading zeros (before any stock was held)
+      const firstNonZero=portfolioSeries.findIndex(v=>v>0);
+      const trimStart=Math.max(0,firstNonZero);
+
+      setPerfChartData(prev=>({...prev,[key]:{
+        portfolio:portfolioSeries.slice(trimStart),
+        index:indexCloses.slice(trimStart),
+      }}));
+      console.log("PerfChart loaded:",mktFilter,period,"pts:",n-trimStart,"trimmed:",trimStart,"heldSince used:",top.filter(h=>h.heldSince).length);
     }catch(e){
       console.warn("PerfChart failed:",mktFilter,period,e.message);
     }
