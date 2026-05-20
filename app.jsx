@@ -393,33 +393,41 @@ class ErrBoundary extends React.Component {
 // ── Memoized search input — isolated from App re-renders ─────────────────────
 // React.memo ensures this component NEVER re-renders when App state changes.
 // This is the definitive fix for iOS focus loss: zero parent re-renders during typing.
+// ── Memoized search input — zero React state, zero re-renders while typing ────
+// Clear button visibility is managed via a DOM ref (not useState) so no React
+// render cycle fires at all when the user types. iOS keeps focus throughout.
 const PortfolioSearchInput=React.memo(function PortfolioSearchInput({onSearch,onClear}){
   const inputRef=React.useRef(null);
   const timerRef=React.useRef(null);
-  const [hasText,setHasText]=React.useState(false);
+  const clearRef=React.useRef(null);
+
+  const showClear=(show)=>{
+    if(!clearRef.current) return;
+    clearRef.current.style.visibility=show?'visible':'hidden';
+    clearRef.current.style.pointerEvents=show?'auto':'none';
+  };
+
   return(
     <div style={{position:"relative",marginBottom:10}}>
       <input
         ref={inputRef}
         placeholder="Search holdings by name or ticker..."
         style={{width:"100%",background:"#111827",border:"1px solid #2A3547",borderRadius:8,
-          // Padding is CONSTANT — never changes during typing.
-          // Changing padding while input is focused causes iOS keyboard to dismiss.
           padding:"9px 36px 9px 12px",color:"#E2E8F0",fontSize:16,
           outline:"none",boxSizing:"border-box"}}
         onInput={e=>{
           const v=e.target.value;
-          setHasText(v.length>0);
+          showClear(v.length>0);            // direct DOM — no React state, no re-render
           clearTimeout(timerRef.current);
           timerRef.current=setTimeout(()=>onSearch(v),400);
         }}
       />
-      {/* Clear button uses visibility, not conditional render — avoids layout shift */}
       <button
+        ref={clearRef}
         onMouseDown={e=>e.preventDefault()}
         onClick={()=>{
           if(inputRef.current) inputRef.current.value="";
-          setHasText(false);
+          showClear(false);
           clearTimeout(timerRef.current);
           onSearch("");
           onClear();
@@ -428,8 +436,7 @@ const PortfolioSearchInput=React.memo(function PortfolioSearchInput({onSearch,on
         style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
           background:"none",border:"none",color:"#6B7A99",fontSize:18,cursor:"pointer",
           lineHeight:1,padding:"0 4px",display:"flex",alignItems:"center",
-          visibility:hasText?"visible":"hidden",
-          pointerEvents:hasText?"auto":"none"}}>
+          visibility:"hidden",pointerEvents:"none"}}>
         ✕
       </button>
     </div>
@@ -2957,6 +2964,12 @@ function App(){
 
   function TradesView(){
     const tradeSearchRef=React.useRef(null);
+    const tradeClearRef=React.useRef(null);
+    const showTradeClear=(show)=>{
+      if(!tradeClearRef.current) return;
+      tradeClearRef.current.style.visibility=show?'visible':'hidden';
+      tradeClearRef.current.style.pointerEvents=show?'auto':'none';
+    };
 
     // All shown trades: filter by type + search, sorted latest first
     const shown=React.useMemo(()=>{
@@ -3338,22 +3351,25 @@ function App(){
           {["ALL","BUY","SELL"].map(t=><button key={t} style={pill(tradeType===t)} onClick={()=>setTradeType(t)}>{t}</button>)}
         </div>
 
-        {/* Trade search — uncontrolled input to prevent focus loss on App re-renders */}
+        {/* Trade search — zero React state while typing, DOM ref for clear button */}
         <div style={{position:"relative",marginBottom:10}}>
           <input
             ref={tradeSearchRef}
             placeholder={`Search ${shown.length} trade${shown.length!==1?"s":""}...`}
             defaultValue={tradeSearch}
-            onInput={e=>setTradeSearch(e.target.value)}
+            onInput={e=>{
+              setTradeSearch(e.target.value);
+              showTradeClear(e.target.value.length>0);
+            }}
             style={{...inp,paddingRight:32}}
           />
           <button
+            ref={tradeClearRef}
             onMouseDown={e=>e.preventDefault()}
-            onClick={()=>{setTradeSearch("");if(tradeSearchRef.current){tradeSearchRef.current.value="";tradeSearchRef.current.focus();}}}
+            onClick={()=>{setTradeSearch("");if(tradeSearchRef.current){tradeSearchRef.current.value="";tradeSearchRef.current.focus();}showTradeClear(false);}}
             style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
               background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",
-              visibility:tradeSearch?"visible":"hidden",
-              pointerEvents:tradeSearch?"auto":"none"}}>
+              visibility:"hidden",pointerEvents:"none"}}>
             ✕
           </button>
         </div>
