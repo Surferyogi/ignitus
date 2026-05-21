@@ -468,6 +468,18 @@ function App(){
   const [detailPeriod,setDetailPeriod]=useState("6m");
   const [groupBy,setGroupBy]=useState("sector");
   const searchInputRef=React.useRef(null);
+
+  // ── Refs/state lifted from render functions — hooks must be at component level ──
+  // renderTradesView refs (were React.useRef inside render fn — invalid)
+  const tradeSearchRef=React.useRef(null);
+  const tradeClearRef=React.useRef(null);
+  // renderScreenView / ReconciliationView state
+  const [reconFilter,setReconFilter]=useState("all");
+  const [expandedTicker,setExpandedTicker]=useState(null);
+  const [fixing,setFixing]=useState({});
+  const [fixed,setFixed]=useState({});
+  // renderHoldingDetail state (lifted — hooks invalid in render functions)
+  const [insiderData,setInsiderData]=useState({});
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
   const [tradeType,setTradeType]=useState("ALL");
@@ -2998,28 +3010,23 @@ function App(){
   }
 
   function renderTradesView(){
-    const tradeSearchRef=React.useRef(null);
-    const tradeClearRef=React.useRef(null);
+    // tradeSearchRef, tradeClearRef lifted to App level (hooks invalid in render functions)
     const showTradeClear=(show)=>{
       if(!tradeClearRef.current) return;
       tradeClearRef.current.style.visibility=show?'visible':'hidden';
       tradeClearRef.current.style.pointerEvents=show?'auto':'none';
     };
 
-    // All shown trades: filter by type + search, sorted latest first
-    const shown=React.useMemo(()=>{
-      let list=tradeType==="ALL"?[...trades]:[...trades].filter(t=>t.type===tradeType);
-      // Sort latest date first
-      list.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-      if(tradeSearch.trim()){
-        const q=tradeSearch.trim().toUpperCase();
-        list=list.filter(t=>
-          t.ticker?.toUpperCase().includes(q)||
-          (tickerNames[t.ticker]||"").toUpperCase().includes(q)
-        );
-      }
-      return list;
-    },[trades,tradeType,tradeSearch,tickerNames]);
+    // Plain computation — useMemo invalid in render functions (not a React component)
+    let shown=(tradeType==="ALL"?[...trades]:[...trades].filter(t=>t.type===tradeType));
+    shown.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    if(tradeSearch.trim()){
+      const q=tradeSearch.trim().toUpperCase();
+      shown=shown.filter(t=>
+        t.ticker?.toUpperCase().includes(q)||
+        (tickerNames[t.ticker]||"").toUpperCase().includes(q)
+      );
+    }
     const totalReal=trades.filter(t=>t.type==="SELL").reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0);
     const shownBuys=shown.filter(t=>t.type==="BUY");
     const shownSells=shown.filter(t=>t.type==="SELL");
@@ -4112,13 +4119,11 @@ function App(){
 
   // ── RECONCILIATION VIEW ──────────────────────────────────────────────────────
   function ReconciliationView(){
-    const [reconFilter,setReconFilter]=React.useState("all"); // all | mismatch | notrade
-    const [expandedTicker,setExpandedTicker]=React.useState(null);
-    const [fixing,setFixing]=React.useState({});
-    const [fixed,setFixed]=React.useState({});
+    // reconFilter, expandedTicker, fixing, fixed lifted to App level
 
     // ── Simulate WAVG per ticker from trades ─────────────────────────────────
-    const reconData=React.useMemo(()=>{
+    // Plain computation — useMemo invalid in render functions
+    const reconData=(()=>{
       // Build per-ticker trade history
       const byTicker={};
       [...trades].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).forEach(t=>{
@@ -4174,7 +4179,7 @@ function App(){
         if(a.hasTrades&&!b.hasTrades) return 1;
         return a.h.ticker.localeCompare(b.h.ticker);
       });
-    },[holdings,trades]);
+    })();
 
     const mismatchCount=reconData.filter(r=>r.hasMismatch).length;
     const avgDiffCount=reconData.filter(r=>r.avgOnlyDiscrepancy).length;
@@ -4507,10 +4512,7 @@ function App(){
     const analysis=aiText[h.ticker],loading=aiLoad[h.ticker];
 
     // ── Insider data is LOCAL state — does NOT cause App re-render ──────────
-    // This was the root cause of scroll breaking: App-level insiderData state
-    // caused full App re-renders immediately after modal opened, which confused
-    // iOS Safari's touch/scroll gesture recognizer during the settle window.
-    const [insiderData,setInsiderData]=React.useState({});
+    // insiderData state lifted to App level — useState invalid in render functions
 
     async function fetchInsiderTrades(ticker){
       if(!ticker) return;
@@ -4536,11 +4538,9 @@ function App(){
       }
     }
 
-    // Delay fetch by 600ms — let modal fully settle before any re-render
-    React.useEffect(()=>{
-      const t=setTimeout(()=>fetchInsiderTrades(h.ticker), 600);
-      return ()=>clearTimeout(t);
-    },[h.ticker]);
+    // useEffect invalid in render functions — call fetchInsiderTrades directly.
+    // Guard: only fetch if not already loading/loaded for this ticker.
+    if(h?.ticker && !insiderData[h.ticker]) fetchInsiderTrades(h.ticker);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
