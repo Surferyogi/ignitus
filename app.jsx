@@ -480,6 +480,8 @@ function App(){
   const [fixed,setFixed]=useState({});
   // renderHoldingDetail state (lifted — hooks invalid in render functions)
   const [insiderData,setInsiderData]=useState({});
+  const [showAllBuy,setShowAllBuy]=useState(false);
+  const [showAllSell,setShowAllSell]=useState(false);
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
   const [tradeType,setTradeType]=useState("ALL");
@@ -1680,6 +1682,16 @@ function App(){
     },600);
     return()=>clearTimeout(timer);
   },[trades]);
+
+  // Trigger holding-detail fetches when selected stock or period changes
+  // (replaces the useEffect that was inside renderHoldingDetail — invalid there)
+  useEffect(()=>{
+    if(!sel)return;
+    setShowAllBuy(false);
+    setShowAllSell(false);
+    fetchRealHistory(sel.ticker,sel.mkt,detailPeriod);
+    if(sel.mkt==="US") fetchValuation(sel.ticker);
+  },[sel?.ticker,detailPeriod]);
 
   const markDirty=()=>setPendingChanges(n=>n+1);
 
@@ -4553,13 +4565,6 @@ function App(){
 
   function renderHoldingDetail(){
     const h=sel;if(!h)return null;
-    const [showAllBuy,setShowAllBuy]=useState(false);   // expand buy history
-    const [showAllSell,setShowAllSell]=useState(false); // expand sell history
-    useEffect(()=>{
-      if(!h)return;
-      fetchRealHistory(h.ticker,h.mkt,detailPeriod);
-      if(h.mkt==="US") fetchValuation(h.ticker); // multi-source valuation only for US stocks (Finnhub coverage)
-    },[h?.ticker,detailPeriod]);
     const m=MKT[h.mkt]||MKT.US;
     const valData=valuations[h.ticker];
     const computedIV=valData?.valuations?.average||0;
