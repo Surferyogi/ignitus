@@ -1740,6 +1740,24 @@ function App(){
     return map;
   },[trades,fxRates]);
 
+  // "What if held?" — for each closed position, compute:
+  // totalBuyShares: sum of all BUY shares for this ticker
+  // avgBuyCost:     weighted avg cost of all BUY trades (native currency)
+  // mkt:            market for FX conversion
+  const holdDataPerTicker=useMemo(()=>{
+    const map={};
+    trades.filter(t=>t.type==="BUY").forEach(t=>{
+      if(!map[t.ticker]) map[t.ticker]={totalShares:0,totalCost:0,mkt:t.mkt,ccy:t.ccy};
+      map[t.ticker].totalShares+=t.shares;
+      map[t.ticker].totalCost+=t.shares*t.price;
+    });
+    // Compute weighted avg buy cost per ticker
+    Object.values(map).forEach(d=>{
+      d.avgBuyCost=d.totalShares>0?d.totalCost/d.totalShares:0;
+    });
+    return map;
+  },[trades]);
+
   const [tickerCheck,setTickerCheck]=useState({status:"idle",message:"",suggestions:[]});
   const [tickerSearchTerm,setTickerSearchTerm]=useState("");
 
@@ -2518,15 +2536,27 @@ function App(){
               </button>
               {showSoldStocks&&soldInMarket.map(h=>{
                 const tickerRealized=realizedPerTicker[h.ticker]||0;
+                const hd=holdDataPerTicker[h.ticker];
+                // "If held today" calculation:
+                // hypothetical value = current live price × original total BUY shares
+                // hypothetical P&L   = (current price − avg buy cost) × total shares
+                const origShares = hd?.totalShares||0;
+                const avgBuy     = hd?.avgBuyCost||0;
+                const ifHeldPL   = origShares>0&&avgBuy>0&&h.price>0
+                  ? toSGDlive((h.price-avgBuy)*origShares, hd.mkt||h.mkt)
+                  : null;
+                const ifHeldPct  = avgBuy>0&&h.price>0
+                  ? ((h.price-avgBuy)/avgBuy)*100
+                  : null;
                 return(
-                  <div key={h.id} style={{...card,opacity:0.65,
+                  <div key={h.id} style={{...card,opacity:0.75,
                     borderLeft:`3px solid ${C.muted}`,cursor:"pointer"}}
                     onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
                       background:C.muted+"15",borderRadius:6,padding:"4px 10px",marginBottom:8,
                       border:`1px solid ${C.muted}22`}}>
                       <span style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:"0.06em"}}>✓ FULLY SOLD</span>
-                      <span style={{fontSize:12,color:C.muted}}>Holdings: 0</span>
+                      <span style={{fontSize:12,color:C.muted}}>{origShares>0?`${origShares} sh originally`:"Holdings: 0"}</span>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                       <div style={{flex:1,minWidth:0}}>
@@ -2535,13 +2565,19 @@ function App(){
                           <Chip mkt={h.mkt}/>
                         </div>
                         <div style={{fontSize:14,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{h.name}</div>
-                        <div style={{fontSize:13,color:C.muted,marginTop:2}}>Avg Cost: <b>N/A</b></div>
+                        <div style={{fontSize:13,color:C.muted,marginTop:2}}>
+                          Avg Cost: <b style={{color:avgBuy>0?C.text:C.muted}}>
+                            {avgBuy>0?fmtL(avgBuy,hd?.mkt||h.mkt):"N/A"}
+                          </b>
+                        </div>
                       </div>
                       <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
                         <div style={{fontSize:16,fontWeight:800}}>{fmtL(h.price,h.mkt)}</div>
-                        <div style={{fontSize:13,color:C.muted}}>0 sh</div>
+                        <div style={{fontSize:12,color:C.muted}}>today's price</div>
                       </div>
                     </div>
+
+                    {/* Realized P&L row */}
                     {tickerRealized!==0&&(
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
                         marginTop:8,padding:"6px 10px",borderRadius:7,
@@ -2551,6 +2587,36 @@ function App(){
                         <span style={{fontSize:14,fontWeight:800,color:tickerRealized>=0?C.green:C.red}}>
                           {tickerRealized>=0?"+":"-"}{fmtS(Math.abs(tickerRealized))}
                         </span>
+                      </div>
+                    )}
+
+                    {/* "If held today" row */}
+                    {ifHeldPL!==null&&(
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                        marginTop:6,padding:"6px 10px",borderRadius:7,
+                        background:ifHeldPL>=0?C.accent+"10":C.purple+"10",
+                        border:`1px solid ${ifHeldPL>=0?C.accent:C.purple}30`}}>
+                        <div>
+                          <span style={{fontSize:13,color:C.mutedLight}}>If held today</span>
+                          {ifHeldPct!==null&&(
+                            <span style={{fontSize:12,color:C.muted,marginLeft:6}}>
+                              ({ifHeldPct>=0?"+":""}{fmt(ifHeldPct,1)}%)
+                            </span>
+                          )}
+                        </div>
+                        <span style={{fontSize:14,fontWeight:800,color:ifHeldPL>=0?C.accent:C.purple}}>
+                          {ifHeldPL>=0?"+":"-"}{fmtS(Math.abs(ifHeldPL))}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Difference: what selling cost/saved vs holding */}
+                    {ifHeldPL!==null&&tickerRealized!==0&&(
+                      <div style={{fontSize:12,color:C.muted,textAlign:"right",marginTop:4,paddingRight:4}}>
+                        {tickerRealized>=ifHeldPL
+                          ?<span style={{color:C.green}}>✓ Good sell — saved {fmtS(Math.abs(tickerRealized-ifHeldPL))} vs holding</span>
+                          :<span style={{color:C.red}}>✗ Sold too early — missed {fmtS(Math.abs(ifHeldPL-tickerRealized))} by selling</span>
+                        }
                       </div>
                     )}
                   </div>
