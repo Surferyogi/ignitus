@@ -3788,12 +3788,20 @@ function App(){
           </div>
         )}
 
-        {/* Level 1 filter: trade type */}
-        <div style={{display:"flex",gap:6,marginBottom:8}}>
-          {["ALL","BUY","SELL","DIV"].map(t=><button key={t} style={pill(tradeType===t)} onClick={()=>setTradeType(t)}>{t}</button>)}
+        {/* Filter 1: trade type */}
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:5,
+            display:"flex",alignItems:"center",gap:6}}>
+            <span style={{background:C.accent+"22",color:C.accent,borderRadius:4,
+              padding:"1px 6px",fontSize:11,fontWeight:700}}>1</span>
+            Trade type
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {["ALL","BUY","SELL","DIV"].map(t=><button key={t} style={pill(tradeType===t)} onClick={()=>setTradeType(t)}>{t}</button>)}
+          </div>
         </div>
 
-        {/* Level 2 filter: date range */}
+        {/* Filter 2: date range */}
         {(()=>{
           const inputStyle={
             flex:1,background:C.card,border:`1px solid ${C.border}`,
@@ -3803,7 +3811,14 @@ function App(){
           };
           const hasFilter=tradeDateFrom||tradeDateTo;
           return(
-            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10}}>
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:5,
+                display:"flex",alignItems:"center",gap:6}}>
+                <span style={{background:C.accent+"22",color:C.accent,borderRadius:4,
+                  padding:"1px 6px",fontSize:11,fontWeight:700}}>2</span>
+                Date range
+              </div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <span style={{fontSize:12,color:C.muted,flexShrink:0}}>📅</span>
               <input
                 type="date"
@@ -3831,30 +3846,48 @@ function App(){
                 </button>
               )}
             </div>
+            </div>
           );
         })()}
 
-        {/* Trade search — zero React state while typing, DOM ref for clear button */}
-        <div style={{position:"relative",marginBottom:10}}>
-          <input
-            ref={tradeSearchRef}
-            placeholder={`Search ${shown.length} trade${shown.length!==1?"s":""}...`}
-            defaultValue={tradeSearch}
-            onInput={e=>{
-              setTradeSearch(e.target.value);
-              showTradeClear(e.target.value.length>0);
-            }}
-            style={{...inp,paddingRight:32}}
-          />
-          <button
-            ref={tradeClearRef}
-            onMouseDown={e=>e.preventDefault()}
-            onClick={()=>{setTradeSearch("");if(tradeSearchRef.current){tradeSearchRef.current.value="";tradeSearchRef.current.focus();}showTradeClear(false);}}
-            style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-              background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",
-              visibility:"hidden",pointerEvents:"none"}}>
-            ✕
-          </button>
+        {/* Filter 3: search by ticker or company name */}
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:5,
+            display:"flex",alignItems:"center",gap:6}}>
+            <span style={{background:C.accent+"22",color:C.accent,borderRadius:4,
+              padding:"1px 6px",fontSize:11,fontWeight:700}}>3</span>
+            Search by ticker or company name
+          </div>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",
+              fontSize:15,color:C.muted,pointerEvents:"none",lineHeight:1}}>🔍</span>
+            <input
+              ref={tradeSearchRef}
+              placeholder={`e.g. NVDA, Apple, D05.SI… (${shown.length} trade${shown.length!==1?"s":""})`}
+              defaultValue={tradeSearch}
+              onInput={e=>{
+                setTradeSearch(e.target.value);
+                showTradeClear(e.target.value.length>0);
+              }}
+              style={{...inp,paddingLeft:32,paddingRight:32,
+                borderColor:tradeSearch?C.accent:C.border}}
+            />
+            <button
+              ref={tradeClearRef}
+              onMouseDown={e=>e.preventDefault()}
+              onClick={()=>{setTradeSearch("");if(tradeSearchRef.current){tradeSearchRef.current.value="";tradeSearchRef.current.focus();}showTradeClear(false);}}
+              style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+                background:"none",border:"none",color:C.muted,fontSize:18,cursor:"pointer",
+                lineHeight:1,display:"flex",alignItems:"center",
+                visibility:"hidden",pointerEvents:"none"}}>
+              ✕
+            </button>
+          </div>
+          {tradeSearch&&shown.length===0&&(
+            <div style={{fontSize:13,color:C.muted,marginTop:5,textAlign:"center"}}>
+              No trades match "{tradeSearch}"
+            </div>
+          )}
         </div>
 
         {/* Trade list — all trades, latest first, no cap */}
