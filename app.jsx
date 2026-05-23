@@ -3869,13 +3869,12 @@ function App(){
           const isEditing=editTradeId===t.id;
           const stockName=tickerNames[t.ticker]||"";
           const linkedHolding=holdings.find(h=>h.ticker===t.ticker);
-          {(()=>{
-            const typeCol=t.type==="BUY"?C.green:t.type==="DIV"?C.gold:C.red;
-            const isDIV=t.type==="DIV";
-            const taxRate=isDIV?getDivTax(t.mkt||'US'):0;
-            const grossDiv=isDIV?localTotal:0;
-            const netDiv=isDIV?(t.profit||grossDiv*(1-taxRate)):0;
-            return(
+          const typeCol=t.type==="BUY"?C.green:t.type==="DIV"?C.gold:C.red;
+          const isDIV=t.type==="DIV";
+          const taxRate=isDIV?getDivTax(t.mkt||'US'):0;
+          const grossDiv=isDIV?localTotal:0;
+          const netDiv=isDIV?(t.profit||grossDiv*(1-taxRate)):0;
+          return(
             <div key={t.id||i}
               onClick={()=>{if(linkedHolding){setSel(linkedHolding);setDetailPeriod("6m");}}}
               style={{...card,borderLeft:`3px solid ${typeCol}`,
@@ -3928,7 +3927,6 @@ function App(){
               </div>
             </div>
             );
-          })()}
         })}
             {shown.length>limit&&!tradeSearch&&<div style={{textAlign:"center",color:C.muted,fontSize:14,padding:"12px 0",borderTop:`1px solid ${C.border}`,marginTop:4}}>
               Showing {limit} of {shown.length} trades · Use search above to find any trade instantly
