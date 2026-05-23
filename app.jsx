@@ -3863,7 +3863,6 @@ function App(){
             </div>
             );
           })()}
-          );
         })}
             {shown.length>limit&&!tradeSearch&&<div style={{textAlign:"center",color:C.muted,fontSize:14,padding:"12px 0",borderTop:`1px solid ${C.border}`,marginTop:4}}>
               Showing {limit} of {shown.length} trades · Use search above to find any trade instantly
@@ -4973,7 +4972,7 @@ function App(){
                   <div style={{fontSize:12,color:C.muted}}>ETF / Fund</div>
                 </>
               ):(
-                {(()=>{
+                (()=>{
                   // Determine IV data quality for this holding:
                   // "missing"  — effectiveIV is 0, no data from any source (non-ETF only)
                   // "no_method"— effectiveIV > 0 but intrinsicMethod is null (old DB row,
@@ -4996,7 +4995,6 @@ function App(){
                       })()}
                     </div>
                     {ivMissing?(
-                      // No intrinsic value available from any source
                       <div style={{marginTop:4}}>
                         <div style={{display:"inline-flex",alignItems:"center",gap:4,
                           background:C.red+"18",border:`1px solid ${C.red}40`,
@@ -5023,7 +5021,7 @@ function App(){
                       </>
                     )}
                   </>);
-                })()}
+                })()
               )}
             </div>
           </div>
@@ -5746,7 +5744,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.04.19-02</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.05.23-1337</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
