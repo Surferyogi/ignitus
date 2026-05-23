@@ -507,6 +507,8 @@ function App(){
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
   const [tradeType,setTradeType]=useState("ALL");
   const [tradeSearch,setTradeSearch]=useState(""); // lifted to App so it survives TradesView remounts
+  const [tradeDateFrom,setTradeDateFrom]=useState(""); // date range filter level 2
+  const [tradeDateTo,setTradeDateTo]=useState("");
   const [insightTab,setInsightTab]=useState("performers");
   const [aiText,setAiText]=useState({});
   const [aiLoad,setAiLoad]=useState({});
@@ -3335,8 +3337,13 @@ function App(){
     };
 
     // Plain computation — useMemo invalid in render functions (not a React component)
+    // Level 1 filter: trade type (ALL / BUY / SELL / DIV)
     let shown=(tradeType==="ALL"?[...trades]:[...trades].filter(t=>t.type===tradeType));
+    // Level 2 filter: date range
+    if(tradeDateFrom) shown=shown.filter(t=>(t.date||"")>=tradeDateFrom);
+    if(tradeDateTo)   shown=shown.filter(t=>(t.date||"")<=tradeDateTo);
     shown.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    // Level 3 filter: text search
     if(tradeSearch.trim()){
       const q=tradeSearch.trim().toUpperCase();
       shown=shown.filter(t=>
@@ -3344,6 +3351,7 @@ function App(){
         (tickerNames[t.ticker]||"").toUpperCase().includes(q)
       );
     }
+    const dateFilterActive=tradeDateFrom||tradeDateTo;
     const totalReal=trades.filter(t=>t.type==="SELL"||t.type==="DIV").reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0);
     const shownBuys=shown.filter(t=>t.type==="BUY");
     const shownSells=shown.filter(t=>t.type==="SELL");
@@ -3358,15 +3366,29 @@ function App(){
       <>
         <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}25`,marginBottom:12}}>
           {(()=>{
-            const divTrades=trades.filter(t=>t.type==="DIV");
+            // When date filter is active, stats reflect the filtered range only
+            // When no date filter, stats always show all-time totals regardless of type pill
+            const statBase=dateFilterActive?shown:trades;
+            const divTrades=statBase.filter(t=>t.type==="DIV");
             const totalDivReceived=divTrades.reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0);
-            const capitalGains=trades.filter(t=>t.type==="SELL").reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0);
+            const capitalGains=statBase.filter(t=>t.type==="SELL").reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0);
+            const statTotal=dateFilterActive?shown.length:trades.length;
+            const statBuys=(dateFilterActive?shown:trades).filter(t=>t.type==="BUY").length;
+            const statSells=(dateFilterActive?shown:trades).filter(t=>t.type==="SELL").length;
+            const statDivs=divTrades.length;
+            const statRealized=capitalGains+totalDivReceived;
             return(<>
+              {dateFilterActive&&(
+                <div style={{fontSize:11,color:C.accent,fontWeight:700,marginBottom:6,textAlign:"center",
+                  background:C.accent+"12",borderRadius:5,padding:"3px 0"}}>
+                  📅 {tradeDateFrom||"…"} → {tradeDateTo||"…"}
+                </div>
+              )}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,textAlign:"center",marginBottom:tradeSearch?8:0}}>
-                <div><div style={{fontSize:12,color:C.muted}}>Total</div><div style={{fontSize:20,fontWeight:800}}>{trades.length}</div></div>
-                <div><div style={{fontSize:12,color:C.muted}}>Buys</div><div style={{fontSize:20,fontWeight:800,color:C.green}}>{trades.filter(t=>t.type==="BUY").length}</div></div>
-                <div><div style={{fontSize:12,color:C.muted}}>Sells</div><div style={{fontSize:20,fontWeight:800,color:C.red}}>{trades.filter(t=>t.type==="SELL").length}</div></div>
-                <div><div style={{fontSize:12,color:C.muted}}>Divs</div><div style={{fontSize:20,fontWeight:800,color:C.gold}}>{divTrades.length}</div></div>
+                <div><div style={{fontSize:12,color:C.muted}}>{dateFilterActive?"Range":"Total"}</div><div style={{fontSize:20,fontWeight:800}}>{statTotal}</div></div>
+                <div><div style={{fontSize:12,color:C.muted}}>Buys</div><div style={{fontSize:20,fontWeight:800,color:C.green}}>{statBuys}</div></div>
+                <div><div style={{fontSize:12,color:C.muted}}>Sells</div><div style={{fontSize:20,fontWeight:800,color:C.red}}>{statSells}</div></div>
+                <div><div style={{fontSize:12,color:C.muted}}>Divs</div><div style={{fontSize:20,fontWeight:800,color:C.gold}}>{statDivs}</div></div>
               </div>
               <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:4,display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,textAlign:"center"}}>
                 <div>
@@ -3383,9 +3405,11 @@ function App(){
                 </div>
               </div>
               <div style={{borderTop:`1px solid ${C.border}`,paddingTop:6,marginTop:6,textAlign:"center"}}>
-                <div style={{fontSize:12,color:C.muted,marginBottom:2}}>Total Realized P&amp;L (Capital + Dividends)</div>
-                <div style={{fontSize:20,fontWeight:800,color:totalReal>=0?C.green:C.red}}>
-                  {totalReal>=0?"+":"-"}{fmtS(Math.abs(totalReal))}
+                <div style={{fontSize:12,color:C.muted,marginBottom:2}}>
+                  {dateFilterActive?"Period":"Total"} Realized P&amp;L (Capital + Dividends)
+                </div>
+                <div style={{fontSize:20,fontWeight:800,color:statRealized>=0?C.green:C.red}}>
+                  {statRealized>=0?"+":"-"}{fmtS(Math.abs(statRealized))}
                 </div>
               </div>
             </>);
@@ -3764,9 +3788,51 @@ function App(){
           </div>
         )}
 
-        <div style={{display:"flex",gap:6,marginBottom:10}}>
+        {/* Level 1 filter: trade type */}
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
           {["ALL","BUY","SELL","DIV"].map(t=><button key={t} style={pill(tradeType===t)} onClick={()=>setTradeType(t)}>{t}</button>)}
         </div>
+
+        {/* Level 2 filter: date range */}
+        {(()=>{
+          const inputStyle={
+            flex:1,background:C.card,border:`1px solid ${C.border}`,
+            borderRadius:7,padding:"6px 8px",color:C.text,
+            fontSize:13,outline:"none",colorScheme:"dark",
+            minWidth:0,
+          };
+          const hasFilter=tradeDateFrom||tradeDateTo;
+          return(
+            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10}}>
+              <span style={{fontSize:12,color:C.muted,flexShrink:0}}>📅</span>
+              <input
+                type="date"
+                value={tradeDateFrom}
+                onChange={e=>setTradeDateFrom(e.target.value)}
+                style={{...inputStyle,borderColor:tradeDateFrom?C.accent:C.border}}
+                placeholder="From"
+              />
+              <span style={{fontSize:12,color:C.muted,flexShrink:0}}>→</span>
+              <input
+                type="date"
+                value={tradeDateTo}
+                onChange={e=>setTradeDateTo(e.target.value)}
+                style={{...inputStyle,borderColor:tradeDateTo?C.accent:C.border}}
+                placeholder="To"
+              />
+              {hasFilter&&(
+                <button
+                  onClick={()=>{setTradeDateFrom("");setTradeDateTo("");}}
+                  title="Clear date filter"
+                  style={{flexShrink:0,background:"none",border:`1px solid ${C.border}`,
+                    borderRadius:7,padding:"6px 8px",color:C.muted,fontSize:13,
+                    cursor:"pointer",lineHeight:1}}>
+                  ✕
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Trade search — zero React state while typing, DOM ref for clear button */}
         <div style={{position:"relative",marginBottom:10}}>
