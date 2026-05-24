@@ -2279,7 +2279,7 @@ function App(){
     // SELL: rebuildHoldingsFromTrades handles net share reduction.
     if(type==="DIV"){
       // Only persist the trades; holdings are unchanged
-      if(window.portfolioDB){window.portfolioDB.saveTrades([newTrades[0]]).catch(e=>console.error('DB:',e));}
+      if(window.portfolioDB){window.portfolioDB.updateTrades([newTrades[0]]).catch(e=>console.error('DB DIV save:',e));}
       setShowTradeForm(false);
       setDupeWarning(null);
       setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD",divMode:"gross"});
