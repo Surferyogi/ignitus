@@ -4009,17 +4009,61 @@ function App(){
                   </div>
                   {stockName&&<div style={{fontSize:14,color:C.mutedLight,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>{stockName}{linkedHolding&&<span style={{fontSize:10,color:C.accent,marginLeft:5,opacity:0.6}}>→</span>}</div>}
                   {isDIV
-                    ?<div style={{fontSize:14,color:C.muted}}>{t.date} · {t.shares?.toLocaleString()} sh @ {sym}{fmt(t.price,4)}/sh</div>
+                    // Net mode: price IS the total received — show date + "Net from statement"
+                    // Gross mode: show date + shares @ price/sh (declared dividend rate)
+                    ? t.divMode==="net"
+                      ?<div style={{fontSize:14,color:C.muted}}>{t.date} · Net received from statement</div>
+                      :<div style={{fontSize:14,color:C.muted}}>{t.date} · {t.shares?.toLocaleString()} sh @ {sym}{fmt(t.price,4)}/sh (gross)</div>
                     :<div style={{fontSize:14,color:C.muted}}>{t.date} · {t.shares?.toLocaleString()} @ {sym}{fmt(t.price)}</div>
                   }
                   {t.type==="SELL"&&t.profit!=null&&t.profit!==0&&<div style={{fontSize:14,fontWeight:700,color:t.profit>=0?C.green:C.red,marginTop:2}}>P&amp;L: {t.profit>=0?"+":"-"}{sym}{fmt(Math.abs(t.profit),0)} <span style={{color:C.muted,fontWeight:400}}>({t.profit>=0?"+":"-"}{fmtS(Math.abs(ccyToSGD(t.profit,t.ccy||t.mkt)))})</span></div>}
-                  {isDIV&&netDiv>0&&(
-                    <div style={{fontSize:14,fontWeight:700,color:C.gold,marginTop:2}}>
-                      Net: +{sym}{fmt(netDiv,2)}
-                      {taxRate>0&&<span style={{color:C.muted,fontWeight:400,fontSize:13}}> (after {(taxRate*100).toFixed(3).replace(/\.?0+$/,"")}% WHT)</span>}
-                      <span style={{color:C.muted,fontWeight:400}}> {fmtS(ccyToSGD(netDiv,t.ccy||t.mkt))}</span>
-                    </div>
-                  )}
+                  {isDIV&&netDiv>0&&(()=>{
+                    // Yield on cost = net received ÷ (shares × avgCost) × 100
+                    // Net mode:   use linkedHolding.shares as proxy (current count)
+                    // Gross mode: use t.shares (actual ex-div count, stored in trade)
+                    const h2=linkedHolding;
+                    const avgCostH=h2?.avgCost||0;
+                    const sharesForYield=t.divMode==="net"
+                      ? (h2?.shares||0)          // best proxy for net mode
+                      : (t.shares||0);            // exact for gross mode
+                    const yieldOnCost=(avgCostH>0&&sharesForYield>0)
+                      ? (netDiv/(sharesForYield*avgCostH))*100
+                      : null;
+                    // Yield on market = net received ÷ (shares × current price) × 100
+                    const priceH=h2?.price||0;
+                    const yieldOnMkt=(priceH>0&&sharesForYield>0)
+                      ? (netDiv/(sharesForYield*priceH))*100
+                      : null;
+                    return(
+                      <div style={{marginTop:2}}>
+                        <div style={{fontSize:14,fontWeight:700,color:C.gold}}>
+                          Net: +{sym}{fmt(netDiv,2)}
+                          {taxRate>0&&<span style={{color:C.muted,fontWeight:400,fontSize:13}}> (after {(taxRate*100).toFixed(3).replace(/\.?0+$/,"")}% WHT)</span>}
+                          <span style={{color:C.muted,fontWeight:400}}> {fmtS(ccyToSGD(netDiv,t.ccy||t.mkt))}</span>
+                        </div>
+                        {(yieldOnCost!==null||yieldOnMkt!==null)&&(
+                          <div style={{fontSize:12,color:C.muted,marginTop:2,display:"flex",gap:10}}>
+                            {yieldOnCost!==null&&(
+                              <span>
+                                Yield on cost:
+                                <span style={{color:C.gold,fontWeight:700,marginLeft:3}}>
+                                  {yieldOnCost.toFixed(2)}%
+                                </span>
+                              </span>
+                            )}
+                            {yieldOnMkt!==null&&(
+                              <span>
+                                On mkt:
+                                <span style={{color:C.accent,fontWeight:700,marginLeft:3}}>
+                                  {yieldOnMkt.toFixed(2)}%
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0,marginLeft:8}}>
                   <div style={{textAlign:"right"}}>
