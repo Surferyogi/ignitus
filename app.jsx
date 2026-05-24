@@ -523,7 +523,7 @@ function App(){
   const [tickerSearchResults,setTickerSearchResults]=useState([]); // results from ticker_search action
   const [tickerSearchLoading,setTickerSearchLoading]=useState(false);
   const [editTradeId,setEditTradeId]=useState(null);
-  const [tradeForm,setTradeForm]=useState({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD"});
+  const [tradeForm,setTradeForm]=useState({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD",divMode:"gross"});
   const [holdingEditId,setHoldingEditId]=useState(null);
   const [holdingForm,setHoldingForm]=useState({});
   const [deleteConfirm,setDeleteConfirm]=useState(null);
@@ -575,14 +575,20 @@ function App(){
             pos.curShares+=t.shares;
             return t;
           } else if(t.type==="DIV"){
-            // DIV: profit = net dividend received after withholding tax.
-            // Never re-derive from avg cost — price IS the per-share dividend amount.
+            // DIV: profit depends on entry mode stored on the trade record.
+            // "net" mode:   price IS the net total from statement → profit = price (shares=1)
+            // "gross" mode: profit = price × shares × (1 − WHT rate)
             // Re-compute only if profit missing (preserves user-corrected values).
-            const taxRate=getDivTax(t.mkt||'US');
             const needsCalc=(t.profit===0||t.profit==null);
-            const profit=needsCalc
-              ?parseFloat((t.price*t.shares*(1-taxRate)).toFixed(2))
-              :t.profit;
+            let profit=t.profit;
+            if(needsCalc){
+              if(t.divMode==="net"){
+                profit=parseFloat(parseFloat(t.price).toFixed(2));
+              } else {
+                const taxRate=getDivTax(t.mkt||'US');
+                profit=parseFloat((t.price*t.shares*(1-taxRate)).toFixed(2));
+              }
+            }
             // Share count and avg cost are unchanged by a dividend
             return {...t,profit};
           } else {
@@ -2207,7 +2213,13 @@ function App(){
     //      No effect on share count or avg cost.
     // SELL: capital gain = (sellPrice − avgCost) × shares
     // BUY/SCRIP: no profit field
-    function calcDivProfit(divPerShare, qty, mktCode){
+    function calcDivProfit(divPerShare, qty, mktCode, divMode){
+      // divMode "gross": profit = divPerShare × qty × (1 − WHT)  [default]
+      // divMode "net":   divPerShare IS the net total from the statement;
+      //                  qty and WHT are ignored — profit = divPerShare directly
+      if(divMode==="net"){
+        return parseFloat(parseFloat(divPerShare).toFixed(2));
+      }
       const taxRate=getDivTax(mktCode||'US');
       return parseFloat((divPerShare*qty*(1-taxRate)).toFixed(2));
     }
@@ -2216,7 +2228,7 @@ function App(){
     if(editTradeId!=null){
       let editProfit=undefined;
       if(type==="DIV"){
-        editProfit=calcDivProfit(p,s,mkt);
+        editProfit=calcDivProfit(p,s,mkt,tradeForm.divMode);
       } else if(type==="SELL"){
         const buysBefore=trades.filter(t=>t.ticker===tU&&t.type==="BUY"&&t.id!==editTradeId);
         const totalBuyShares=buysBefore.reduce((s,t)=>s+t.shares,0);
@@ -2227,14 +2239,16 @@ function App(){
       }
       const hasProfitField=(type==="SELL"||type==="DIV");
       newTrades=trades.map(t=>t.id===editTradeId
-        ?{...t,ticker:tU,type,date,price:p,shares:s,mkt,ccy,profit:hasProfitField?editProfit:undefined}
+        ?{...t,ticker:tU,type,date,price:p,shares:s,mkt,ccy,
+          profit:hasProfitField?editProfit:undefined,
+          divMode:type==="DIV"?tradeForm.divMode:undefined}
         :t);
       setEditTradeId(null);
     } else {
       const existH=holdings.find(h=>h.ticker===tU);
       let profit=undefined;
       if(type==="DIV"){
-        profit=calcDivProfit(p,s,mkt);
+        profit=calcDivProfit(p,s,mkt,tradeForm.divMode);
       } else if(type==="SELL"){
         // Use the holding's current avgCost (already reflects all prior buys/sells via WAVG)
         const avgCostNow=existH?.avgCost||0;
@@ -2254,7 +2268,8 @@ function App(){
       }
       const hasProfitField=(type==="SELL"||type==="DIV");
       const newTrade={id:Date.now(),ticker:tU,type,date,price:p,shares:s,mkt,ccy,
-        profit:hasProfitField?profit:undefined};
+        profit:hasProfitField?profit:undefined,
+        divMode:type==="DIV"?tradeForm.divMode:undefined};
       newTrades=[newTrade,...trades];
     }
 
@@ -2267,7 +2282,7 @@ function App(){
       if(window.portfolioDB){window.portfolioDB.saveTrades([newTrades[0]]).catch(e=>console.error('DB:',e));}
       setShowTradeForm(false);
       setDupeWarning(null);
-      setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD"});
+      setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD",divMode:"gross"});
       markDirty();
       return;
     }
@@ -3654,54 +3669,123 @@ function App(){
               </div>
             </div>
 
-            {/* Row 4: Price + Units — labels change for DIV */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-              <div>
-                <div style={lbl}>{tradeForm.type==="DIV"?"Dividend per Share":"Price"} ({tradeForm.ccy} {tradePriceSym})</div>
-                <input ref={tradeRefs.price} type="number" style={iField} placeholder="0.00" defaultValue={tradeForm.price} onBlur={e=>setTradeForm(f=>({...f,price:e.target.value}))}/>
-                {tradeForm.type==="DIV"&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>Gross dividend per share (before tax)</div>}
+            {/* Row 4: DIV mode toggle (only visible for DIV type) */}
+            {tradeForm.type==="DIV"&&(
+              <div style={{marginBottom:8}}>
+                <div style={lbl}>Entry Mode</div>
+                <div style={{display:"flex",gap:4}}>
+                  {[
+                    ["gross","Gross per Share","Enter declared div/sh, app deducts WHT"],
+                    ["net",  "Net Total ★","Paste net amount direct from DBS statement"],
+                  ].map(([mode,label,hint])=>(
+                    <button key={mode} onClick={()=>setTradeForm(f=>({...f,divMode:mode}))}
+                      style={{flex:1,padding:"7px 6px",borderRadius:7,
+                        border:`1px solid ${tradeForm.divMode===mode?C.gold:C.border}`,
+                        background:tradeForm.divMode===mode?C.gold+"22":"transparent",
+                        color:tradeForm.divMode===mode?C.gold:C.muted,
+                        fontSize:12,fontWeight:700,cursor:"pointer",lineHeight:1.3,textAlign:"center"}}>
+                      {label}
+                      <div style={{fontSize:10,fontWeight:400,marginTop:2,color:tradeForm.divMode===mode?C.gold:C.muted,opacity:0.8}}>{hint}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div>
-                <div style={lbl}>{tradeForm.type==="DIV"?"Shares Held at Ex-Div":"Units / Shares"}</div>
-                <input ref={tradeRefs.shares} type="number" style={iField} placeholder="0" defaultValue={tradeForm.shares} onBlur={e=>setTradeForm(f=>({...f,shares:e.target.value}))}/>
-                {tradeForm.type==="DIV"&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>Your holding on the ex-dividend date</div>}
+            )}
+
+            {/* Row 5: Amount fields — layout depends on DIV mode */}
+            {tradeForm.type==="DIV"&&tradeForm.divMode==="net"?(
+              // NET MODE: single field — total net received from statement
+              <div style={{marginBottom:8}}>
+                <div style={lbl}>Net Amount Received ({tradeForm.ccy} {tradePriceSym})</div>
+                <input ref={tradeRefs.price} type="number" style={{...iField,borderColor:C.gold}}
+                  placeholder="e.g. 543.24"
+                  defaultValue={tradeForm.price}
+                  onBlur={e=>setTradeForm(f=>({...f,price:e.target.value,shares:"1"}))}/>
+                <div style={{fontSize:12,color:C.gold,marginTop:3,fontWeight:600}}>
+                  Exact net amount from DBS statement — stored as-is, no WHT calculation applied
+                </div>
+                {/* Hidden shares ref — set to 1 so submitTrade math works: profit = price × 1 × (1−0) */}
+                <input ref={tradeRefs.shares} type="hidden" value="1"/>
               </div>
-            </div>
+            ):(
+              // GROSS MODE: original two-field layout
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                <div>
+                  <div style={lbl}>{tradeForm.type==="DIV"?"Dividend per Share":"Price"} ({tradeForm.ccy} {tradePriceSym})</div>
+                  <input ref={tradeRefs.price} type="number" style={iField} placeholder="0.00" defaultValue={tradeForm.price} onBlur={e=>setTradeForm(f=>({...f,price:e.target.value}))}/>
+                  {tradeForm.type==="DIV"&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>Gross dividend per share (before WHT)</div>}
+                </div>
+                <div>
+                  <div style={lbl}>{tradeForm.type==="DIV"?"Shares Held at Ex-Div":"Units / Shares"}</div>
+                  <input ref={tradeRefs.shares} type="number" style={iField} placeholder="0" defaultValue={tradeForm.shares} onBlur={e=>setTradeForm(f=>({...f,shares:e.target.value}))}/>
+                  {tradeForm.type==="DIV"&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>Your holding on the ex-dividend date</div>}
+                </div>
+              </div>
+            )}
 
             {/* Preview — DIV: net dividend breakdown; BUY/SELL: existing preview */}
-            {tradeForm.type==="DIV"&&tradeForm.price&&tradeForm.shares&&tradePriceTotal>0&&(()=>{
-              const divPerShare=parseFloat(tradeRefs.price?.current?.value||tradeForm.price||0);
-              const qty=parseInt(tradeRefs.shares?.current?.value||tradeForm.shares||0);
+            {tradeForm.type==="DIV"&&tradeForm.price&&tradePriceTotal>0&&(()=>{
+              const isNetMode=tradeForm.divMode==="net";
               const sym2=tradePriceSym;
-              const grossDiv=divPerShare*qty;
               const taxRate=getDivTax(tradeForm.mkt||'US');
-              const taxAmt=grossDiv*taxRate;
-              const netDiv=grossDiv-taxAmt;
               const taxLabel=fmtTax(tradeForm.mkt||'US');
-              if(grossDiv<=0) return null;
-              return(
-                <div style={{background:C.card,borderRadius:7,padding:"8px 10px",marginBottom:8,fontSize:14,border:`1px solid ${C.gold}30`}}>
-                  <div style={{fontSize:12,fontWeight:700,color:C.gold,marginBottom:6}}>💵 DIVIDEND PREVIEW</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-                    <div>
-                      <div style={{fontSize:11,color:C.muted}}>Gross</div>
-                      <div style={{fontWeight:700}}>{sym2}{fmt(grossDiv,2)}</div>
-                      <div style={{fontSize:12,color:C.muted}}>{fmtS(ccyToSGD(grossDiv,tradeForm.ccy))}</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,color:C.red}}>WHT {taxLabel||"(none)"}</div>
-                      <div style={{fontWeight:700,color:taxAmt>0?C.red:C.muted}}>
-                        {taxAmt>0?"-"+sym2+fmt(taxAmt,2):"—"}
+
+              if(isNetMode){
+                // Net mode: amount entered IS the net total — show it directly
+                const netTotal=parseFloat(tradeRefs.price?.current?.value||tradeForm.price||0);
+                if(netTotal<=0) return null;
+                return(
+                  <div style={{background:C.card,borderRadius:7,padding:"8px 10px",marginBottom:8,
+                    fontSize:14,border:`1px solid ${C.gold}44`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.gold,marginBottom:6}}>💵 DIVIDEND PREVIEW — Net Mode</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                      <div>
+                        <div style={{fontSize:11,color:C.muted}}>From statement</div>
+                        <div style={{fontWeight:800,color:C.gold,fontSize:16}}>{sym2}{fmt(netTotal,2)}</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:11,color:C.muted}}>SGD equivalent</div>
+                        <div style={{fontWeight:700}}>{fmtS(ccyToSGD(netTotal,tradeForm.ccy))}</div>
                       </div>
                     </div>
-                    <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:11,color:C.green}}>Net Received</div>
-                      <div style={{fontWeight:800,color:C.green}}>{sym2}{fmt(netDiv,2)}</div>
-                      <div style={{fontSize:12,color:C.muted}}>{fmtS(ccyToSGD(netDiv,tradeForm.ccy))}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:5,borderTop:`1px solid ${C.border}`,paddingTop:4}}>
+                      Stored exactly as entered · WHT already deducted by DBS
                     </div>
                   </div>
-                </div>
-              );
+                );
+              } else {
+                // Gross mode: calculate gross → WHT → net
+                const divPerShare=parseFloat(tradeRefs.price?.current?.value||tradeForm.price||0);
+                const qty=parseInt(tradeRefs.shares?.current?.value||tradeForm.shares||0);
+                const grossDiv=divPerShare*qty;
+                const taxAmt=grossDiv*taxRate;
+                const netDiv=grossDiv-taxAmt;
+                if(grossDiv<=0) return null;
+                return(
+                  <div style={{background:C.card,borderRadius:7,padding:"8px 10px",marginBottom:8,
+                    fontSize:14,border:`1px solid ${C.gold}30`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.gold,marginBottom:6}}>💵 DIVIDEND PREVIEW — Gross Mode</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                      <div>
+                        <div style={{fontSize:11,color:C.muted}}>Gross</div>
+                        <div style={{fontWeight:700}}>{sym2}{fmt(grossDiv,2)}</div>
+                        <div style={{fontSize:12,color:C.muted}}>{fmtS(ccyToSGD(grossDiv,tradeForm.ccy))}</div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:11,color:C.red}}>WHT {taxLabel||"(none)"}</div>
+                        <div style={{fontWeight:700,color:taxAmt>0?C.red:C.muted}}>
+                          {taxAmt>0?"-"+sym2+fmt(taxAmt,2):"—"}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:11,color:C.green}}>Net Received</div>
+                        <div style={{fontWeight:800,color:C.green}}>{sym2}{fmt(netDiv,2)}</div>
+                        <div style={{fontSize:12,color:C.muted}}>{fmtS(ccyToSGD(netDiv,tradeForm.ccy))}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
             })()}
             {tradeForm.type!=="DIV"&&tradeForm.price&&tradeForm.shares&&tradePriceTotal>0&&(()=>{
               const tU2=(tradeRefs.ticker?.current?.value||tradeForm.ticker||"").toUpperCase().trim();
