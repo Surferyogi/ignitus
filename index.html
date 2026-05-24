@@ -124,6 +124,7 @@
           shares: Number(r.shares) || 0,
           mkt: r.mkt || 'US', ccy: r.ccy || 'USD',
           profit: Number(r.profit) || 0,
+          divMode: r.div_mode || null,  // "net" | "gross" | null (null = gross, legacy)
         }));
         const s = (senate || []).map(r => ({
           id: r.id, name: r.name, party: r.party,
@@ -169,6 +170,7 @@
           date: t.date, price: t.price, shares: t.shares,
           mkt: t.mkt || 'US', ccy: t.ccy || 'USD',
           profit: t.profit || 0,
+          div_mode: t.divMode || null,
         }));
         return sbUpsert('trades', rows);
       }
