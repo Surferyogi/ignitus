@@ -4017,6 +4017,57 @@ function App(){
                     :<div style={{fontSize:14,color:C.muted}}>{t.date} · {t.shares?.toLocaleString()} @ {sym}{fmt(t.price)}</div>
                   }
                   {t.type==="SELL"&&t.profit!=null&&t.profit!==0&&<div style={{fontSize:14,fontWeight:700,color:t.profit>=0?C.green:C.red,marginTop:2}}>P&amp;L: {t.profit>=0?"+":"-"}{sym}{fmt(Math.abs(t.profit),0)} <span style={{color:C.muted,fontWeight:400}}>({t.profit>=0?"+":"-"}{fmtS(Math.abs(ccyToSGD(t.profit,t.ccy||t.mkt)))})</span></div>}
+                  {t.type==="SELL"&&(()=>{
+                    // ── Sell quality check vs current market price ──────────────────
+                    // Only meaningful when a live price is available.
+                    // For still-held stocks (partial sell): linkedHolding.price = live.
+                    // For fully sold: price field is a placeholder — skip.
+                    const sellPrice=t.price;
+                    const livePrice=linkedHolding&&!linkedHolding.fullySold&&linkedHolding.shares>0
+                      ? linkedHolding.price : null;
+                    if(!livePrice||livePrice<=0||sellPrice<=0) return null;
+
+                    const pctDiff=((livePrice-sellPrice)/sellPrice)*100; // + means price rose since sell
+                    const missedGain=(livePrice-sellPrice)*t.shares;     // in local ccy
+
+                    // Verdict thresholds
+                    let verdict, vColor, vIcon;
+                    if(pctDiff>20){
+                      verdict="Too early"; vColor=C.red;   vIcon="🔴";
+                    } else if(pctDiff>5){
+                      verdict="Slightly early"; vColor=C.gold; vIcon="🟡";
+                    } else if(pctDiff>=-5){
+                      verdict="Good timing"; vColor=C.green; vIcon="✅";
+                    } else {
+                      verdict="Great sell"; vColor=C.green; vIcon="✅";
+                    }
+
+                    return(
+                      <div style={{marginTop:4,padding:"5px 8px",borderRadius:6,
+                        background:vColor+"12",border:`1px solid ${vColor}30`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontSize:12,fontWeight:700,color:vColor}}>
+                            {vIcon} {verdict}
+                          </span>
+                          <span style={{fontSize:12,color:C.muted}}>
+                            Sold {sym}{fmt(sellPrice,2)} · Now {sym}{fmt(livePrice,2)}
+                          </span>
+                          <span style={{fontSize:12,fontWeight:700,
+                            color:pctDiff>0?C.red:C.green}}>
+                            {pctDiff>=0?"+":""}{pctDiff.toFixed(1)}%
+                          </span>
+                        </div>
+                        {Math.abs(missedGain)>0.01&&pctDiff>5&&(
+                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                            {pctDiff>0
+                              ?`Holding would be worth +${sym}${fmt(Math.abs(missedGain),0)} more`
+                              :`Saved ${sym}${fmt(Math.abs(missedGain),0)} by selling`}
+                            {" · "}{fmtS(Math.abs(ccyToSGD(missedGain,t.ccy||t.mkt)))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {isDIV&&netDiv>0&&(()=>{
                     // Yield on cost = net received ÷ (shares × avgCost) × 100
                     // Net mode:   use linkedHolding.shares as proxy (current count)
