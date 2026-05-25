@@ -2983,35 +2983,108 @@ function App(){
                       </div>
                     )}
 
-                    {/* "If held today" row */}
-                    {ifHeldPL!==null&&(
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                        marginTop:6,padding:"6px 10px",borderRadius:7,
-                        background:ifHeldPL>=0?C.accent+"10":C.purple+"10",
-                        border:`1px solid ${ifHeldPL>=0?C.accent:C.purple}30`}}>
-                        <div>
-                          <span style={{fontSize:13,color:C.mutedLight}}>If held today</span>
-                          {ifHeldPct!==null&&(
-                            <span style={{fontSize:12,color:C.muted,marginLeft:6}}>
-                              ({ifHeldPct>=0?"+":""}{fmt(ifHeldPct,1)}%)
-                            </span>
+                    {/* ── Sale Quality Analysis ─────────────────────────────── */}
+                    {(()=>{
+                      const sellTrades=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL")
+                        .sort((a,b)=>b.date.localeCompare(a.date));
+                      const firstBuy=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY")
+                        .sort((a,b)=>a.date.localeCompare(b.date))[0]||null;
+                      const lastSell=sellTrades[0]||null;
+                      const livePrice=h.price||0;
+                      const sellPrice=lastSell?Number(lastSell.price):0;
+
+                      // % change: sell price → today's live price
+                      // Positive = stock rose after sale (sold too early)
+                      // Negative = stock fell after sale (good sale)
+                      const priceDelta=sellPrice>0&&livePrice>0
+                        ?((livePrice-sellPrice)/sellPrice)*100
+                        :null;
+
+                      // Opportunity cost/saving across ALL sell trades
+                      const totalSharesSold=sellTrades.reduce((s,t)=>s+Number(t.shares),0);
+                      const totalSellProceeds=sellTrades.reduce((s,t)=>s+Number(t.price)*Number(t.shares),0);
+                      const opportunitySGD=livePrice>0&&totalSharesSold>0
+                        ?toSGDlive(totalSharesSold*livePrice-totalSellProceeds,h.mkt)
+                        :null;
+
+                      // Verdict
+                      const verdict=priceDelta===null?null
+                        :priceDelta>10  ?{lbl:"⚠ Sold Too Early",  col:C.red,  bg:C.red+"18"}
+                        :priceDelta>5   ?{lbl:"↗ Possibly Early",  col:C.gold, bg:C.gold+"18"}
+                        :priceDelta>=0  ?{lbl:"✓ Roughly Right",   col:C.green,bg:C.green+"18"}
+                        :                {lbl:"✓ Good Sale",         col:C.green,bg:C.green+"18"};
+
+                      if(!lastSell||!livePrice) return null;
+                      return(
+                        <div style={{marginTop:6,padding:"8px 10px",borderRadius:7,
+                          background:C.surface,border:`1px solid ${C.border}`}}>
+
+                          {/* Verdict + % since sale */}
+                          {verdict&&(
+                            <div style={{display:"flex",justifyContent:"space-between",
+                              alignItems:"center",marginBottom:6}}>
+                              <span style={{fontSize:12,fontWeight:700,color:verdict.col,
+                                background:verdict.bg,borderRadius:4,padding:"2px 7px",
+                                border:`1px solid ${verdict.col}40`}}>
+                                {verdict.lbl}
+                              </span>
+                              {priceDelta!==null&&(
+                                <span style={{fontSize:12,fontWeight:700,
+                                  color:priceDelta>0?C.red:C.green}}>
+                                  {priceDelta>0?"+":""}{priceDelta.toFixed(1)}% since sale
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Sold / Now / Missed or Saved grid */}
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,fontSize:12}}>
+                            <div>
+                              <div style={{color:C.muted,marginBottom:1}}>Sold</div>
+                              <div style={{fontWeight:700}}>{fmtL(sellPrice,h.mkt)}</div>
+                              <div style={{color:C.muted,fontSize:11}}>{lastSell.date}</div>
+                            </div>
+                            <div style={{textAlign:"center"}}>
+                              <div style={{color:C.muted,marginBottom:1}}>Now</div>
+                              <div style={{fontWeight:700,
+                                color:livePrice>sellPrice?C.red:C.green}}>
+                                {fmtL(livePrice,h.mkt)}
+                              </div>
+                              <div style={{color:C.muted,fontSize:11}}>live</div>
+                            </div>
+                            <div style={{textAlign:"right"}}>
+                              <div style={{color:C.muted,marginBottom:1}}>
+                                {opportunitySGD===null?"—"
+                                  :opportunitySGD>=0?"Missed":"Saved"}
+                              </div>
+                              {opportunitySGD!==null&&(
+                                <>
+                                  <div style={{fontWeight:700,
+                                    color:opportunitySGD>0?C.red:C.green}}>
+                                    {opportunitySGD>0?"+":"-"}{fmtS(Math.abs(opportunitySGD))}
+                                  </div>
+                                  <div style={{color:C.muted,fontSize:11}}>
+                                    {opportunitySGD>0?"if still held":"by selling"}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Holding period */}
+                          {firstBuy&&(
+                            <div style={{fontSize:11,color:C.muted,marginTop:5,
+                              textAlign:"center",borderTop:`1px solid ${C.border}`,paddingTop:4}}>
+                              {(()=>{
+                                const days=Math.round((new Date(lastSell.date)-new Date(firstBuy.date))/86400000);
+                                const yrs=(days/365).toFixed(1);
+                                return `Held ${days>365?yrs+" yrs":days+" days"} · ${firstBuy.date} → ${lastSell.date}`;
+                              })()}
+                            </div>
                           )}
                         </div>
-                        <span style={{fontSize:14,fontWeight:800,color:ifHeldPL>=0?C.accent:C.purple}}>
-                          {ifHeldPL>=0?"+":"-"}{fmtS(Math.abs(ifHeldPL))}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Difference: what selling cost/saved vs holding */}
-                    {ifHeldPL!==null&&tickerRealized!==0&&(
-                      <div style={{fontSize:12,color:C.muted,textAlign:"right",marginTop:4,paddingRight:4}}>
-                        {tickerRealized>=ifHeldPL
-                          ?<span style={{color:C.green}}>✓ Good sell — saved {fmtS(Math.abs(tickerRealized-ifHeldPL))} vs holding</span>
-                          :<span style={{color:C.red}}>✗ Sold too early — missed {fmtS(Math.abs(ifHeldPL-tickerRealized))} by selling</span>
-                        }
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 );
               })}
