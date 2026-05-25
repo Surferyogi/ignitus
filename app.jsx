@@ -2741,20 +2741,145 @@ function App(){
                   </div>
                 </div>
               </div>
-              {isSold?(
-                <div style={{background:C.surface,borderRadius:8,padding:"8px 12px",marginBottom:7}}>
-                  {tickerRealized!==0?(
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div style={{fontSize:13,color:C.muted}}>Realized P&amp;L (position closed)</div>
-                      <div style={{fontSize:15,fontWeight:800,color:tickerRealized>=0?C.green:C.red}}>
-                        {tickerRealized>=0?"+":"-"}{fmtS(Math.abs(tickerRealized))}
+              {isSold?(()=>{
+                // ── Sale Quality Analysis ────────────────────────────────────────
+                // Find the last SELL trade for this ticker to anchor the analysis.
+                // Compare sell price vs current live price → did the stock keep rising?
+                const sellTrades=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL")
+                  .sort((a,b)=>b.date.localeCompare(a.date));
+                const lastSell=sellTrades[0]||null;
+                const firstBuy=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY")
+                  .sort((a,b)=>a.date.localeCompare(b.date))[0]||null;
+
+                // Current live price of the stock (still fetched even for sold positions)
+                const livePrice=h.price||0;
+                const sellPrice=lastSell?Number(lastSell.price):0;
+
+                // % change from sell price to today's price
+                // Positive = stock rose after sale (sold too early)
+                // Negative = stock fell after sale (good sale)
+                const priceDelta=sellPrice>0&&livePrice>0
+                  ?((livePrice-sellPrice)/sellPrice)*100
+                  :null;
+
+                // Total shares sold across all SELL trades
+                const totalSharesSold=sellTrades.reduce((s,t)=>s+Number(t.shares),0);
+
+                // Opportunity cost (or saving): what would the position be worth today
+                // vs what it was sold for (using total shares × prices)
+                const totalSellProceeds=sellTrades.reduce((s,t)=>s+Number(t.price)*Number(t.shares),0);
+                const todayValue=totalSharesSold*livePrice;
+                const opportunitySGD=livePrice>0&&totalSharesSold>0
+                  ?toSGDlive(todayValue-totalSellProceeds,h.mkt)
+                  :null;
+
+                // Verdict thresholds:
+                // Stock >10% higher  → Sold Too Early (red flag)
+                // Stock  5-10% higher → Possibly Early (amber)
+                // Stock  0- 5% higher → Roughly Right  (green)
+                // Stock lower         → Good Sale       (green)
+                const verdict=priceDelta===null?null
+                  :priceDelta>10  ?{lbl:"⚠ Sold Too Early",  col:C.red,    bg:C.red+"18"}
+                  :priceDelta>5   ?{lbl:"↗ Possibly Early",   col:C.gold,   bg:C.gold+"18"}
+                  :priceDelta>=0  ?{lbl:"✓ Roughly Right",    col:C.green,  bg:C.green+"18"}
+                  :               {lbl:"✓ Good Sale",          col:C.green,  bg:C.green+"18"};
+
+                return(
+                  <div style={{background:C.surface,borderRadius:8,padding:"8px 12px",marginBottom:7}}>
+                    {/* Row 1: Realized P&L */}
+                    {tickerRealized!==0&&(
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                        marginBottom:lastSell?6:0}}>
+                        <div style={{fontSize:13,color:C.muted}}>Realized P&amp;L</div>
+                        <div style={{fontSize:15,fontWeight:800,color:tickerRealized>=0?C.green:C.red}}>
+                          {tickerRealized>=0?"+":"-"}{fmtS(Math.abs(tickerRealized))}
+                        </div>
                       </div>
-                    </div>
-                  ):(
-                    <div style={{textAlign:"center",fontSize:13,color:C.muted}}>Position closed · Tap to view trade history</div>
-                  )}
-                </div>
-              ):(
+                    )}
+
+                    {/* Row 2: Sale quality analysis */}
+                    {lastSell&&livePrice>0&&(
+                      <div style={{borderTop:tickerRealized!==0?`1px solid ${C.border}`:"none",
+                        paddingTop:tickerRealized!==0?6:0}}>
+
+                        {/* Verdict badge */}
+                        {verdict&&(
+                          <div style={{display:"flex",justifyContent:"space-between",
+                            alignItems:"center",marginBottom:5}}>
+                            <span style={{fontSize:12,fontWeight:700,
+                              color:verdict.col,background:verdict.bg,
+                              borderRadius:4,padding:"2px 7px",
+                              border:`1px solid ${verdict.col}40`}}>
+                              {verdict.lbl}
+                            </span>
+                            {priceDelta!==null&&(
+                              <span style={{fontSize:12,color:priceDelta>0?C.red:C.green,fontWeight:700}}>
+                                {priceDelta>0?"+":""}{priceDelta.toFixed(1)}% since sale
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Price comparison grid */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",
+                          gap:4,fontSize:12}}>
+                          <div>
+                            <div style={{color:C.muted,marginBottom:1}}>Sold</div>
+                            <div style={{fontWeight:700}}>{fmtL(sellPrice,h.mkt)}</div>
+                            <div style={{color:C.muted,fontSize:11}}>{lastSell.date}</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{color:C.muted,marginBottom:1}}>Now</div>
+                            <div style={{fontWeight:700,
+                              color:livePrice>sellPrice?C.red:C.green}}>
+                              {fmtL(livePrice,h.mkt)}
+                            </div>
+                            <div style={{color:C.muted,fontSize:11}}>live</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{color:C.muted,marginBottom:1}}>
+                              {opportunitySGD!==null
+                                ?(opportunitySGD>=0?"Missed":"Saved")
+                                :"—"}
+                            </div>
+                            {opportunitySGD!==null&&(
+                              <>
+                                <div style={{fontWeight:700,
+                                  color:opportunitySGD>0?C.red:C.green}}>
+                                  {opportunitySGD>0?"+":"-"}{fmtS(Math.abs(opportunitySGD))}
+                                </div>
+                                <div style={{color:C.muted,fontSize:11}}>
+                                  {opportunitySGD>0?"if still held":"by selling"}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Holding period */}
+                        {firstBuy&&(()=>{
+                          const ms=new Date(lastSell.date)-new Date(firstBuy.date);
+                          const days=Math.round(ms/86400000);
+                          const yrs=(days/365).toFixed(1);
+                          return(
+                            <div style={{fontSize:11,color:C.muted,marginTop:5,
+                              textAlign:"center",borderTop:`1px solid ${C.border}`,paddingTop:4}}>
+                              Held {days>365?`${yrs} yrs`:`${days} days`}
+                              {` · from ${firstBuy.date} to ${lastSell.date}`}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {!lastSell&&tickerRealized===0&&(
+                      <div style={{textAlign:"center",fontSize:13,color:C.muted}}>
+                        Position closed · Tap to view trade history
+                      </div>
+                    )}
+                  </div>
+                );
+              })():(
                 <div style={{background:C.accent+"0D",border:`1px solid ${C.accentDim}20`,borderRadius:8,padding:"7px 10px",marginBottom:7}}>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:4}}>
                     <div><div style={{fontSize:13,color:C.muted}}>Value</div><div style={{fontSize:14,fontWeight:800}}>{fmtL(localVal,h.mkt,0)}</div><div style={{fontSize:13,color:C.muted}}>{fmtS(sgdVal)}</div></div>
