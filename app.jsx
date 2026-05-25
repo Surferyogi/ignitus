@@ -4315,6 +4315,104 @@ function App(){
                       </div>
                     );
                   })()}
+                  {t.type==="BUY"&&(()=>{
+                    // ── Buy quality check ───────────────────────────────────────────
+                    // PRIMARY: compare buy price vs current live price
+                    //          (answers: "has this purchase been profitable since entry?")
+                    // SECONDARY: compare buy price vs current avg cost of the position
+                    //          (answers: "did this buy improve or worsen the blended cost?")
+                    // Works for both active and fully-closed positions (live prices fetched
+                    // for all holdings).
+
+                    const buyPrice=Number(t.price)||0;
+                    if(buyPrice<=0) return null;
+                    const livePrice=linkedHolding?.price||0;
+                    if(livePrice<=0) return null;
+
+                    // Primary: buy price vs today's live price
+                    const pctVsNow=((livePrice-buyPrice)/buyPrice)*100;
+                    const gainSGD=toSGDlive((livePrice-buyPrice)*Number(t.shares),t.mkt);
+
+                    // Verdict: was this a good entry point?
+                    let verdict,vColor,vIcon;
+                    if(pctVsNow>30)       { verdict="Great Entry";      vColor=C.green; vIcon="✅"; }
+                    else if(pctVsNow>10)  { verdict="Good Entry";       vColor=C.green; vIcon="✅"; }
+                    else if(pctVsNow>0)   { verdict="Slight Gain";      vColor=C.gold;  vIcon="🟡"; }
+                    else if(pctVsNow>-10) { verdict="Bought High";      vColor=C.gold;  vIcon="🟡"; }
+                    else                  { verdict="Too Early / High";  vColor=C.red;   vIcon="🔴"; }
+
+                    // Secondary: compare this buy price vs current blended avg cost
+                    const avgCost=linkedHolding?.avgCost||0;
+                    const pctVsAvg=avgCost>0
+                      ?((buyPrice-avgCost)/avgCost)*100
+                      :null;
+
+                    const isStillHeld=linkedHolding&&Number(linkedHolding.shares)>0;
+
+                    return(
+                      <div style={{marginTop:4,padding:"5px 8px",borderRadius:6,
+                        background:vColor+"12",border:`1px solid ${vColor}30`}}>
+                        {/* Row 1: verdict + % since buy */}
+                        <div style={{display:"flex",justifyContent:"space-between",
+                          alignItems:"center",flexWrap:"wrap",gap:4}}>
+                          <span style={{fontSize:12,fontWeight:700,color:vColor}}>
+                            {vIcon} {verdict}
+                          </span>
+                          <span style={{fontSize:12,fontWeight:700,
+                            color:pctVsNow>=0?C.green:C.red}}>
+                            {pctVsNow>=0?"+":""}{pctVsNow.toFixed(1)}% since buy
+                          </span>
+                        </div>
+                        {/* Row 2: price grid — bought / now / gain or loss */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",
+                          gap:4,fontSize:12,marginTop:5}}>
+                          <div>
+                            <div style={{color:C.muted,marginBottom:1}}>Bought</div>
+                            <div style={{fontWeight:700}}>{sym}{fmt(buyPrice,2)}</div>
+                            <div style={{color:C.muted,fontSize:11}}>{t.date}</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{color:C.muted,marginBottom:1}}>Now</div>
+                            <div style={{fontWeight:700,
+                              color:livePrice>=buyPrice?C.green:C.red}}>
+                              {sym}{fmt(livePrice,2)}
+                            </div>
+                            <div style={{color:C.muted,fontSize:11}}>live</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{color:C.muted,marginBottom:1}}>
+                              {gainSGD>=0?"Gain":"Loss"}
+                            </div>
+                            <div style={{fontWeight:700,
+                              color:gainSGD>=0?C.green:C.red}}>
+                              {gainSGD>=0?"+":"-"}{fmtS(Math.abs(gainSGD))}
+                            </div>
+                            <div style={{color:C.muted,fontSize:11}}>
+                              {isStillHeld?"on this lot":"position closed"}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Row 3: avg cost context */}
+                        {pctVsAvg!==null&&isStillHeld&&(
+                          <div style={{fontSize:11,color:C.muted,marginTop:4,
+                            borderTop:`1px solid ${C.border}`,paddingTop:3,
+                            display:"flex",justifyContent:"space-between"}}>
+                            <span>
+                              This buy {sym}{fmt(buyPrice,2)} vs avg cost {sym}{fmt(avgCost,2)}
+                              <span style={{
+                                color:pctVsAvg<=0?C.green:C.red,
+                                fontWeight:700,marginLeft:4}}>
+                                {pctVsAvg<=0?"▼ lowered avg":"▲ raised avg"}
+                              </span>
+                            </span>
+                            <span style={{color:pctVsAvg<=0?C.green:C.red,fontWeight:700}}>
+                              {pctVsAvg>=0?"+":""}{pctVsAvg.toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {isDIV&&netDiv>0&&(()=>{
                     // Yield on cost = net received ÷ (shares × avgCost) × 100
                     // Net mode:   use linkedHolding.shares as proxy (current count)
