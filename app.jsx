@@ -4216,86 +4216,102 @@ function App(){
                   }
                   {t.type==="SELL"&&t.profit!=null&&t.profit!==0&&<div style={{fontSize:14,fontWeight:700,color:t.profit>=0?C.green:C.red,marginTop:2}}>P&amp;L: {t.profit>=0?"+":"-"}{sym}{fmt(Math.abs(t.profit),0)} <span style={{color:C.muted,fontWeight:400}}>({t.profit>=0?"+":"-"}{fmtS(Math.abs(ccyToSGD(t.profit,t.ccy||t.mkt)))})</span></div>}
                   {t.type==="SELL"&&(()=>{
-                    // ── Sell quality check ───────────────────────────────────────────
-                    // PATH A — Partial sell, still holding: compare sell price vs live price
-                    // PATH B — Fully closed position: compare sell price vs avg cost at sale
-                    //          avgCostAtSale = sellPrice − (profit / shares)
-                    //          (back-calculated from stored profit field)
+                    // ── Sell quality check ──────────────────────────────────────────
+                    // PRIMARY: always compare sell price vs current live price
+                    //          (answers: "was the timing right vs today?")
+                    // SECONDARY: show cost basis context below
+                    //          (answers: "was it profitable vs what was paid?")
+                    // Live price is fetched for ALL holdings including closed ones,
+                    // so this works for both partial and fully-closed positions.
 
-                    const sellPrice=t.price;
+                    const sellPrice=Number(t.price)||0;
                     if(sellPrice<=0) return null;
 
-                    const isStillHeld=linkedHolding&&!linkedHolding.fullySold&&linkedHolding.shares>0;
-                    const livePrice=isStillHeld ? linkedHolding.price : null;
+                    // Live price: prefer linkedHolding.price (all holdings get live prices);
+                    // falls back gracefully if not available
+                    const livePrice=linkedHolding?.price||0;
+                    if(livePrice<=0) return null;
 
-                    // PATH A: still-held — compare to live market price
-                    if(livePrice&&livePrice>0){
-                      const pctDiff=((livePrice-sellPrice)/sellPrice)*100;
-                      const missedGain=(livePrice-sellPrice)*t.shares;
-                      let verdict,vColor,vIcon;
-                      if(pctDiff>20)     { verdict="Too early";      vColor=C.red;   vIcon="🔴"; }
-                      else if(pctDiff>5) { verdict="Slightly early"; vColor=C.gold;  vIcon="🟡"; }
-                      else if(pctDiff>=-5){ verdict="Good timing";   vColor=C.green; vIcon="✅"; }
-                      else               { verdict="Great sell";     vColor=C.green; vIcon="✅"; }
-                      return(
-                        <div style={{marginTop:4,padding:"5px 8px",borderRadius:6,
-                          background:vColor+"12",border:`1px solid ${vColor}30`}}>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                            <span style={{fontSize:12,fontWeight:700,color:vColor}}>{vIcon} {verdict}</span>
-                            <span style={{fontSize:12,color:C.muted}}>Sold {sym}{fmt(sellPrice,2)} · Now {sym}{fmt(livePrice,2)}</span>
-                            <span style={{fontSize:12,fontWeight:700,color:pctDiff>0?C.red:C.green}}>
-                              {pctDiff>=0?"+":""}{pctDiff.toFixed(1)}%
-                            </span>
-                          </div>
-                          {Math.abs(missedGain)>0.01&&pctDiff>5&&(
-                            <div style={{fontSize:11,color:C.muted,marginTop:2}}>
-                              {pctDiff>0
-                                ?`Holding would be worth +${sym}${fmt(Math.abs(missedGain),0)} more`
-                                :`Saved ${sym}${fmt(Math.abs(missedGain),0)} by selling`}
-                              {" · "}{fmtS(Math.abs(ccyToSGD(missedGain,t.ccy||t.mkt)))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
-
-                    // PATH B: fully closed — compare sell price vs avg cost at time of sale
-                    // avgCostAtSale back-calculated: profit = (sellPrice - avgCost) × shares
-                    //   → avgCost = sellPrice - profit/shares
-                    const profit=t.profit||0;
-                    const shares=t.shares||0;
-                    if(shares<=0||profit==null) return null;
-                    const avgCostAtSale=sellPrice-(profit/shares);
-                    if(avgCostAtSale<=0) return null;
-                    const pctAboveCost=((sellPrice-avgCostAtSale)/avgCostAtSale)*100;
-                    const totalPL=profit; // already stored in local ccy
+                    // Primary: sell price vs today's live price
+                    const pctVsNow=((livePrice-sellPrice)/sellPrice)*100;
+                    const missedSGD=toSGDlive((livePrice-sellPrice)*Number(t.shares),t.mkt);
 
                     let verdict,vColor,vIcon;
-                    if(pctAboveCost>30)      { verdict="Excellent exit"; vColor=C.green; vIcon="✅"; }
-                    else if(pctAboveCost>10) { verdict="Good sell";      vColor=C.green; vIcon="✅"; }
-                    else if(pctAboveCost>0)  { verdict="Marginal gain";  vColor=C.gold;  vIcon="🟡"; }
-                    else if(pctAboveCost>-10){ verdict="Small loss";     vColor=C.gold;  vIcon="🟡"; }
-                    else                     { verdict="Sold at loss";   vColor=C.red;   vIcon="🔴"; }
+                    if(pctVsNow>20)      { verdict="Sold Too Early";   vColor=C.red;   vIcon="🔴"; }
+                    else if(pctVsNow>10) { verdict="Possibly Early";   vColor=C.gold;  vIcon="🟡"; }
+                    else if(pctVsNow>5)  { verdict="Slightly Early";   vColor=C.gold;  vIcon="🟡"; }
+                    else if(pctVsNow>=-5){ verdict="Good Timing";      vColor=C.green; vIcon="✅"; }
+                    else                 { verdict="Great Sell";       vColor=C.green; vIcon="✅"; }
+
+                    // Secondary: cost basis context (back-calculated from stored profit)
+                    const profit=Number(t.profit)||0;
+                    const shares=Number(t.shares)||0;
+                    const avgCostAtSale=shares>0 ? sellPrice-(profit/shares) : 0;
+                    const pctVsCost=avgCostAtSale>0
+                      ?((sellPrice-avgCostAtSale)/avgCostAtSale)*100
+                      :null;
+
+                    const isStillHeld=linkedHolding&&Number(linkedHolding.shares)>0;
 
                     return(
                       <div style={{marginTop:4,padding:"5px 8px",borderRadius:6,
                         background:vColor+"12",border:`1px solid ${vColor}30`}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <span style={{fontSize:12,fontWeight:700,color:vColor}}>{vIcon} {verdict}</span>
-                          <span style={{fontSize:12,color:C.muted}}>
-                            Cost {sym}{fmt(avgCostAtSale,2)} · Sold {sym}{fmt(sellPrice,2)}
+                        {/* Row 1: verdict + % vs today */}
+                        <div style={{display:"flex",justifyContent:"space-between",
+                          alignItems:"center",flexWrap:"wrap",gap:4}}>
+                          <span style={{fontSize:12,fontWeight:700,color:vColor}}>
+                            {vIcon} {verdict}
                           </span>
-                          <span style={{fontSize:12,fontWeight:700,color:pctAboveCost>=0?C.green:C.red}}>
-                            {pctAboveCost>=0?"+":""}{pctAboveCost.toFixed(1)}%
+                          <span style={{fontSize:12,fontWeight:700,
+                            color:pctVsNow>0?C.red:C.green}}>
+                            {pctVsNow>=0?"+":""}{pctVsNow.toFixed(1)}% since sale
                           </span>
                         </div>
-                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>
-                          {totalPL>=0
-                            ?`Realised +${sym}${fmt(totalPL,0)}`
-                            :`Realised -${sym}${fmt(Math.abs(totalPL),0)}`}
-                          {" · "}{fmtS(Math.abs(ccyToSGD(totalPL,t.ccy||t.mkt)))}
-                          {" · Position closed"}
+                        {/* Row 2: price grid — sold / now / gap */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",
+                          gap:4,fontSize:12,marginTop:5}}>
+                          <div>
+                            <div style={{color:C.muted,marginBottom:1}}>Sold</div>
+                            <div style={{fontWeight:700}}>{sym}{fmt(sellPrice,2)}</div>
+                            <div style={{color:C.muted,fontSize:11}}>{t.date}</div>
+                          </div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{color:C.muted,marginBottom:1}}>Now</div>
+                            <div style={{fontWeight:700,
+                              color:livePrice>sellPrice?C.red:C.green}}>
+                              {sym}{fmt(livePrice,2)}
+                            </div>
+                            <div style={{color:C.muted,fontSize:11}}>live</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{color:C.muted,marginBottom:1}}>
+                              {missedSGD>0?"Missed":"Saved"}
+                            </div>
+                            <div style={{fontWeight:700,
+                              color:missedSGD>0?C.red:C.green}}>
+                              {missedSGD>=0?"+":"-"}{fmtS(Math.abs(missedSGD))}
+                            </div>
+                            <div style={{color:C.muted,fontSize:11}}>
+                              {isStillHeld?"still holding":"if held today"}
+                            </div>
+                          </div>
                         </div>
+                        {/* Row 3: cost basis context */}
+                        {pctVsCost!==null&&(
+                          <div style={{fontSize:11,color:C.muted,marginTop:4,
+                            borderTop:`1px solid ${C.border}`,paddingTop:3,
+                            display:"flex",justifyContent:"space-between"}}>
+                            <span>
+                              Cost {sym}{fmt(avgCostAtSale,2)} → Sold {sym}{fmt(sellPrice,2)}
+                              <span style={{
+                                color:pctVsCost>=0?C.green:C.red,
+                                fontWeight:700,marginLeft:4}}>
+                                {pctVsCost>=0?"+":""}{pctVsCost.toFixed(1)}% on cost
+                              </span>
+                            </span>
+                            {!isStillHeld&&<span style={{color:C.muted}}>Position closed</span>}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
