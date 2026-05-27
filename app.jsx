@@ -4426,13 +4426,15 @@ function App(){
                   })()}
                   {isDIV&&netDiv>0&&(()=>{
                     // Yield on cost = net received ÷ (shares × avgCost) × 100
-                    // Net mode:   use linkedHolding.shares as proxy (current count)
-                    // Gross mode: use t.shares (actual ex-div count, stored in trade)
+                    // DBS-sourced DIV records are stored as: shares=1, price=total_amount.
+                    // Using t.shares=1 as denominator gives absurd yield (e.g. 4957%).
+                    // Fix: when t.shares<=1, use the holding's actual share count.
+                    // When t.shares>1 the trade was entered in per-share format — use it.
                     const h2=linkedHolding;
                     const avgCostH=h2?.avgCost||0;
-                    const sharesForYield=t.divMode==="net"
-                      ? (h2?.shares||0)          // best proxy for net mode
-                      : (t.shares||0);            // exact for gross mode
+                    const sharesForYield=Number(t.shares)>1
+                      ? Number(t.shares)          // per-share format: use trade shares
+                      : (h2?.shares||0);           // total-amount format (DBS): use holding shares
                     const yieldOnCost=(avgCostH>0&&sharesForYield>0)
                       ? (netDiv/(sharesForYield*avgCostH))*100
                       : null;
@@ -6376,7 +6378,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:27-22:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:28-00:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
