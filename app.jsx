@@ -2130,22 +2130,32 @@ function App(){
       if(!sellMap[t.ticker])sellMap[t.ticker]=[];
       sellMap[t.ticker].push(t);
     });
+    // SCRIP: stock splits / stock dividends that ADD shares with no cash cost.
+    // shares = positive new count; profit = negative cost-basis adjustment.
+    // e.g. BKNG 25:1 split (2026-04-06) +72sh, BXSL stock div +17sh, D05.SI bonus +170sh
+    const scripMap={};
+    tradeList.filter(t=>t.type==="SCRIP"&&Number(t.shares)>0).forEach(t=>{
+      if(!scripMap[t.ticker])scripMap[t.ticker]=0;
+      scripMap[t.ticker]+=Number(t.shares);
+    });
 
     // Include ALL tickers: those with trades AND those with no trades (manually entered)
     const allTickers=new Set([
       ...Object.keys(buyMap),
       ...Object.keys(sellMap),
-      ...curH.map(h=>h.ticker), // preserve holdings with no trades
+      ...Object.keys(scripMap),      // SCRIP tickers (stock splits / bonus shares)
+      ...curH.map(h=>h.ticker),      // preserve holdings with no trades
     ]);
 
     const rebuilt=[];
     allTickers.forEach(ticker=>{
       const buys=buyMap[ticker]||[];
       const sells=sellMap[ticker]||[];
+      const scripShares=scripMap[ticker]||0;
       const baseH=meta[ticker];
 
       // No trades at all: keep holding as-is (manually entered position)
-      if(buys.length===0&&sells.length===0){
+      if(buys.length===0&&sells.length===0&&scripShares===0){
         if(baseH) rebuilt.push({...baseH});
         return;
       }
@@ -2153,7 +2163,8 @@ function App(){
       let totalBuyShares=0,totalBuyCost=0;
       buys.forEach(b=>{totalBuyShares+=b.shares;totalBuyCost+=b.shares*b.price;});
       const totalSellShares=sells.reduce((s,t)=>s+t.shares,0);
-      const netShares=totalBuyShares-totalSellShares;
+      // scripShares adds to net position (zero additional cost — DBS avgCost already reflects)
+      const netShares=totalBuyShares+scripShares-totalSellShares;
 
       // Avg cost: preserve stored DBS-sourced value as authoritative source.
       // Trades DB is supplementary — it does NOT hold complete buy history for all stocks.
@@ -6365,7 +6376,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026.05.23-1337</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:27-14:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
