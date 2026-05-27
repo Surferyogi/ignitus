@@ -74,6 +74,23 @@
       if (!r.ok) throw new Error('Supabase ' + table + ': ' + r.status);
       return r.json();
     }
+    // Paginated fetch — bypasses Supabase server-side max_rows=1000 hard cap.
+    // Fetches in chunks of 1000 using offset until all rows are retrieved.
+    async function sbGetAll(table, query) {
+      const PAGE = 1000;
+      let all = [], offset = 0;
+      while (true) {
+        const q = (query || '') + '&limit=' + PAGE + '&offset=' + offset;
+        const r = await fetch(SB_URL + '/rest/v1/' + table + '?' + q, { headers: HDR });
+        if (!r.ok) throw new Error('Supabase ' + table + ': ' + r.status);
+        const rows = await r.json();
+        if (!Array.isArray(rows) || rows.length === 0) break;
+        all = all.concat(rows);
+        if (rows.length < PAGE) break; // last page — done
+        offset += PAGE;
+      }
+      return all;
+    }
     async function sbUpsert(table, rows) {
       if (!rows || !rows.length) return;
       const r = await fetch(SB_URL + '/rest/v1/' + table + '?on_conflict=id', {
@@ -96,7 +113,7 @@
         msg.textContent = 'Loading holdings...';
         const [holdings, trades, senate] = await Promise.all([
           sbGet('holdings', 'order=ticker'),
-          sbGet('trades',   'order=date.desc&limit=10000'),
+          sbGetAll('trades', 'order=date.desc'),
           sbGet('senate',   'order=date.desc&limit=200'),
         ]);
         // Normalise field names (snake_case DB → camelCase app)
