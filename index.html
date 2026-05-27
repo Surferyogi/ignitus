@@ -96,7 +96,7 @@
         msg.textContent = 'Loading holdings...';
         const [holdings, trades, senate] = await Promise.all([
           sbGet('holdings', 'order=ticker'),
-          sbGet('trades',   'order=date.desc'),
+          sbGet('trades',   'order=date.desc&limit=10000'),
           sbGet('senate',   'order=date.desc&limit=200'),
         ]);
         // Normalise field names (snake_case DB → camelCase app)
