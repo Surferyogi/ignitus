@@ -2164,7 +2164,12 @@ function App(){
       buys.forEach(b=>{totalBuyShares+=b.shares;totalBuyCost+=b.shares*b.price;});
       const totalSellShares=sells.reduce((s,t)=>s+t.shares,0);
       // scripShares adds to net position (zero additional cost — DBS avgCost already reflects)
-      const netShares=totalBuyShares+scripShares-totalSellShares;
+      const tradesNetShares=totalBuyShares+scripShares-totalSellShares;
+
+      // Shares: trust DB-sourced value as authoritative (same principle as avgCost below).
+      // Trades table has incomplete pre-2020 history and may have seeding artifacts.
+      // Exception: new ticker with no DB record → compute from trades as best estimate.
+      const netShares=baseH!=null ? Number(baseH.shares) : Math.max(0,tradesNetShares);
 
       // Avg cost: preserve stored DBS-sourced value as authoritative source.
       // Trades DB is supplementary — it does NOT hold complete buy history for all stocks.
@@ -2306,6 +2311,17 @@ function App(){
       }
     }
     const rebuiltH=rebuildHoldingsFromTrades(newTrades, holdingsForRebuild);
+    // Apply share delta for the submitted trade (shares are DB-authoritative in rebuild)
+    // New trade: +s for BUY/SCRIP, -s for SELL
+    // Edit trade: reverse old delta, apply new delta
+    const oldTrade=editTradeId!=null?trades.find(t=>t.id===editTradeId):null;
+    const hi=rebuiltH.findIndex(h=>h.ticker===tU);
+    if(hi>=0){
+      const newDelta=(type==='BUY'||type==='SCRIP')?s:-s;
+      const oldDelta=oldTrade?((oldTrade.type==='BUY'||oldTrade.type==='SCRIP')?-Number(oldTrade.shares):Number(oldTrade.shares)):0;
+      const finalShares=Math.max(0,Number(rebuiltH[hi].shares)+newDelta+oldDelta);
+      rebuiltH[hi]={...rebuiltH[hi],shares:finalShares,fullySold:finalShares<=0};
+    }
     setHoldings(rebuiltH);
     if(window.portfolioDB){window.portfolioDB.updateHoldings(rebuiltH).catch(e=>console.error('DB:',e));}
     setShowTradeForm(false);
@@ -2470,9 +2486,19 @@ function App(){
   }
 
   function deleteTrade(id){
+    const del=trades.find(t=>t.id===id);
     const newTrades=trades.filter(t=>t.id!==id);
     setTrades(newTrades);
     const rebuiltH2=rebuildHoldingsFromTrades(newTrades, holdings);
+    // Reverse the deleted trade's share effect
+    if(del&&del.type!=='DIV'){
+      const hi=rebuiltH2.findIndex(h=>h.ticker===del.ticker);
+      if(hi>=0){
+        const reverseDelta=(del.type==='BUY'||del.type==='SCRIP')?-Number(del.shares):Number(del.shares);
+        const finalShares=Math.max(0,Number(rebuiltH2[hi].shares)+reverseDelta);
+        rebuiltH2[hi]={...rebuiltH2[hi],shares:finalShares,fullySold:finalShares<=0};
+      }
+    }
     setHoldings(rebuiltH2);
     if(window.portfolioDB){window.portfolioDB.deleteTrade(id).catch(e=>console.error('DB:',e));window.portfolioDB.updateHoldings(rebuiltH2).catch(e=>console.error('DB:',e));}
     markDirty();
@@ -6378,7 +6404,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:28-00:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:28-17:27</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
