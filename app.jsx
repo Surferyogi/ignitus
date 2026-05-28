@@ -542,7 +542,8 @@ function App(){
   const [moatRefreshing,setMoatRefreshing]=useState(false);
   const [moatAiLoading,setMoatAiLoading]=useState({});
   const [intrinsicRefreshing,setIntrinsicRefreshing]=useState(false);
-  const [intrinsicUpdatedAt,setIntrinsicUpdatedAt]=useState(null); // ISO string from meta // Option C: per-ticker AI assessm
+  const [intrinsicUpdatedAt,setIntrinsicUpdatedAt]=useState(null);
+  const [stmtTotal,setStmtTotal]=useState(null); // Option C: DBS statement anchor total (SGD)
   const [showSoldStocks,setShowSoldStocks]=useState(false); // toggle sold stocks section per marketent
   const [valLoading,setValLoading]=useState({});
 
@@ -666,8 +667,8 @@ function App(){
           try{
             const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
             const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-            const r=await fetch(`${SB}/rest/v1/meta?key=eq.intrinsic_refresh_at`,
-              {headers:{'apikey':KEY,'Authorization':'Bearer '+KEY}});
+            const HDR={'apikey':KEY,'Authorization':'Bearer '+KEY};
+            const r=await fetch(`${SB}/rest/v1/meta?key=eq.intrinsic_refresh_at`,{headers:HDR});
             if(r.ok){
               const rows=await r.json();
               if(rows.length>0){
@@ -679,6 +680,12 @@ function App(){
                   setTimeout(()=>refreshAllIntrinsicWithAI(),8000);
                 }
               }
+            }
+            // Option C: load statement anchor total from meta
+            const rs=await fetch(`${SB}/rest/v1/meta?key=eq.stmt_total_sgd`,{headers:HDR});
+            if(rs.ok){
+              const rowsS=await rs.json();
+              if(rowsS.length>0) setStmtTotal(Number(rowsS[0].value));
             }
           }catch(e){}
         })();
@@ -1996,7 +2003,19 @@ function App(){
   const [tickerCheck,setTickerCheck]=useState({status:"idle",message:"",suggestions:[]});
   const [tickerSearchTerm,setTickerSearchTerm]=useState("");
 
-  const totalValSGD=useMemo(()=>holdings.filter(h=>!h.fullySold).reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0),[holdings,refreshKey]);
+  // Option C: portfolio total = DBS statement anchor (Apr 30 SGD 2,614,339.77)
+  //            + Σ (live_price - stmt_price) × shares × fxRate  per holding
+  // Falls back to raw sum when stmtTotal not yet loaded, or for new positions (stmtPrice==null).
+  const totalValSGD=useMemo(()=>{
+    if(!stmtTotal) return holdings.filter(h=>!h.fullySold).reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+    const delta=holdings.filter(h=>!h.fullySold).reduce((s,h)=>{
+      const sp=h.stmtPrice!=null?Number(h.stmtPrice):null;
+      // New position added after statement date — count full current value as delta
+      if(sp==null) return s+toSGDlive(h.price*h.shares,h.mkt);
+      return s+toSGDlive((h.price-sp)*h.shares,h.mkt);
+    },0);
+    return stmtTotal+delta;
+  },[holdings,stmtTotal,refreshKey]);
   const totalCostSGD=useMemo(()=>holdings.reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0),[holdings,refreshKey]);
   const unrealSGD=totalValSGD-totalCostSGD;
   const unrealPct=totalCostSGD?(unrealSGD/totalCostSGD)*100:0;
@@ -6404,7 +6423,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:28-17:27</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:29-01:46</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
