@@ -5205,9 +5205,21 @@ function App(){
     // ── Simulate WAVG per ticker from trades ─────────────────────────────────
     // Plain computation — useMemo invalid in render functions
     const reconData=(()=>{
-      // Build per-ticker trade history
+      // Build per-ticker trade history.
+      // DETERMINISTIC ORDER: date ASC, then acquisitions (BUY/SCRIP) before
+      // disposals (SELL) on the same day, then id. Without an explicit tie-break
+      // the result depended on DB row order and flickered between sessions
+      // (e.g. AMAT/TMUS/O39.SI/3033.HK flipped mismatch<->OK). Buys must settle
+      // before same-day sells can draw them down — basic accounting order.
+      const _typeRank=t=>(t.type==="BUY"||t.type==="SCRIP")?0:(t.type==="SELL"?1:2);
       const byTicker={};
-      [...trades].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).forEach(t=>{
+      [...trades].sort((a,b)=>{
+        const d=(a.date||"").localeCompare(b.date||"");
+        if(d!==0) return d;
+        const r=_typeRank(a)-_typeRank(b);
+        if(r!==0) return r;
+        return (a.id||0)-(b.id||0);
+      }).forEach(t=>{
         if(!byTicker[t.ticker]) byTicker[t.ticker]=[];
         byTicker[t.ticker].push(t);
       });
@@ -5220,13 +5232,20 @@ function App(){
         // Only BUY/SCRIP add to position; SELL subtracts. DIV and ROC are
         // income events (shares=1 convention) and must NOT change share count.
         let runShares=0, runAvg=0;
+        let clampHit=false; // a SELL exceeded shares-on-hand => position predates trade log
         const annotated=tradeList.map(t=>{
           if(t.type==="BUY"){
             runAvg=(runShares*runAvg+t.shares*t.price)/(runShares+t.shares);
             runShares+=t.shares;
           } else if(t.type==="SCRIP"){
+            // Stock dividend / split: adds shares at zero cost, so the weighted
+            // average cost is DILUTED across the larger base (total cost unchanged).
+            // (Previously avg was left untouched, leaving it overstated — e.g. BKNG
+            //  showed calc avg 2034.10 vs correct 81.36 after a 3->75 share scrip.)
+            if(runShares+t.shares>0) runAvg=(runShares*runAvg)/(runShares+t.shares);
             runShares+=t.shares;
           } else if(t.type==="SELL"){
+            if(t.shares>runShares+0.001) clampHit=true; // selling more than recorded
             runShares=Math.max(0,runShares-t.shares);
             // avg cost unchanged after sell (WAVG method)
           }
@@ -5238,9 +5257,16 @@ function App(){
         const calcAvg=parseFloat(runAvg.toFixed(4));
 
         const sharesMismatch=hasTrades&&Math.abs(h.shares-calcShares)>0.001;
-        const avgMismatch=hasTrades&&h.avgCost>0&&calcAvg>0&&Math.abs(h.avgCost-calcAvg)>0.01;
-        // Only genuine reconciliation errors (share count wrong) trigger MISMATCH
-        // Avg-only differences are informational — stored DBS value is authoritative
+        // Relative tolerance (~0.5%, floor 0.01) so rounding + embedded brokerage
+        // commission on high-priced names (e.g. AZO ~$3,700) don't false-flag.
+        const avgTol=Math.max(0.01,(h.avgCost||0)*0.005);
+        const avgMismatch=hasTrades&&h.avgCost>0&&calcAvg>0&&Math.abs(h.avgCost-calcAvg)>avgTol;
+        // A clamp means a SELL exceeded shares-on-hand: the opening lot predates the
+        // recorded trade history, so calc CANNOT reconcile and is NOT authoritative.
+        // Flag it honestly and do NOT offer to overwrite the stored (DBS) value.
+        const missingOpeningLot=sharesMismatch&&clampHit;
+        // Genuine, fixable share-count error: mismatch with a complete trade history.
+        const sharesFixable=sharesMismatch&&!missingOpeningLot;
         const hasMismatch=sharesMismatch;
         const avgOnlyDiscrepancy=!sharesMismatch&&avgMismatch;
 
@@ -5254,6 +5280,8 @@ function App(){
           avgMismatch,
           hasMismatch,
           avgOnlyDiscrepancy,
+          missingOpeningLot,
+          sharesFixable,
         };
       }).sort((a,b)=>{
         // Share mismatches first, then avg discrepancies, then no-trades, then OK
@@ -5349,8 +5377,8 @@ function App(){
           const isExpanded=expandedTicker===r.h.ticker;
           const isFixed=fixed[r.h.ticker];
           const isFix=fixing[r.h.ticker];
-          const status=isFixed?"fixed":r.sharesMismatch?"mismatch":r.avgOnlyDiscrepancy?"avgdiff":!r.hasTrades?"notrade":"ok";
-          const borderCol=status==="mismatch"?C.red:status==="avgdiff"?C.accent:status==="notrade"?C.gold:status==="fixed"?C.green:C.border;
+          const status=isFixed?"fixed":r.missingOpeningLot?"openlot":r.sharesMismatch?"mismatch":r.avgOnlyDiscrepancy?"avgdiff":!r.hasTrades?"notrade":"ok";
+          const borderCol=status==="mismatch"?C.red:status==="openlot"?C.gold:status==="avgdiff"?C.accent:status==="notrade"?C.gold:status==="fixed"?C.green:C.border;
 
           return(
             <div key={r.h.ticker} style={{...card,borderLeft:`4px solid ${borderCol}`,marginBottom:8}}>
@@ -5362,6 +5390,7 @@ function App(){
                     <span style={{fontWeight:800,fontSize:16}}>{r.h.ticker}</span>
                     <Chip mkt={r.h.mkt}/>
                     {status==="mismatch"&&<span style={{fontSize:12,color:C.red,fontWeight:700,background:C.red+"15",padding:"1px 6px",borderRadius:4}}>❌ MISMATCH</span>}
+                    {status==="openlot"&&<span style={{fontSize:12,color:C.gold,fontWeight:700,background:C.gold+"15",padding:"1px 6px",borderRadius:4}}>⚠ PRE-LOG LOT</span>}
                     {status==="avgdiff"&&<span style={{fontSize:12,color:C.accent,fontWeight:700,background:C.accent+"15",padding:"1px 6px",borderRadius:4}}>ℹ AVG DIFF</span>}
                     {status==="notrade"&&<span style={{fontSize:12,color:C.gold,fontWeight:700,background:C.gold+"15",padding:"1px 6px",borderRadius:4}}>⚠ NO TRADES</span>}
                     {status==="ok"&&<span style={{fontSize:12,color:C.green,fontWeight:700}}>✅</span>}
@@ -5398,8 +5427,11 @@ function App(){
                 </div>
               </div>
 
-              {/* Fix button — only for genuine share count mismatches */}
-              {r.sharesMismatch&&!isFixed&&(
+              {/* Fix button — only for genuine, COMPLETE-history share mismatches.
+                  Suppressed for missingOpeningLot: calc under-counts because the
+                  opening purchase predates the trade log, so the stored value is
+                  the authoritative one and must NOT be overwritten. */}
+              {r.sharesFixable&&!isFixed&&(
                 <div style={{marginTop:10}} onClick={e=>e.stopPropagation()}>
                   <button onClick={()=>applyFix(r)} disabled={isFix} style={{
                     width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.green}`,
@@ -5409,6 +5441,15 @@ function App(){
                   }}>
                     {isFix?"Applying fix...":"✅ Apply Fix — set shares="+r.calcShares+" avg="+fmtL(r.calcAvg,r.h.mkt)}
                   </button>
+                </div>
+              )}
+              {/* Note for pre-log opening lots — stored DBS value is authoritative */}
+              {r.missingOpeningLot&&!isFixed&&(
+                <div style={{marginTop:10,padding:"8px 10px",borderRadius:8,background:C.gold+"10",border:`1px solid ${C.gold}30`}}>
+                  <div style={{fontSize:12,color:C.gold,fontWeight:700,marginBottom:2}}>⚠ Opening lot predates trade log</div>
+                  <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>
+                    A recorded sell exceeds the shares the trade history can account for, so the opening purchase happened before the log begins. The calculated figure under-counts and is NOT authoritative — the stored DBS value is. No auto-fix offered; reconcile against the bank statement to backfill the opening lot.
+                  </div>
                 </div>
               )}
               {/* Info note for avg-only discrepancies — stored DBS value is authoritative */}
@@ -6428,7 +6469,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:31-11:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:31-18:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
