@@ -5217,15 +5217,20 @@ function App(){
         const hasTrades=tradeList.length>0;
 
         // Run WAVG simulation
+        // Only BUY/SCRIP add to position; SELL subtracts. DIV and ROC are
+        // income events (shares=1 convention) and must NOT change share count.
         let runShares=0, runAvg=0;
         const annotated=tradeList.map(t=>{
           if(t.type==="BUY"){
             runAvg=(runShares*runAvg+t.shares*t.price)/(runShares+t.shares);
             runShares+=t.shares;
-          } else {
+          } else if(t.type==="SCRIP"){
+            runShares+=t.shares;
+          } else if(t.type==="SELL"){
             runShares=Math.max(0,runShares-t.shares);
-            // avg cost unchanged on sell
+            // avg cost unchanged after sell (WAVG method)
           }
+          // DIV and ROC: income only — share balance unchanged
           return{...t,_runShares:runShares,_runAvg:parseFloat(runAvg.toFixed(4))};
         });
 
@@ -6423,7 +6428,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:29-01:46</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:31-11:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
