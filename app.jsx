@@ -55,8 +55,9 @@ function detectMktFromTicker(ticker){
   if(t.endsWith('.PA')||t.endsWith('.DE')||t.endsWith('.AS')||
      t.endsWith('.MI')||t.endsWith('.F')||t.endsWith('.BR'))
                          return 'EU';  // European exchanges
-  // No suffix = US market (NYSE/NASDAQ)
-  if(!t.includes('.'))   return 'US';
+  // No suffix — return null so DB mkt value is NOT overridden.
+  // e.g. ESLOF is EU (OTC ticker, no dot suffix) — DB is authoritative.
+  if(!t.includes('.'))   return null;
   return null; // unknown suffix — don't override
 }
 
@@ -610,6 +611,9 @@ function App(){
         // e.g. 0981.HK stored as mkt='US' → corrected to mkt='CN'
         const mktCorrected=(rebuiltOnLoad.length>0?rebuiltOnLoad:data.holdings).map(h=>{
           const correctMkt=detectMktFromTicker(h.ticker);
+          // Option B: DB mkt is authoritative. Only override when detectMkt returns a
+          // definitive suffix-based result (non-null) AND it disagrees with DB.
+          // When detectMkt returns null (no suffix, e.g. ESLOF), preserve DB value.
           if(!correctMkt||h.mkt===correctMkt) return h;
           const correctCcy=mktToCcy(correctMkt)||h.ccy||'USD';
           console.warn('[mkt-fix] '+h.ticker+': mkt='+h.mkt+'→'+correctMkt+' ccy→'+correctCcy);
@@ -3881,10 +3885,14 @@ function App(){
                 <input ref={tradeRefs.ticker} style={{...iField,borderColor:tickerCheck.status==="found"?C.green:tickerCheck.status==="suggestions"?C.gold:C.border}} placeholder="TICKER" defaultValue={tradeForm.ticker} onBlur={e=>{
                 const t=e.target.value.toUpperCase().trim();
                 const autoMkt=detectMktFromTicker(t);
-                const autoCcy=autoMkt?mktToCcy(autoMkt):null;
+                // Fall back to existing holding mkt when autoMkt is null (no suffix).
+                // Ensures ESLOF keeps EU, not US, when entered as a trade.
+                const existingHolding=holdings.find(h=>h.ticker===t);
+                const resolvedMkt=autoMkt||(existingHolding?.mkt)||null;
+                const autoCcy=resolvedMkt?mktToCcy(resolvedMkt):null;
                 setTradeForm(f=>({...f,
                   ticker:t,
-                  ...(autoMkt?{mkt:autoMkt}:{}),
+                  ...(resolvedMkt?{mkt:resolvedMkt}:{}),
                   ...(autoCcy?{ccy:autoCcy}:{}),
                 }));
               }}/>
@@ -6469,7 +6477,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:05:31-18:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:02-11:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
