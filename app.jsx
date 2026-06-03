@@ -5219,7 +5219,7 @@ function App(){
       // the result depended on DB row order and flickered between sessions
       // (e.g. AMAT/TMUS/O39.SI/3033.HK flipped mismatch<->OK). Buys must settle
       // before same-day sells can draw them down — basic accounting order.
-      const _typeRank=t=>(t.type==="BUY"||t.type==="SCRIP")?0:(t.type==="SELL"?1:2);
+      const _typeRank=t=>(t.type==="BUY"||t.type==="SCRIP"||t.type==="TRANSFER_IN")?0:(t.type==="SELL"?1:2);
       const byTicker={};
       [...trades].sort((a,b)=>{
         const d=(a.date||"").localeCompare(b.date||"");
@@ -5237,12 +5237,14 @@ function App(){
         const hasTrades=tradeList.length>0;
 
         // Run WAVG simulation
-        // Only BUY/SCRIP add to position; SELL subtracts. DIV and ROC are
-        // income events (shares=1 convention) and must NOT change share count.
+        // BUY and TRANSFER_IN add to position at cost; SCRIP adds shares at zero cost
+        // (dilutes avg); SELL subtracts. DIV and ROC are income events (shares=1
+        // convention) and must NOT change share count.
         let runShares=0, runAvg=0;
         let clampHit=false; // a SELL exceeded shares-on-hand => position predates trade log
         const annotated=tradeList.map(t=>{
-          if(t.type==="BUY"){
+          if(t.type==="BUY"||t.type==="TRANSFER_IN"){
+            // Both are real acquisitions at cost — same WAVG treatment.
             runAvg=(runShares*runAvg+t.shares*t.price)/(runShares+t.shares);
             runShares+=t.shares;
           } else if(t.type==="SCRIP"){
@@ -6489,7 +6491,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:03-14:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:03-18:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
