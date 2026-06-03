@@ -5477,7 +5477,13 @@ function App(){
                     <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"8px 0"}}>
                       No trade records found for this stock. Holdings were entered manually.
                     </div>
-                  ):(
+                  ):(()=>{
+                    // DIV and ROC are income-only events stored with shares=1 by convention.
+                    // They do NOT affect share count (excluded from WAVG simulation) and
+                    // are noise in the mismatch trade list. Only show BUY/SELL/SCRIP here.
+                    const displayTrades=r.tradeList.filter(t=>t.type!=="DIV"&&t.type!=="ROC");
+                    const hiddenIncomeCount=r.tradeList.length-displayTrades.length;
+                    return(
                     <>
                       {/* Column headers */}
                       <div style={{display:"grid",gridTemplateColumns:"80px 1fr 1fr 50px 40px 50px",gap:"2px 6px",fontSize:11,
@@ -5490,17 +5496,17 @@ function App(){
                         <div>Mkt</div>
                         <div style={{textAlign:"right"}}>Bal.</div>
                       </div>
-                      {r.tradeList.map((t,i)=>(
+                      {displayTrades.map((t,i)=>(
                         <div key={t.id||i} style={{
                           display:"grid",gridTemplateColumns:"80px 1fr 1fr 50px 40px 50px",
                           gap:"2px 6px",fontSize:13,
                           padding:"5px 0",
-                          borderBottom:i<r.tradeList.length-1?`1px solid ${C.border}22`:"none",
-                          background:t.type==="BUY"?C.green+"05":C.red+"05",
+                          borderBottom:i<displayTrades.length-1?`1px solid ${C.border}22`:"none",
+                          background:t.type==="BUY"?C.green+"05":t.type==="SCRIP"?C.accent+"05":C.red+"05",
                         }}>
                           <div style={{color:C.muted,fontSize:12}}>{t.date}</div>
-                          <div style={{fontWeight:700,color:t.type==="BUY"?C.green:C.red}}>
-                            {t.type==="BUY"?"+":"-"}{fmtL(t.price,t.mkt)}
+                          <div style={{fontWeight:700,color:t.type==="BUY"?C.green:t.type==="SCRIP"?C.accent:C.red}}>
+                            {t.type==="BUY"?"+":t.type==="SCRIP"?"↑":"-"}{fmtL(t.price,t.mkt)}
                           </div>
                           <div style={{fontWeight:600}}>{t.shares.toLocaleString()}</div>
                           <div style={{fontSize:12,color:C.muted}}>{t.ccy||"—"}</div>
@@ -5510,6 +5516,11 @@ function App(){
                           </div>
                         </div>
                       ))}
+                      {hiddenIncomeCount>0&&(
+                        <div style={{fontSize:11,color:C.muted,fontStyle:"italic",marginTop:4,paddingTop:4,borderTop:`1px dashed ${C.border}44`}}>
+                          💵 {hiddenIncomeCount} income event{hiddenIncomeCount>1?"s":""} (DIV/ROC) hidden — not relevant to share count
+                        </div>
+                      )}
                       {/* Running balance footer */}
                       <div style={{display:"flex",justifyContent:"space-between",marginTop:8,
                         padding:"6px 8px",background:C.surface,borderRadius:6,fontSize:12}}>
@@ -5519,7 +5530,8 @@ function App(){
                         </span>
                       </div>
                     </>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -6477,7 +6489,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:02-11:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:03-14:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
