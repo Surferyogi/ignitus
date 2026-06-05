@@ -1652,7 +1652,12 @@ function App(){
     //   DIV:   delta = 0,     cf = -(t.profit)           ← net dividend out to investor
     //          (cf is negative = money leaving portfolio; Modified Dietz strips this
     //           from the return so dividend income doesn't deflate TWR)
-    //   SCRIP: delta = +qty,  cf = 0                     ← stock dividend, no cash
+    //   TRANSFER_IN: delta = +qty, cf = +(price × qty)   ← treated like BUY for TWR
+    //   SCRIP:       delta = +qty, cf = 0                 ← stock dividend, no cash
+    // IMPORTANT: TRANSFER_IN must register its cost as a cash inflow (cf > 0).
+    // If cf=0 for TI, the Modified Dietz denominator does not include the capital
+    // injected, so the TWR interprets the portfolio value jump as pure price gain —
+    // massively inflating returns (e.g. +350% fabricated return in the TI period).
     const shareTimelines={};
     allRelevantTickers.forEach(ticker=>{
       shareTimelines[ticker]=trades
@@ -1662,11 +1667,12 @@ function App(){
           delta:   t.type==='BUY'  ?  Number(t.shares)
                  : t.type==='SELL' ? -Number(t.shares)
                  : t.type==='DIV'  ?  0            // cash dividend; no share change
-                 :                    Number(t.shares), // SCRIP: shares added
-          cf:      t.type==='BUY'  ?  Number(t.price)*Number(t.shares)
-                 : t.type==='SELL' ? -Number(t.price)*Number(t.shares)
+                 :                    Number(t.shares), // SCRIP/TRANSFER_IN: shares added
+          cf:      t.type==='BUY'||t.type==='TRANSFER_IN'
+                                  ?  Number(t.price)*Number(t.shares)  // capital invested
+                 : t.type==='SELL' ? -Number(t.price)*Number(t.shares) // proceeds received
                  : t.type==='DIV'  ? -(Number(t.profit)||0) // net div paid out (negative = outflow)
-                 :                   0, // SCRIP: no cash
+                 :                   0, // SCRIP: free shares, no cash
         }))
         .sort((a,b)=>a.dateMs-b.dateMs);
     });
@@ -1678,7 +1684,7 @@ function App(){
     allRelevantTickers.forEach(ticker=>{
       let totalCost=0, totalQty=0;
       shareTimelines[ticker].forEach(e=>{
-        if(e.cf>0){ totalCost+=e.cf; totalQty+=e.delta; } // BUY events only
+        if(e.cf>0){ totalCost+=e.cf; totalQty+=e.delta; } // BUY + TRANSFER_IN events
       });
       avgCostProxy[ticker]=totalQty>0 ? totalCost/totalQty : 0;
     });
@@ -6497,7 +6503,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:05-17:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-00:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
