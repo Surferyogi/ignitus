@@ -1517,7 +1517,9 @@ function App(){
       }
     }catch(e){console.warn('[intrinsic-single] error:',e.message);}
     setIntrinsicAiLoading(prev=>({...prev,[h.ticker]:false}));
-  }(currentHoldings){
+  }
+
+  async function fetchMissingNames(currentHoldings){
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
     const unnamed=(currentHoldings||holdings).filter(h=>
       !h.name||h.name===h.ticker||h.name===''
