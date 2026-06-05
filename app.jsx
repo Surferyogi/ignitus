@@ -1801,15 +1801,21 @@ function App(){
       // ── Step 6: helpers ────────────────────────────────────────────────────────────
 
       // Cumulative shares held at a given moment (O(events) per call)
+      // IMPORTANT: clamp to 0 at EACH STEP, not just at the end.
+      // Pre-log SELL events (positions from the old account, before tracking started)
+      // create a negative running qty that makes subsequent BUYs invisible in V:
+      //   e.g. SELL 500 (pre-log) → qty=-500. Then BUY +100 → qty=-400 → sharesAtDate=0
+      //   but CF for that BUY IS registered → TWR shows -18% fake loss (money out, no value in).
+      // Per-step clamping resets to 0 at the pre-log SELL, so new BUYs build correctly from 0.
       function sharesAtDate(ticker, ptMs){
         const evts=shareTimelines[ticker];
         if(!evts||!evts.length) return 0;
         let qty=0;
         for(const e of evts){
           if(e.dateMs>ptMs) break;
-          qty+=e.delta;
+          qty=Math.max(0,qty+e.delta);  // clamp per-step — pre-log SELLs don't poison future BUYs
         }
-        return Math.max(0,qty);
+        return qty;
       }
 
       // Historical price at chart point i for a ticker.
@@ -6578,7 +6584,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-01:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-02:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
