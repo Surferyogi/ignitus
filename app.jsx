@@ -75,8 +75,6 @@ const scoreH=h=>{
   return{iv,mt,dv,all:Math.round(iv*0.4+mt*0.35+dv*0.25)};
 };
 const getRec=h=>{
-  const iv=h.intrinsic||0;
-  if(iv<=0) return{lbl:"—",col:C.muted}; // No IV — cannot derive recommendation
   const up=((h.intrinsic-h.price)/h.price)*100;
   if(up>15&&h.moat!=="None")return{lbl:"STRONG BUY",col:C.green};
   if(up>5)return{lbl:"BUY",col:"#72E5A0"};
@@ -85,35 +83,17 @@ const getRec=h=>{
 };
 const buffettScore=h=>{
   const gainPct=((h.price-h.avgCost)/h.avgCost)*100;
-  // Guard: upside is null when IV is not available. Avoids -100% phantom upside.
-  const iv=h.intrinsic||0;
-  const upside=iv>0?((iv-h.price)/h.price)*100:null;
+  const upside=((h.intrinsic-h.price)/h.price)*100;
   const moatPts=h.moat==="Wide"?30:h.moat==="Narrow"?15:0;
   const divPts=Math.min(20,h.divYield*4);
-  // valuePts: 0 when IV unknown — honest, no phantom negative points
-  const valuePts=upside!==null?(upside>20?25:upside>10?15:upside>0?8:0):0;
+  const valuePts=upside>20?25:upside>10?15:upside>0?8:0;
   const pe=h.peRatio;
   // FIX: pe=0 means MISSING DATA — require pe>0 to avoid phantom quality points
   const qualPts=(pe>0&&pe<25)?15:(pe>0&&pe<35)?8:0;
   const gainPts=gainPct>50?10:gainPct>20?5:0;
   const total=Math.round((moatPts+divPts+valuePts+qualPts+gainPts)*10)/10;
   let action,reason,col;
-  if(upside===null){
-    // No IV available — base decision on fundamentals (moat, PE, dividends, gain) only
-    if(total>=65){
-      action="BUY MORE";col=C.green;
-      reason="Strong fundamentals — tap 🤖 on tile for intrinsic value";
-    } else if(total>=50){
-      action="ADD GRADUALLY";col="#72E5A0";
-      reason="Good fundamentals — intrinsic value pending";
-    } else if(total>=35){
-      action="HOLD";col=C.gold;
-      reason="Solid business — tap 🤖 on tile to search intrinsic value";
-    } else {
-      action="WATCH";col=C.mutedLight;
-      reason="Intrinsic value unavailable — limited basis for conviction";
-    }
-  } else if(total>=65&&upside>10){
+  if(total>=65&&upside>10){
     action="BUY MORE";col=C.green;reason="Wide moat + undervalued";
   } else if(total>=50&&upside>0){
     action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals, fair value";
@@ -583,7 +563,6 @@ function App(){
   const [moatAiLoading,setMoatAiLoading]=useState({});
   const [intrinsicRefreshing,setIntrinsicRefreshing]=useState(false);
   const [intrinsicUpdatedAt,setIntrinsicUpdatedAt]=useState(null);
-  const [intrinsicAiLoading,setIntrinsicAiLoading]=useState({});
   const [stmtTotal,setStmtTotal]=useState(null); // Option C: DBS statement anchor total (SGD)
   const [showSoldStocks,setShowSoldStocks]=useState(false); // toggle sold stocks section per marketent
   const [valLoading,setValLoading]=useState({});
@@ -1356,6 +1335,31 @@ function App(){
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
     const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
     const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+
+    // ── Dividend yield model for HK/JP stocks ──────────────────────────────
+    // Mirrors the SG REIT yield model in the edge function.
+    // Uses observable dividend yield + sector-appropriate target yield.
+    // Target yields derived from long-run historical trading ranges for each
+    // market/sector. Skip if divYield > 15% (likely distressed/special dividend)
+    // or < 0.5% (token dividend, not suitable for yield valuation).
+    const getYieldTarget=(h)=>{
+      const dy=h.divYield||0;
+      if(dy<0.5||dy>15) return null;
+      const sec=(h.sector||'').toLowerCase();
+      if(h.mkt==='CN'){  // HK-listed stocks
+        if(sec.includes('financ')||sec.includes('bank')) return 0.050; // HK banks/exchanges: 5%
+        if(sec.includes('material')||sec.includes('energy')||sec.includes('industri')) return 0.040;
+        if(sec.includes('real estate')||sec.includes('reit')) return 0.055; // HK property
+        return 0.035; // HK consumer/tech with dividends
+      }
+      if(h.mkt==='JP'){  // Japanese stocks
+        if(dy<1.0) return null; // Below meaningful threshold for JP
+        if(sec.includes('industri')||sec.includes('material')||sec.includes('consumer')) return 0.030;
+        return 0.035;
+      }
+      return null;
+    };
+
     try{
       const res=await fetch(EDGE_URL,{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -1367,15 +1371,16 @@ function App(){
       });
       if(!res.ok) return;
       const d=await res.json();
-      const analystTargets = d.analystTargets || {}; // Option A
-      const reitValues     = d.reitValues     || {}; // REIT yield model
-      const grahamValues   = d.grahamValues   || {}; // Option C — Graham Number
-      const dcfValues      = d.dcfValues      || {}; // Option C — DCF (EPS)
+      const analystTargets = d.analystTargets || {};
+      const reitValues     = d.reitValues     || {};
+      const grahamValues   = d.grahamValues   || {};
+      const dcfValues      = d.dcfValues      || {};
       const total = Object.keys(analystTargets).length + Object.keys(reitValues).length
                   + Object.keys(grahamValues).length   + Object.keys(dcfValues).length;
       console.log(`[compute_intrinsic] analyst=${Object.keys(analystTargets).length} reit=${Object.keys(reitValues).length} graham=${Object.keys(grahamValues).length} dcf=${Object.keys(dcfValues).length}`);
-      if(total===0) return;
       const now=new Date().toISOString();
+      // Capture stillNA after all sources (including yield model) are applied
+      let stillNA=[];
       setHoldings(prev=>{
         const upd=prev.map(h=>{
           if(h.isEtf) return{...h,intrinsic:0,intrinsicMethod:'etf',intrinsicUpdatedAt:now};
@@ -1383,13 +1388,22 @@ function App(){
           const analyst = analystTargets[h.ticker];
           const graham  = grahamValues[h.ticker];
           const dcf     = dcfValues[h.ticker];
-          // Priority: REIT yield > analyst consensus > Graham Number > DCF (EPS)
+          // Priority 1-4 from edge function (unchanged)
           if(reit    > 0) return{...h,intrinsic:reit,           intrinsicMethod:'reit_yield', intrinsicUpdatedAt:now};
           if(analyst?.target > 0) return{...h,intrinsic:analyst.target,intrinsicMethod:'analyst',    intrinsicUpdatedAt:now};
           if(graham  > 0) return{...h,intrinsic:graham,         intrinsicMethod:'graham',     intrinsicUpdatedAt:now};
           if(dcf     > 0) return{...h,intrinsic:dcf,            intrinsicMethod:'dcf_eps',    intrinsicUpdatedAt:now};
-          return h; // no data from this pass — keep existing value
+          // Priority 5: HK/JP dividend yield model (frontend extension)
+          const tgtY=getYieldTarget(h);
+          if(tgtY!==null&&(h.divYield||0)>0&&(h.price||0)>0){
+            const dps=(h.divYield/100)*h.price;
+            const fair=parseFloat((dps/tgtY).toFixed(4));
+            if(fair>0) return{...h,intrinsic:fair,intrinsicMethod:'reit_yield',intrinsicUpdatedAt:now};
+          }
+          return h;
         });
+        // Build stillNA AFTER all sources applied — only truly uncovered stocks
+        stillNA=upd.filter(h=>!h.isEtf&&Number(h.shares||0)>0&&!(h.intrinsic>0));
         if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic] DB:',e));
         return upd;
       });
@@ -1399,6 +1413,16 @@ function App(){
         method:'POST',headers:{...SBH,'Prefer':'resolution=merge-duplicates,return=minimal'},
         body:JSON.stringify({key:'intrinsic_refresh_at',value:now})
       }).catch(()=>{});
+      // ── Auto-chain: AI search for any stocks still without IV ──────────
+      // Runs silently in the background after formula. Rate-limited to 1 per
+      // 5 seconds so the Claude API isn't overwhelmed. Handles HK growth stocks
+      // (Meituan, Ganfeng, Hua Hong), JP stocks with no dividend, EU OTC etc.
+      if(stillNA.length>0){
+        console.log(`[compute_intrinsic] ${stillNA.length} stocks still NA after formula+yield — queuing background AI search`);
+        stillNA.forEach((h,i)=>{
+          setTimeout(()=>refreshSingleIntrinsicWithAI(h),(i+1)*5000);
+        });
+      }
     }catch(e){console.warn('[compute_intrinsic]',e.message);}
   }
 
@@ -1473,76 +1497,6 @@ function App(){
     console.log(`[intrinsic-ai] Done — ${Object.keys(allResults).length}/${stocks.length} updated`);
     setIntrinsicUpdatedAt(now);
     setIntrinsicRefreshing(false);
-  }
-
-  // ── Intrinsic Value: single-stock AI web search ───────────────────────────
-  // Per-stock 🤖 button on each holdings tile. Searches analyst targets for
-  // one stock only — faster than the bulk refresh (seconds, not minutes).
-  async function refreshSingleIntrinsicWithAI(h){
-    if(intrinsicAiLoading[h.ticker]) return;
-    setIntrinsicAiLoading(prev=>({...prev,[h.ticker]:true}));
-    const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
-    try{
-      const prompt=
-        "Search for the current analyst consensus price target for this stock. "
-        +"Use web search to find recent data from Bloomberg, Reuters, Refinitiv, or broker research. "
-        +"For REITs, find NAV (net asset value) per unit instead if available.\n\n"
-        +`${h.ticker} – ${h.name||h.ticker} (${h.mkt}, current price ${h.price})\n\n`
-        +"Return ONLY a JSON object (no markdown, no preamble, no code fences):\n"
-        +'{"ticker":"...","intrinsic":123.45,"n_analysts":5,"source":"brief note"}';
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:300,
-          tools:[{"type":"web_search_20250305","name":"web_search"}],
-          messages:[{role:"user",content:prompt}]
-        })
-      });
-      const d=await res.json();
-      const textBlocks=(d.content||[]).filter(c=>c.type==="text");
-      const raw=textBlocks[textBlocks.length-1]?.text||"{}";
-      let result={};
-      try{result=JSON.parse(raw);}catch(e){
-        const m=raw.match(/\{[\s\S]*?\}/);
-        if(m) try{result=JSON.parse(m[0]);}catch(e2){}
-      }
-      if(result.intrinsic>0){
-        const now=new Date().toISOString();
-        setHoldings(prev=>{
-          const upd=prev.map(holding=>
-            holding.ticker===h.ticker
-              ?{...holding,intrinsic:result.intrinsic,intrinsicMethod:'ai_search',intrinsicUpdatedAt:now}
-              :holding
-          );
-          if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic-single] DB:',e));
-          return upd;
-        });
-        // Update sel only if the user is STILL viewing this stock's detail panel
-        // (functional update: if sel has changed to another ticker or null, leave it alone)
-        setSel(prev=>prev?.ticker===h.ticker
-          ?{...prev,intrinsic:result.intrinsic,intrinsicMethod:'ai_search',intrinsicUpdatedAt:now}
-          :prev
-        );
-        // Persist directly to Supabase via REST
-        fetch(`${SB}/rest/v1/holdings?ticker=eq.${encodeURIComponent(h.ticker)}`,{
-          method:'PATCH',
-          headers:{...SBH,'Prefer':'return=minimal'},
-          body:JSON.stringify({
-            intrinsic:result.intrinsic,
-            intrinsic_method:'ai_search',
-            intrinsic_updated_at:now
-          })
-        }).catch(()=>{});
-        console.log(`[intrinsic-single] ${h.ticker}: ${result.intrinsic} from ${result.source||'AI'}`);
-      } else {
-        console.warn(`[intrinsic-single] ${h.ticker}: AI returned no value — raw: ${raw.slice(0,120)}`);
-      }
-    }catch(e){console.warn('[intrinsic-single] error:',e.message);}
-    setIntrinsicAiLoading(prev=>({...prev,[h.ticker]:false}));
   }
 
   async function fetchMissingNames(currentHoldings){
@@ -1787,51 +1741,7 @@ function App(){
         .sort((a,b)=>a.dateMs-b.dateMs);
     });
 
-    // ── Step 2b: retroactive stock-split adjustment ───────────────────────────────────
-    // Yahoo Finance returns SPLIT-ADJUSTED historical prices. For stock splits
-    // (SCRIP events at price=0 where scrip_qty ≥ 50% of pre-split holdings),
-    // the pre-split share counts must be retroactively multiplied by the split ratio.
-    //
-    // Without this: before the split, sharesAtDate() returns 300 shares ×
-    // adjusted_price(1560 JPY) = 3,744 SGD (5× understatement of actual 18,720).
-    // At the split date: 1200 shares added, V leaps 5× with CF=0 → +413% fake TWR spike.
-    //
-    // Fix: multiply all pre-split deltas by the ratio, remove the SCRIP event itself
-    // (now implicit). CF stays unchanged — you paid what you actually paid.
-    // Scrip dividends (typically <10% of holding, often with price>0) are left alone.
-    allRelevantTickers.forEach(ticker=>{
-      const evts=shareTimelines[ticker];
-      if(!evts||!evts.length) return;
-      // Pass 1: detect splits by running the cumulative qty
-      let runQty=0;
-      const splits=[];
-      for(const e of evts){
-        if(e.cf>0){                          runQty+=e.delta; }  // BUY / TI
-        else if(e.delta<0){                  runQty=Math.max(0,runQty+e.delta); }  // SELL
-        else if(e.cf===0&&e.delta>0&&runQty>0){ // SCRIP candidate
-          const ratio=(runQty+e.delta)/runQty;
-          if(ratio>=1.5){  // ≥50% addition → treat as stock split
-            splits.push({dateMs:e.dateMs,ratio});
-          }
-          runQty+=e.delta;
-        }
-      }
-      if(!splits.length) return;
-      // Pass 2: apply retroactive multiplier to all events BEFORE each split
-      splits.forEach(split=>{
-        evts.forEach(e=>{
-          if(e.dateMs<split.dateMs){
-            // Adjust share delta to match post-split equivalent count
-            // CF stays the same (actual cash paid in local currency doesn't change)
-            e.delta=Math.round(e.delta*split.ratio);
-          }
-        });
-        // Remove the SCRIP event (now implicit in the retroactive count)
-        const idx=evts.findIndex(e=>e.dateMs===split.dateMs&&e.cf===0&&e.delta>0);
-        if(idx>=0) evts.splice(idx,1);
-      });
-      shareTimelines[ticker]=evts;
-    });
+    // ── Step 3: avg-cost proxy for tickers we cannot get live price history ───────
     // Used as a constant price fallback (conservative: no appreciation shown).
     // Better than 0 for the TWR denominator — at least the scale is right.
     const avgCostProxy={};
@@ -1892,21 +1802,15 @@ function App(){
       // ── Step 6: helpers ────────────────────────────────────────────────────────────
 
       // Cumulative shares held at a given moment (O(events) per call)
-      // IMPORTANT: clamp to 0 at EACH STEP, not just at the end.
-      // Pre-log SELL events (positions from the old account, before tracking started)
-      // create a negative running qty that makes subsequent BUYs invisible in V:
-      //   e.g. SELL 500 (pre-log) → qty=-500. Then BUY +100 → qty=-400 → sharesAtDate=0
-      //   but CF for that BUY IS registered → TWR shows -18% fake loss (money out, no value in).
-      // Per-step clamping resets to 0 at the pre-log SELL, so new BUYs build correctly from 0.
       function sharesAtDate(ticker, ptMs){
         const evts=shareTimelines[ticker];
         if(!evts||!evts.length) return 0;
         let qty=0;
         for(const e of evts){
           if(e.dateMs>ptMs) break;
-          qty=Math.max(0,qty+e.delta);  // clamp per-step — pre-log SELLs don't poison future BUYs
+          qty+=e.delta;
         }
-        return qty;
+        return Math.max(0,qty);
       }
 
       // Historical price at chart point i for a ticker.
@@ -1976,13 +1880,9 @@ function App(){
       twrSeries[firstNonZero]=100;
 
       for(let i=firstNonZero+1;i<n;i++){
-        // NaN guard: ?? does not catch NaN (only null/undefined).
-        // If a Yahoo Finance gap or Infinity produces NaN in V, it would propagate
-        // through every subsequent twrSeries value — silently corrupting the chart.
-        const prevRaw=twrSeries[i-1];
-        const prev=(prevRaw!=null&&isFinite(prevRaw))?prevRaw:100;
-        const vStart=isFinite(V[i-1])?V[i-1]:0;
-        const vEnd=isFinite(V[i])?V[i]:0;
+        const prev=twrSeries[i-1]??100;
+        const vStart=V[i-1];
+        const vEnd=V[i];
         if(vStart<=0){ twrSeries[i]=prev; continue; }
         const cf=CF[i];
         const denom=vStart+cf*0.5;
@@ -2294,16 +2194,16 @@ function App(){
     if(aiText[h.ticker])return;
     setAiLoad(p=>({...p,[h.ticker]:true}));
     const sc=scoreH(h),m=MKT[h.mkt]||MKT.US,bs=buffettScore(h);
-    const up=((h.intrinsic||0)>0)?((h.intrinsic-h.price)/h.price*100).toFixed(1):null;
+    const up=((h.intrinsic-h.price)/h.price*100).toFixed(1);
     const prompt=[
       "Buffett-style analysis for Singapore investor. 3-4 paragraphs.",
       "Stock: "+h.name+" ("+h.ticker+") Market: "+h.mkt+" "+m.code,
       "Price: "+m.symbol+h.price+" approx S$"+fmt(toSGDlive(h.price,h.mkt))+" Avg Cost: "+m.symbol+h.avgCost,
-      up!==null?"Intrinsic: "+m.symbol+h.intrinsic+" Upside: "+up+"%":"Intrinsic: N/A — not yet loaded; omit valuation comparison from analysis",
+      "Intrinsic: "+m.symbol+h.intrinsic+" Upside: "+up+"%",
       "Moat: "+h.moat+" PE: "+(h.peRatio>0?h.peRatio:"N/A (pre-profit or data pending)")+" Div: "+h.divYield+"%",
       "Buffett Score: "+bs.score+"/100 Action: "+bs.action,
       "Benchmark: "+m.index+" YTD "+m.idxYtd+"%",
-      "1-Business quality and moat 2-Valuation (skip if IV N/A, note it is unavailable) 3-Risks 4-Buffett-style recommendation"
+      "1-Business quality and moat 2-Valuation 3-Risks 4-Buffett-style recommendation"
     ].join("\n");
     try{
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:900,messages:[{role:"user",content:prompt}]})});
@@ -5896,8 +5796,13 @@ function App(){
                 </>
               ):(
                 (()=>{
-                  const ivMissing = !h.isEtf && effectiveIV<=0;
-                  const isAiLoading = !!intrinsicAiLoading[h.ticker];
+                  // Determine IV data quality for this holding:
+                  // "missing"  — effectiveIV is 0, no data from any source (non-ETF only)
+                  // "no_method"— effectiveIV > 0 but intrinsicMethod is null (old DB row,
+                  //               never went through computeAllIntrinsic; value is stale/unknown-age)
+                  // "ok"       — effectiveIV > 0 and intrinsicMethod is set (freshly computed)
+                  const ivMissing  = !h.isEtf && effectiveIV<=0;
+                  const ivNoMethod = !h.isEtf && effectiveIV>0 && !h.intrinsicMethod && !computedIV;
                   return(<>
                     <div style={{fontSize:13,color:C.muted,marginBottom:2}}>
                       Intrinsic {(()=>{
@@ -5908,46 +5813,33 @@ function App(){
                         if(m==='graham')     return <span style={{color:C.accent, fontSize:10,fontWeight:700,background:C.accent+'15',padding:"1px 4px",borderRadius:3}}>Graham</span>;
                         if(m==='dcf_eps')    return <span style={{color:C.accentDim,fontSize:10,fontWeight:700,background:C.accentDim+'20',padding:"1px 4px",borderRadius:3}}>DCF</span>;
                         if(m==='ai_search')  return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>🤖AI</span>;
+                        if(ivNoMethod)       return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'18', padding:"1px 4px",borderRadius:3}}>⚠ unverified</span>;
                         return null;
                       })()}
                     </div>
                     {ivMissing?(
-                      <>
-                        <div style={{fontSize:17,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>NA</div>
-                        {!h.isEtf&&(
-                          <button
-                            onClick={e=>{e.stopPropagation();refreshSingleIntrinsicWithAI(h);}}
-                            disabled={isAiLoading}
-                            style={{marginTop:4,padding:"3px 8px",borderRadius:6,
-                              border:`1px solid ${C.purple}`,
-                              background:isAiLoading?C.surface:C.purple+"18",
-                              color:isAiLoading?C.muted:C.purple,
-                              fontSize:11,fontWeight:700,
-                              cursor:isAiLoading?"not-allowed":"pointer",
-                              display:"block",width:"100%"}}>
-                            {isAiLoading?"⏳ Searching…":"🤖 Search"}
-                          </button>
-                        )}
-                      </>
+                      <div style={{marginTop:4}}>
+                        <div style={{display:"inline-flex",alignItems:"center",gap:4,
+                          background:C.red+"18",border:`1px solid ${C.red}40`,
+                          borderRadius:5,padding:"3px 7px",marginBottom:4}}>
+                          <span style={{fontSize:12,fontWeight:700,color:C.red}}>⚠ IV not available</span>
+                        </div>
+                        <div style={{fontSize:12,color:C.muted,lineHeight:1.4}}>
+                          No analyst target, Graham Number, or DCF data returned.<br/>
+                          Try 🤖 AI Refresh in the Insights tab.
+                        </div>
+                      </div>
                     ):(
                       <>
-                        <div style={{fontSize:18,fontWeight:800}}>{fmtL(effectiveIV,h.mkt)}</div>
+                        <div style={{fontSize:18,fontWeight:800}}>{effectiveIV>0?fmtL(effectiveIV,h.mkt):"—"}</div>
                         <div style={{fontSize:13,color:upside>=0?C.green:C.red,fontWeight:700}}>
-                          {(upside>=0?"+":"")+fmt(upside,1)+"%"}
+                          {effectiveIV>0?((upside>=0?"+":"")+fmt(upside,1)+"%"):"no data"}
                         </div>
-                        {!h.isEtf&&(
-                          <button
-                            onClick={e=>{e.stopPropagation();refreshSingleIntrinsicWithAI(h);}}
-                            disabled={isAiLoading}
-                            style={{marginTop:4,padding:"2px 6px",borderRadius:5,
-                              border:`1px solid ${C.purple}50`,
-                              background:"transparent",
-                              color:isAiLoading?C.muted:C.purple,
-                              fontSize:10,fontWeight:700,
-                              cursor:isAiLoading?"not-allowed":"pointer",
-                              display:"block",width:"100%"}}>
-                            {isAiLoading?"⏳":"🤖"}
-                          </button>
+                        {ivNoMethod&&(
+                          <div style={{fontSize:11,color:C.gold,marginTop:3}}>
+                            Stored estimate — source unknown.<br/>
+                            Run IV refresh to update.
+                          </div>
                         )}
                       </>
                     )}
@@ -6081,6 +5973,19 @@ function App(){
             const growthUsed=inp.growthUsed||5;
             const growthSrc=inp.growthSource||'default 5%';
 
+            // Stored Option A/B/C value from computeAllIntrinsic / AI refresh
+            const storedIV=h.intrinsic||0;
+            const storedMethod=h.intrinsicMethod||null;
+            const MLABELS={
+              analyst:   'Analyst Consensus (Yahoo)',
+              graham:    'Graham Number (Yahoo)',
+              dcf_eps:   'DCF·EPS (Yahoo)',
+              reit_yield:'REIT Yield Model',
+              ai_search: 'AI Web Search',
+            };
+            const storedLabel=storedMethod?(MLABELS[storedMethod]||storedMethod):'Stored Estimate';
+            const hasStoredIV=storedIV>0&&storedMethod!=='etf';
+
             // Finnhub-based quantitative model rows
             const finnhubSources=[
               {label:"DCF (EPS-based)", val:vals.dcfEPS,    ok:!!(avail.dcfEPSAvailable&&vals.dcfEPS>0),
@@ -6099,17 +6004,25 @@ function App(){
             // Show Yahoo target only if meaningfully different from Finnhub (>5% gap)
             const showYahooTgt=yahooTgt>0&&(finnhubAnalystTgt===0||Math.abs(yahooTgt-finnhubAnalystTgt)/finnhubAnalystTgt>0.05);
 
-            // PRIMARY ESTIMATE HIERARCHY (most reliable → least reliable):
-            // 1. Analyst consensus (Finnhub or Yahoo)  — real professionals' targets
-            // 2. DCF+Lynch formula average              — backward-looking, use as reference only
-            // Stored estimate is REMOVED from display — it may be stale or method-unknown
-            const hasAnalystData=finnhubAnalystTgt>0||showYahooTgt;
-            const analystTarget=finnhubAnalystTgt>0?finnhubAnalystTgt:yahooTgt;
-            const analystCount=vals.numAnalysts||rec.totalAnalysts||0;
-            const analystSource=finnhubAnalystTgt>0?`Finnhub · ${analystCount} analysts`:'Yahoo quoteSummary';
-
-            const primaryEst=hasAnalystData?analystTarget:(computedAvg>0?computedAvg:0);
-            const primaryUpside=priceLive>0&&primaryEst>0?((primaryEst-priceLive)/priceLive*100):0;
+            // BEST ESTIMATE: true average of ALL available data sources
+            // Analyst targets get their own contribution alongside model outputs
+            const allPts=[
+              finnhubAnalystTgt>0?finnhubAnalystTgt:0,
+              showYahooTgt?yahooTgt:0,
+              computedAvg>0?computedAvg:0,   // DCF+Lynch avg
+              // Include stored value ONLY if it comes from an analyst (avoids double-count with DCF models)
+              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search')?storedIV:0,
+            ].filter(v=>v>0);
+            const bestAvg=allPts.length>0?allPts.reduce((s,v)=>s+v,0)/allPts.length:storedIV>0?storedIV:0;
+            const bestAvgUpside=priceLive>0&&bestAvg>0?((bestAvg-priceLive)/priceLive*100):0;
+            const bestAvgSources=[
+              finnhubAnalystTgt>0?`Analyst (${vals.numAnalysts||rec.totalAnalysts||0})`:null,
+              showYahooTgt?'Yahoo analyst':null,
+              computedAvg>0?'DCF+Lynch':null,
+              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search')?storedLabel:null,
+            ].filter(Boolean);
+            const bestAvgLabel=bestAvgSources.length>0?`avg of: ${bestAvgSources.join(' · ')}`
+                              :storedIV>0?storedLabel:'—';
 
             const recText=rec.score>=0.7?"Strong Buy":rec.score>=0.3?"Buy":rec.score>=-0.3?"Hold":rec.score>=-0.7?"Sell":"Strong Sell";
             const recCol=rec.score>=0.3?C.green:rec.score>=-0.3?C.gold:C.red;
@@ -6131,53 +6044,14 @@ function App(){
                   <div style={{textAlign:"right"}}>Method</div>
                 </div>
 
-                {/* ── ANALYST CONSENSUS — primary source ─────────────────────── */}
-                {finnhubAnalystTgt>0&&(()=>{
-                  const upside=priceLive>0?((finnhubAnalystTgt-priceLive)/priceLive*100):0;
-                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
-                  return(
-                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.green}40`,background:C.green+"08",borderRadius:6,padding:"8px 6px"}}>
-                      <div style={{fontWeight:800,color:C.green}}>Analyst Consensus</div>
-                      <div style={{fontWeight:800,textAlign:"right"}}>${fmt(finnhubAnalystTgt)}</div>
-                      <div style={{fontWeight:800,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
-                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>Finnhub · {analystCount} analysts</div>
-                    </div>
-                  );
-                })()}
-                {showYahooTgt&&(()=>{
-                  const upside=priceLive>0?((yahooTgt-priceLive)/priceLive*100):0;
-                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
-                  return(
-                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.green}40`,background:C.green+"08",borderRadius:6,padding:"8px 6px"}}>
-                      <div style={{fontWeight:800,color:C.green}}>Analyst Consensus</div>
-                      <div style={{fontWeight:800,textAlign:"right"}}>${fmt(yahooTgt)}</div>
-                      <div style={{fontWeight:800,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
-                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>Yahoo · consensus</div>
-                    </div>
-                  );
-                })()}
-
-                {/* Warning banner when no analyst data is loaded */}
-                {!hasAnalystData&&(
-                  <div style={{background:C.gold+"14",border:`1px solid ${C.gold}44`,borderRadius:7,padding:"8px 10px",marginBottom:8}}>
-                    <div style={{fontSize:13,color:C.gold,fontWeight:700,marginBottom:3}}>⚠ No analyst target loaded</div>
-                    <div style={{fontSize:12,color:C.mutedLight,lineHeight:1.5}}>
-                      Tap <b>🔄 Formula</b> or <b>🤖 AI Web Refresh</b> in the Buffett tab to fetch real analyst consensus targets. Until then, only formula models are shown below.
-                    </div>
-                  </div>
-                )}
-
-                {/* ── QUANTITATIVE MODELS — reference only ───────────────────── */}
-                <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:5,marginTop:4}}>
-                  Formula Models — Reference Only
-                </div>
+                {/* Finnhub quantitative model rows */}
                 {finnhubSources.map((s,i)=>{
                   if(s.ok){
                     const upside=priceLive>0?((s.val-priceLive)/priceLive*100):0;
                     const col=upside>=15?C.green:upside>=0?C.gold:C.red;
                     return(
-                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`,opacity:0.85}}>
-                        <div style={{fontWeight:700,color:C.mutedLight}}>{s.label}</div>
+                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.border}`}}>
+                        <div style={{fontWeight:700,color:C.text}}>{s.label}</div>
                         <div style={{fontWeight:700,textAlign:"right"}}>${fmt(s.val)}</div>
                         <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
                         <div style={{fontSize:13,color:C.muted,textAlign:"right"}}>{s.note}</div>
@@ -6185,7 +6059,7 @@ function App(){
                     );
                   } else {
                     return(
-                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px dashed ${C.border}44`,opacity:0.4}}>
+                      <div key={s.label} style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px dashed ${C.border}44`,opacity:0.45}}>
                         <div style={{fontWeight:600,color:C.mutedLight,textDecoration:"line-through"}}>{s.label}</div>
                         <div style={{textAlign:"right",color:C.muted,fontSize:16,letterSpacing:2}}>· · ·</div>
                         <div style={{textAlign:"right",color:C.muted,fontSize:16,letterSpacing:2}}>· · ·</div>
@@ -6195,17 +6069,60 @@ function App(){
                   }
                 })}
 
-                {/* ── PRIMARY ESTIMATE ROW ─────────────────────────────────────── */}
-                {primaryEst>0?(
-                  <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:15,marginTop:8,paddingTop:8,borderTop:`2px solid ${hasAnalystData?C.green+"60":C.gold+"60"}`}}>
-                    <div style={{fontWeight:800,color:hasAnalystData?C.green:C.gold}}>
-                      {hasAnalystData?"ANALYST TARGET":"FORMULA REF"}
+                {/* Analyst consensus rows — Finnhub + Yahoo. These are the most reliable for well-covered stocks. */}
+                {finnhubAnalystTgt>0&&(()=>{
+                  const upside=priceLive>0?((finnhubAnalystTgt-priceLive)/priceLive*100):0;
+                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.green}30`,background:C.green+"06",borderRadius:4,padding:"6px 4px"}}>
+                      <div style={{fontWeight:700,color:C.green}}>Analyst Consensus</div>
+                      <div style={{fontWeight:700,textAlign:"right"}}>${fmt(finnhubAnalystTgt)}</div>
+                      <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
+                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>Finnhub · {vals.numAnalysts||rec.totalAnalysts||0} analysts</div>
                     </div>
-                    <div style={{fontWeight:800,textAlign:"right",color:hasAnalystData?C.green:C.gold}}>${fmt(primaryEst)}</div>
-                    <div style={{fontWeight:800,textAlign:"right",color:primaryUpside>=0?C.green:C.red}}>{primaryUpside>=0?"+":""}{fmt(primaryUpside,1)}%</div>
-                    <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>
-                      {hasAnalystData?analystSource:finnhubAvailCount>1?"avg DCF+Lynch":"formula only"}
+                  );
+                })()}
+                {showYahooTgt&&(()=>{
+                  const upside=priceLive>0?((yahooTgt-priceLive)/priceLive*100):0;
+                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.green}30`,background:C.green+"06",borderRadius:4,padding:"6px 4px"}}>
+                      <div style={{fontWeight:700,color:C.green}}>Analyst Consensus</div>
+                      <div style={{fontWeight:700,textAlign:"right"}}>${fmt(yahooTgt)}</div>
+                      <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
+                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>Yahoo quoteSummary</div>
                     </div>
+                  );
+                })()}
+
+                {/* Option A/B/C: stored intrinsic from computeAllIntrinsic / AI refresh */}
+                {hasStoredIV&&(()=>{
+                  const upside=priceLive>0?((storedIV-priceLive)/priceLive*100):0;
+                  const col=upside>=15?C.green:upside>=0?C.gold:C.red;
+                  const srcColor=storedMethod==='analyst'?C.green:storedMethod==='ai_search'?C.purple:C.accent;
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${srcColor}30`,background:srcColor+"06",borderRadius:4,padding:"6px 4px"}}>
+                      <div style={{fontWeight:700,color:srcColor}}>{storedLabel}</div>
+                      <div style={{fontWeight:700,textAlign:"right"}}>${fmt(storedIV)}</div>
+                      <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
+                      <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>
+                        {storedMethod==='analyst'?'Yahoo quoteSummary'
+                          :storedMethod==='ai_search'?'🤖 AI web search'
+                          :storedMethod==='graham'?'√(22.5·EPS·BVPS)'
+                          :storedMethod==='dcf_eps'?'5-yr DCF·EPS'
+                          :'stored value'}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Best available estimate row */}
+                {bestAvg>0?(
+                  <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:15,marginTop:8,paddingTop:8,borderTop:`2px solid ${C.purple}44`}}>
+                    <div style={{fontWeight:800,color:C.purple}}>BEST ESTIMATE</div>
+                    <div style={{fontWeight:800,textAlign:"right",color:C.purple}}>${fmt(bestAvg)}</div>
+                    <div style={{fontWeight:800,textAlign:"right",color:bestAvgUpside>=0?C.green:C.red}}>{bestAvgUpside>=0?"+":""}{fmt(bestAvgUpside,1)}%</div>
+                    <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>{bestAvgLabel}</div>
                   </div>
                 ):(
                   <div style={{textAlign:"center",fontSize:14,color:C.muted,marginTop:10,padding:"8px",background:C.surface,borderRadius:6}}>
@@ -6215,7 +6132,7 @@ function App(){
 
                 {/* Disclaimer */}
                 <div style={{fontSize:12,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
-                  <b style={{color:C.gold}}>Hierarchy:</b> <b style={{color:C.green}}>Analyst Consensus</b> = real price targets from professional analysts (most reliable). <b>DCF (EPS) / Peter Lynch</b> = formula models using backward-looking EPS — they contradict each other by design, treat as rough reference only. <b>Formula Ref</b> = their average, shown only when no analyst data is available.
+                  <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = over/undervaluation at today's price. Negative = overvalued. <b>DCF (EPS)</b> discounts 5 years of projected earnings. <b>Peter Lynch</b> = PEG 1.0 fair value. <b style={{color:C.green}}>Analyst Consensus</b> / <b style={{color:C.purple}}>AI Web Search</b> = analyst price targets from Yahoo or web. <b>BEST ESTIMATE</b> drives the Intrinsic tile above.
                 </div>
               </div>
             );
@@ -6434,16 +6351,10 @@ function App(){
             {(()=>{
               const bs=buffettScore(h);
               const gainPctAI=((h.price-h.avgCost)/h.avgCost)*100;
-              const hasIV=(h.intrinsic||0)>0;
-              const upsideAI=hasIV?((h.intrinsic-h.price)/h.price)*100:null;
+              const upsideAI=((h.intrinsic-h.price)/h.price)*100;
               const divOk=h.divYield>0;
               const moatStr=h.moat==="Wide"?"a wide economic moat — strong competitive advantages":h.moat==="Narrow"?"a narrow moat — some competitive advantages":"no significant moat";
-              // Only describe valuation when real IV data is available
-              const valuationStr=!hasIV
-                ?"Intrinsic value has not yet been loaded — tap 🤖 on the Intrinsic tile to search for analyst targets."
-                :upsideAI>15?"The stock is trading below intrinsic value — a margin of safety exists, with an estimate of "+fmtL(h.intrinsic,h.mkt)+" vs current price of "+fmtL(h.price,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
-                :upsideAI>0?"The stock is near fair value with limited margin of safety — intrinsic estimate "+fmtL(h.intrinsic,h.mkt)+" vs "+fmtL(h.price,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
-                :"The stock is trading above intrinsic value at "+fmtL(h.price,h.mkt)+" vs estimate of "+fmtL(h.intrinsic,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside) — caution warranted.";
+              const valuation=upsideAI>15?"trading below intrinsic value — a margin of safety exists":upsideAI>0?"near fair value — limited margin of safety":"trading above intrinsic value — caution warranted";
               // rec derives from action (not raw score) to stay consistent with the moat/reason text above
               const rec=bs.action==="BUY MORE"?"a strong buy"
                 :bs.action==="ADD GRADUALLY"?"a gradual accumulation candidate"
@@ -6457,7 +6368,7 @@ function App(){
                 :"P/E data unavailable — the company may not yet be profitable, or data is pending refresh.";
               return(
                 <div style={{fontSize:15,color:C.mutedLight,lineHeight:1.8}}>
-                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. {valuationStr}</p>
+                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
                   <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. {peText}</p>
                   <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
                 </div>
@@ -6664,7 +6575,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-12:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-14:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
