@@ -88,15 +88,34 @@ const buffettScore=h=>{
   const divPts=Math.min(20,h.divYield*4);
   const valuePts=upside>20?25:upside>10?15:upside>0?8:0;
   const pe=h.peRatio;
-  const qualPts=(pe>0&&25>pe)?15:(35>pe)?8:0;
+  // FIX: pe=0 means MISSING DATA — require pe>0 to avoid phantom quality points
+  const qualPts=(pe>0&&pe<25)?15:(pe>0&&pe<35)?8:0;
   const gainPts=gainPct>50?10:gainPct>20?5:0;
   const total=Math.round((moatPts+divPts+valuePts+qualPts+gainPts)*10)/10;
   let action,reason,col;
-  if(total>=65&&upside>10){action="BUY MORE";col=C.green;reason="Wide moat + undervalued";}
-  else if(total>=50&&upside>0){action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals, fair value";}
-  else if(total>=35&&upside>-10){action="HOLD";col=C.gold;reason="Solid business, fairly priced";}
-  else if(upside>-15===false||h.moat==="None"){action="CONSIDER SELLING";col=C.red;reason="Overvalued or weak moat";}
-  else{action="WATCH";col=C.mutedLight;reason="Monitor for better entry";}
+  if(total>=65&&upside>10){
+    action="BUY MORE";col=C.green;reason="Wide moat + undervalued";
+  } else if(total>=50&&upside>0){
+    action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals, fair value";
+  } else if(total>=35&&upside>-10){
+    action="HOLD";col=C.gold;reason="Solid business, fairly priced";
+  } else if(h.moat==="Wide"&&upside>-50){
+    // Buffett principle: never sell a wonderful business just because it's temporarily overvalued.
+    // Wide moat stocks get HOLD even when above IV, unless extreme (>50% overvalued).
+    action="HOLD";col=C.gold;reason="Quality moat — hold, price above intrinsic value";
+  } else if(h.moat==="Narrow"&&upside>-25){
+    // Narrow moat + moderate overvaluation: watch, don't add
+    action="WATCH";col=C.mutedLight;reason="Overvalued — await better entry point";
+  } else if(h.moat==="None"){
+    // No moat: much less tolerance for overvaluation
+    action=upside<-15?"CONSIDER SELLING":"WATCH";
+    col=upside<-15?C.red:C.mutedLight;
+    reason=upside<-15?"No economic moat + overvalued":"No durable competitive advantage";
+  } else {
+    // Wide moat >50% above IV, or Narrow moat >25% above IV
+    action="CONSIDER SELLING";col=C.red;
+    reason=h.moat==="Wide"?"Extreme overvaluation — >50% above intrinsic value":"Overvalued + narrow moat";
+  }
   return{score:total,action,reason,col};
 };
 
@@ -2136,7 +2155,7 @@ function App(){
       "Stock: "+h.name+" ("+h.ticker+") Market: "+h.mkt+" "+m.code,
       "Price: "+m.symbol+h.price+" approx S$"+fmt(toSGDlive(h.price,h.mkt))+" Avg Cost: "+m.symbol+h.avgCost,
       "Intrinsic: "+m.symbol+h.intrinsic+" Upside: "+up+"%",
-      "Moat: "+h.moat+" PE: "+h.peRatio+" Div: "+h.divYield+"%",
+      "Moat: "+h.moat+" PE: "+(h.peRatio>0?h.peRatio:"N/A (pre-profit or data pending)")+" Div: "+h.divYield+"%",
       "Buffett Score: "+bs.score+"/100 Action: "+bs.action,
       "Benchmark: "+m.index+" YTD "+m.idxYtd+"%",
       "1-Business quality and moat 2-Valuation 3-Risks 4-Buffett-style recommendation"
@@ -6291,13 +6310,21 @@ function App(){
               const divOk=h.divYield>0;
               const moatStr=h.moat==="Wide"?"a wide economic moat — strong competitive advantages":h.moat==="Narrow"?"a narrow moat — some competitive advantages":"no significant moat";
               const valuation=upsideAI>15?"trading below intrinsic value — a margin of safety exists":upsideAI>0?"near fair value — limited margin of safety":"trading above intrinsic value — caution warranted";
-              const rec=bs.score>=65?"a BUY candidate":bs.score>=35?"worth monitoring but wait for better entry":"not meeting Buffett criteria at current price";
+              // rec derives from action (not raw score) to stay consistent with the moat/reason text above
+              const rec=bs.action==="BUY MORE"?"a strong buy"
+                :bs.action==="ADD GRADUALLY"?"a gradual accumulation candidate"
+                :bs.action==="HOLD"?"worth holding at current levels"
+                :bs.action==="WATCH"?"worth monitoring — await a better entry"
+                :"under scrutiny — reassess position sizing";
               const divText=divOk?`pays a ${h.divYield.toFixed(1)}% dividend yield, providing income while you wait`:"pays no dividend, so returns depend entirely on price appreciation";
               const perfText=gainPctAI>=0?`currently up ${fmt(gainPctAI,1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`:`currently down ${fmt(Math.abs(gainPctAI),1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`;
+              const peText=h.peRatio>0
+                ?`At a P/E of ${fmt(h.peRatio,1)}x, it is ${h.peRatio<20?"reasonably valued relative to earnings":h.peRatio<35?"moderately priced relative to earnings":"expensively priced relative to current earnings"}.`
+                :"P/E data unavailable — the company may not yet be profitable, or data is pending refresh.";
               return(
                 <div style={{fontSize:15,color:C.mutedLight,lineHeight:1.8}}>
                   <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
-                  <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. At a P/E of {fmt(h.peRatio,1)}x, it is {h.peRatio>0&&h.peRatio<20?"reasonably valued":h.peRatio>=20&&h.peRatio<35?"moderately priced":"expensively priced"} relative to earnings.</p>
+                  <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. {peText}</p>
                   <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
                 </div>
               );
@@ -6503,7 +6530,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-00:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-01:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
