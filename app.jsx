@@ -563,6 +563,7 @@ function App(){
   const [moatAiLoading,setMoatAiLoading]=useState({});
   const [intrinsicRefreshing,setIntrinsicRefreshing]=useState(false);
   const [intrinsicUpdatedAt,setIntrinsicUpdatedAt]=useState(null);
+  const [intrinsicAiLoading,setIntrinsicAiLoading]=useState({});
   const [stmtTotal,setStmtTotal]=useState(null); // Option C: DBS statement anchor total (SGD)
   const [showSoldStocks,setShowSoldStocks]=useState(false); // toggle sold stocks section per marketent
   const [valLoading,setValLoading]=useState({});
@@ -1454,7 +1455,69 @@ function App(){
     setIntrinsicRefreshing(false);
   }
 
-  async function fetchMissingNames(currentHoldings){
+  // ── Intrinsic Value: single-stock AI web search ───────────────────────────
+  // Per-stock 🤖 button on each holdings tile. Searches analyst targets for
+  // one stock only — faster than the bulk refresh (seconds, not minutes).
+  async function refreshSingleIntrinsicWithAI(h){
+    if(intrinsicAiLoading[h.ticker]) return;
+    setIntrinsicAiLoading(prev=>({...prev,[h.ticker]:true}));
+    const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
+    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+    const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+    try{
+      const prompt=
+        "Search for the current analyst consensus price target for this stock. "
+        +"Use web search to find recent data from Bloomberg, Reuters, Refinitiv, or broker research. "
+        +"For REITs, find NAV (net asset value) per unit instead if available.\n\n"
+        +`${h.ticker} – ${h.name||h.ticker} (${h.mkt}, current price ${h.price})\n\n`
+        +"Return ONLY a JSON object (no markdown, no preamble, no code fences):\n"
+        +'{"ticker":"...","intrinsic":123.45,"n_analysts":5,"source":"brief note"}';
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:300,
+          tools:[{"type":"web_search_20250305","name":"web_search"}],
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      const d=await res.json();
+      const textBlocks=(d.content||[]).filter(c=>c.type==="text");
+      const raw=textBlocks[textBlocks.length-1]?.text||"{}";
+      let result={};
+      try{result=JSON.parse(raw);}catch(e){
+        const m=raw.match(/\{[\s\S]*?\}/);
+        if(m) try{result=JSON.parse(m[0]);}catch(e2){}
+      }
+      if(result.intrinsic>0){
+        const now=new Date().toISOString();
+        setHoldings(prev=>{
+          const upd=prev.map(holding=>
+            holding.ticker===h.ticker
+              ?{...holding,intrinsic:result.intrinsic,intrinsicMethod:'ai_search',intrinsicUpdatedAt:now}
+              :holding
+          );
+          if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic-single] DB:',e));
+          return upd;
+        });
+        // Persist directly to Supabase via REST
+        fetch(`${SB}/rest/v1/holdings?ticker=eq.${encodeURIComponent(h.ticker)}`,{
+          method:'PATCH',
+          headers:{...SBH,'Prefer':'return=minimal'},
+          body:JSON.stringify({
+            intrinsic:result.intrinsic,
+            intrinsic_method:'ai_search',
+            intrinsic_updated_at:now
+          })
+        }).catch(()=>{});
+        console.log(`[intrinsic-single] ${h.ticker}: ${result.intrinsic} from ${result.source||'AI'}`);
+      } else {
+        console.warn(`[intrinsic-single] ${h.ticker}: AI returned no value — raw: ${raw.slice(0,120)}`);
+      }
+    }catch(e){console.warn('[intrinsic-single] error:',e.message);}
+    setIntrinsicAiLoading(prev=>({...prev,[h.ticker]:false}));
+  }(currentHoldings){
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
     const unnamed=(currentHoldings||holdings).filter(h=>
       !h.name||h.name===h.ticker||h.name===''
@@ -5805,13 +5868,8 @@ function App(){
                 </>
               ):(
                 (()=>{
-                  // Determine IV data quality for this holding:
-                  // "missing"  — effectiveIV is 0, no data from any source (non-ETF only)
-                  // "no_method"— effectiveIV > 0 but intrinsicMethod is null (old DB row,
-                  //               never went through computeAllIntrinsic; value is stale/unknown-age)
-                  // "ok"       — effectiveIV > 0 and intrinsicMethod is set (freshly computed)
-                  const ivMissing  = !h.isEtf && effectiveIV<=0;
-                  const ivNoMethod = !h.isEtf && effectiveIV>0 && !h.intrinsicMethod && !computedIV;
+                  const ivMissing = !h.isEtf && effectiveIV<=0;
+                  const isAiLoading = !!intrinsicAiLoading[h.ticker];
                   return(<>
                     <div style={{fontSize:13,color:C.muted,marginBottom:2}}>
                       Intrinsic {(()=>{
@@ -5822,33 +5880,46 @@ function App(){
                         if(m==='graham')     return <span style={{color:C.accent, fontSize:10,fontWeight:700,background:C.accent+'15',padding:"1px 4px",borderRadius:3}}>Graham</span>;
                         if(m==='dcf_eps')    return <span style={{color:C.accentDim,fontSize:10,fontWeight:700,background:C.accentDim+'20',padding:"1px 4px",borderRadius:3}}>DCF</span>;
                         if(m==='ai_search')  return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>🤖AI</span>;
-                        if(ivNoMethod)       return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'18', padding:"1px 4px",borderRadius:3}}>⚠ unverified</span>;
                         return null;
                       })()}
                     </div>
                     {ivMissing?(
-                      <div style={{marginTop:4}}>
-                        <div style={{display:"inline-flex",alignItems:"center",gap:4,
-                          background:C.red+"18",border:`1px solid ${C.red}40`,
-                          borderRadius:5,padding:"3px 7px",marginBottom:4}}>
-                          <span style={{fontSize:12,fontWeight:700,color:C.red}}>⚠ IV not available</span>
-                        </div>
-                        <div style={{fontSize:12,color:C.muted,lineHeight:1.4}}>
-                          No analyst target, Graham Number, or DCF data returned.<br/>
-                          Try 🤖 AI Refresh in the Insights tab.
-                        </div>
-                      </div>
+                      <>
+                        <div style={{fontSize:17,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>NA</div>
+                        {!h.isEtf&&(
+                          <button
+                            onClick={e=>{e.stopPropagation();refreshSingleIntrinsicWithAI(h);}}
+                            disabled={isAiLoading}
+                            style={{marginTop:4,padding:"3px 8px",borderRadius:6,
+                              border:`1px solid ${C.purple}`,
+                              background:isAiLoading?C.surface:C.purple+"18",
+                              color:isAiLoading?C.muted:C.purple,
+                              fontSize:11,fontWeight:700,
+                              cursor:isAiLoading?"not-allowed":"pointer",
+                              display:"block",width:"100%"}}>
+                            {isAiLoading?"⏳ Searching…":"🤖 Search"}
+                          </button>
+                        )}
+                      </>
                     ):(
                       <>
-                        <div style={{fontSize:18,fontWeight:800}}>{effectiveIV>0?fmtL(effectiveIV,h.mkt):"—"}</div>
+                        <div style={{fontSize:18,fontWeight:800}}>{fmtL(effectiveIV,h.mkt)}</div>
                         <div style={{fontSize:13,color:upside>=0?C.green:C.red,fontWeight:700}}>
-                          {effectiveIV>0?((upside>=0?"+":"")+fmt(upside,1)+"%"):"no data"}
+                          {(upside>=0?"+":"")+fmt(upside,1)+"%"}
                         </div>
-                        {ivNoMethod&&(
-                          <div style={{fontSize:11,color:C.gold,marginTop:3}}>
-                            Stored estimate — source unknown.<br/>
-                            Run IV refresh to update.
-                          </div>
+                        {!h.isEtf&&(
+                          <button
+                            onClick={e=>{e.stopPropagation();refreshSingleIntrinsicWithAI(h);}}
+                            disabled={isAiLoading}
+                            style={{marginTop:4,padding:"2px 6px",borderRadius:5,
+                              border:`1px solid ${C.purple}50`,
+                              background:"transparent",
+                              color:isAiLoading?C.muted:C.purple,
+                              fontSize:10,fontWeight:700,
+                              cursor:isAiLoading?"not-allowed":"pointer",
+                              display:"block",width:"100%"}}>
+                            {isAiLoading?"⏳":"🤖"}
+                          </button>
                         )}
                       </>
                     )}
@@ -6559,7 +6630,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-02:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-10:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
