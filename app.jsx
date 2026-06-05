@@ -1696,7 +1696,51 @@ function App(){
         .sort((a,b)=>a.dateMs-b.dateMs);
     });
 
-    // ── Step 3: avg-cost proxy for tickers we cannot get live price history ───────
+    // ── Step 2b: retroactive stock-split adjustment ───────────────────────────────────
+    // Yahoo Finance returns SPLIT-ADJUSTED historical prices. For stock splits
+    // (SCRIP events at price=0 where scrip_qty ≥ 50% of pre-split holdings),
+    // the pre-split share counts must be retroactively multiplied by the split ratio.
+    //
+    // Without this: before the split, sharesAtDate() returns 300 shares ×
+    // adjusted_price(1560 JPY) = 3,744 SGD (5× understatement of actual 18,720).
+    // At the split date: 1200 shares added, V leaps 5× with CF=0 → +413% fake TWR spike.
+    //
+    // Fix: multiply all pre-split deltas by the ratio, remove the SCRIP event itself
+    // (now implicit). CF stays unchanged — you paid what you actually paid.
+    // Scrip dividends (typically <10% of holding, often with price>0) are left alone.
+    allRelevantTickers.forEach(ticker=>{
+      const evts=shareTimelines[ticker];
+      if(!evts||!evts.length) return;
+      // Pass 1: detect splits by running the cumulative qty
+      let runQty=0;
+      const splits=[];
+      for(const e of evts){
+        if(e.cf>0){                          runQty+=e.delta; }  // BUY / TI
+        else if(e.delta<0){                  runQty=Math.max(0,runQty+e.delta); }  // SELL
+        else if(e.cf===0&&e.delta>0&&runQty>0){ // SCRIP candidate
+          const ratio=(runQty+e.delta)/runQty;
+          if(ratio>=1.5){  // ≥50% addition → treat as stock split
+            splits.push({dateMs:e.dateMs,ratio});
+          }
+          runQty+=e.delta;
+        }
+      }
+      if(!splits.length) return;
+      // Pass 2: apply retroactive multiplier to all events BEFORE each split
+      splits.forEach(split=>{
+        evts.forEach(e=>{
+          if(e.dateMs<split.dateMs){
+            // Adjust share delta to match post-split equivalent count
+            // CF stays the same (actual cash paid in local currency doesn't change)
+            e.delta=Math.round(e.delta*split.ratio);
+          }
+        });
+        // Remove the SCRIP event (now implicit in the retroactive count)
+        const idx=evts.findIndex(e=>e.dateMs===split.dateMs&&e.cf===0&&e.delta>0);
+        if(idx>=0) evts.splice(idx,1);
+      });
+      shareTimelines[ticker]=evts;
+    });
     // Used as a constant price fallback (conservative: no appreciation shown).
     // Better than 0 for the TWR denominator — at least the scale is right.
     const avgCostProxy={};
@@ -1835,9 +1879,13 @@ function App(){
       twrSeries[firstNonZero]=100;
 
       for(let i=firstNonZero+1;i<n;i++){
-        const prev=twrSeries[i-1]??100;
-        const vStart=V[i-1];
-        const vEnd=V[i];
+        // NaN guard: ?? does not catch NaN (only null/undefined).
+        // If a Yahoo Finance gap or Infinity produces NaN in V, it would propagate
+        // through every subsequent twrSeries value — silently corrupting the chart.
+        const prevRaw=twrSeries[i-1];
+        const prev=(prevRaw!=null&&isFinite(prevRaw))?prevRaw:100;
+        const vStart=isFinite(V[i-1])?V[i-1]:0;
+        const vEnd=isFinite(V[i])?V[i]:0;
         if(vStart<=0){ twrSeries[i]=prev; continue; }
         const cf=CF[i];
         const denom=vStart+cf*0.5;
@@ -6530,7 +6578,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-01:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-01:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
