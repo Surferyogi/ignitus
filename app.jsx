@@ -179,10 +179,13 @@ function Sparkline({data,color=C.accent,height=44,period="6m"}){
       const monthTicks=Array.from({length:13},(_,i)=>({pos:Math.round((i/12)*n),label:"",tick:true,major:false}));
       return [...monthTicks,...quarters];
     } else {
-      const years=period==="5y"?5:10;
+      // Infer actual time span from data density: Yahoo weekly = ~52 pts/year.
+      // A stock with <10y or <5y of history returns fewer points — labels must match.
+      const years=Math.max(1,Math.round(data.length/52));
+      const startYear=now.getFullYear()-years;
       const yearMarks=Array.from({length:years+1},(_,i)=>({
         pos:Math.min(Math.round((i/years)*n),n-1),
-        label:String(now.getFullYear()-years+i),
+        label:String(startYear+i),
         tick:true,major:true
       }));
       const quarters=years*4;
@@ -1676,7 +1679,7 @@ function App(){
   const [perfChartLoading,setPerfChartLoading]=useState({});
 
   const INDEX_ETFS={
-    ALL:"SPY", US:"SPY", SG:"ES3.SI", CN:"2800.HK", JP:"^N225", EU:"CSPX.L"
+    ALL:"SPY", US:"SPY", SG:"ES3.SI", CN:"2800.HK", JP:"^N225", EU:"^FCHI"
   };
 
   async function fetchPerfChartData(mktFilter, period){
@@ -1690,7 +1693,7 @@ function App(){
                   .filter(h=>Number(h.shares)>0);
     if(subset.length===0){setPerfChartLoading(prev=>({...prev,[key]:false}));return;}
 
-    const INDEX_ETFS={ALL:"SPY",US:"SPY",SG:"ES3.SI",CN:"2800.HK",JP:"^N225",EU:"CSPX.L"};
+    const INDEX_ETFS={ALL:"SPY",US:"SPY",SG:"ES3.SI",CN:"2800.HK",JP:"^N225",EU:"^FCHI"};
     const idxTicker=INDEX_ETFS[mktFilter]||"SPY";
 
     // ── Step 1: identify ALL relevant tickers (active + closed positions) ─────────
@@ -1733,14 +1736,15 @@ function App(){
         .filter(t=>t.ticker===ticker && t.date>'2000-01-01')
         .map(t=>({
           dateMs:  new Date(t.date).getTime(),
-          delta:   t.type==='BUY'  ?  Number(t.shares)
-                 : t.type==='SELL' ? -Number(t.shares)
-                 : t.type==='DIV'  ?  0            // cash dividend; no share change
-                 :                    Number(t.shares), // SCRIP/TRANSFER_IN: shares added
+          delta:   t.type==='BUY'                   ?  Number(t.shares)
+                 : t.type==='SELL'                  ? -Number(t.shares)
+                 : (t.type==='DIV'||t.type==='ROC') ?  0   // payment events; no share change
+                 :                                     Number(t.shares), // SCRIP/TRANSFER_IN: shares added
           cf:      t.type==='BUY'||t.type==='TRANSFER_IN'
                                   ?  Number(t.price)*Number(t.shares)  // capital invested
                  : t.type==='SELL' ? -Number(t.price)*Number(t.shares) // proceeds received
-                 : t.type==='DIV'  ? -(Number(t.profit)||0) // net div paid out (negative = outflow)
+                 : (t.type==='DIV'||t.type==='ROC')
+                                  ? -(Number(t.profit)||0) // div/ROC paid out (negative = outflow)
                  :                   0, // SCRIP: free shares, no cash
         }))
         .sort((a,b)=>a.dateMs-b.dateMs);
@@ -1820,11 +1824,16 @@ function App(){
 
       // Historical price at chart point i for a ticker.
       // Priority: real Yahoo history → live price (active) → avg-cost (closed)
+      // End-aligned offset: Yahoo index and holdings both end at ~today.
+      // Holdings with shorter history (newer stocks) simply start later than the index.
+      // holdingIdx = i - (n - hc.length): negative means before holding existed (shares=0 anyway).
       function priceAtPoint(ticker, i){
         const hc=holdingHistories[ticker];
         if(hc&&hc.length>=2){
-          const idx=Math.min(Math.round((i/(n-1||1))*(hc.length-1)),hc.length-1);
-          const p=hc[idx]; if(p>0) return p;
+          const holdingIdx=i-(n-hc.length); // end-aligned; not proportional
+          if(holdingIdx>=0&&holdingIdx<hc.length){
+            const p=hc[holdingIdx]; if(p>0) return p;
+          }
         }
         const h=holdings.find(hld=>hld.ticker===ticker);
         if(h&&Number(h.shares)>0&&Number(h.price)>0) return Number(h.price);
@@ -6634,7 +6643,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:07-02:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:07-14:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
