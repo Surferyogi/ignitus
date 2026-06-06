@@ -1381,6 +1381,7 @@ function App(){
       const now=new Date().toISOString();
       // Capture stillNA after all sources (including yield model) are applied
       let stillNA=[];
+      let updForDB=[];  // captured outside updater for clean async DB write
       setHoldings(prev=>{
         const upd=prev.map(h=>{
           if(h.isEtf) return{...h,intrinsic:0,intrinsicMethod:'etf',intrinsicUpdatedAt:now};
@@ -1402,11 +1403,15 @@ function App(){
           }
           return h;
         });
-        // Build stillNA AFTER all sources applied — only truly uncovered stocks
+        // Capture outside updater — React updater must be pure (no async side effects)
         stillNA=upd.filter(h=>!h.isEtf&&Number(h.shares||0)>0&&!(h.intrinsic>0));
-        if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic] DB:',e));
+        updForDB=upd;
         return upd;
       });
+      // DB persistence OUTSIDE the updater — clean async context, no Strict Mode double-fire issues
+      if(updForDB.length>0&&window.portfolioDB){
+        window.portfolioDB.updateHoldings(updForDB).catch(e=>console.warn('[intrinsic] DB:',e));
+      }
       // Persist refresh timestamp to meta
       setIntrinsicUpdatedAt(now);
       fetch(`${SB}/rest/v1/meta?on_conflict=key`,{
@@ -6351,10 +6356,16 @@ function App(){
             {(()=>{
               const bs=buffettScore(h);
               const gainPctAI=((h.price-h.avgCost)/h.avgCost)*100;
-              const upsideAI=((h.intrinsic-h.price)/h.price)*100;
+              const hasIV=(h.intrinsic||0)>0;
+              const upsideAI=hasIV?((h.intrinsic-h.price)/h.price)*100:null;
               const divOk=h.divYield>0;
               const moatStr=h.moat==="Wide"?"a wide economic moat — strong competitive advantages":h.moat==="Narrow"?"a narrow moat — some competitive advantages":"no significant moat";
-              const valuation=upsideAI>15?"trading below intrinsic value — a margin of safety exists":upsideAI>0?"near fair value — limited margin of safety":"trading above intrinsic value — caution warranted";
+              // Only show valuation sentence when real IV data exists
+              const valuationStr=!hasIV
+                ?"Intrinsic value not yet available — tap 🤖 on the Intrinsic tile to search for analyst targets."
+                :upsideAI>15?"The stock is trading below intrinsic value — a margin of safety exists, with an estimate of "+fmtL(h.intrinsic,h.mkt)+" vs "+fmtL(h.price,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
+                :upsideAI>0?"The stock is near fair value — intrinsic estimate "+fmtL(h.intrinsic,h.mkt)+" vs "+fmtL(h.price,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
+                :"The stock is trading above intrinsic value at "+fmtL(h.price,h.mkt)+" vs estimate of "+fmtL(h.intrinsic,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside) — caution warranted.";
               // rec derives from action (not raw score) to stay consistent with the moat/reason text above
               const rec=bs.action==="BUY MORE"?"a strong buy"
                 :bs.action==="ADD GRADUALLY"?"a gradual accumulation candidate"
@@ -6368,7 +6379,7 @@ function App(){
                 :"P/E data unavailable — the company may not yet be profitable, or data is pending refresh.";
               return(
                 <div style={{fontSize:15,color:C.mutedLight,lineHeight:1.8}}>
-                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
+                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. {valuationStr}</p>
                   <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. {peText}</p>
                   <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
                 </div>
@@ -6575,7 +6586,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-14:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-16:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
