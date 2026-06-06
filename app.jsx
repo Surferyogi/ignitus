@@ -557,6 +557,7 @@ function App(){
   const [liveIndices,setLiveIndices]=useState({}); // live index values from Yahoo
   const [indicesSource,setIndicesSource]=useState('fallback'); // 'live'|'cached'|'fallback'
   const [indicesCachedAt,setIndicesCachedAt]=useState(null);  // ISO string of last successful live fetch
+  const [exactBenchmarkReturns,setExactBenchmarkReturns]=useState({}); // {US:45.2,SG:22.1,...} exact hypothetical index returns
   const [valuations,setValuations]=useState({});   // {TICKER: {analystTarget, dcf, graham, peFair, average, recommendation}}
   const [moatUpdatedAt,setMoatUpdatedAt]=useState(null);
   const [moatRefreshing,setMoatRefreshing]=useState(false);
@@ -680,6 +681,7 @@ function App(){
         fetchLivePrices(data.holdings);
         fetchLiveFx();
         fetchLiveIndices();
+        fetchExactBenchmarkReturns(data.holdings);
         fetchSenateTrades();
         updateSenateDataSilent(data.holdings);
         fetchMoatData(data.holdings);
@@ -1074,6 +1076,52 @@ function App(){
 
     setIndicesSource('fallback');
     console.warn('Live indices: using hardcoded MKT fallback');
+  }
+
+  // ── Exact benchmark: fetch per-holding index return from purchase date ──────
+  // Calls smart-api v52 action 'index_history_lookup' per market.
+  // Returns the hypothetical index total return since each holding was bought,
+  // weighted by cost. Answers: "what would the index have returned if I had
+  // invested the same dollars on the same dates?"
+  // Comparison uses LOCAL currency (portfolio in local CCY vs local index)
+  // to eliminate FX noise. Displayed portPct (SGD) is unchanged.
+  async function fetchExactBenchmarkReturns(currentHoldings){
+    const src=currentHoldings||holdings;
+    if(!src.length) return;
+    const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
+    const mkts=[...new Set(
+      src.filter(h=>!h.isEtf&&Number(h.shares)>0&&h.heldSince).map(h=>h.mkt)
+    )];
+    const results={};
+    await Promise.allSettled(mkts.map(async(mkt)=>{
+      const mktH=src.filter(h=>h.mkt===mkt&&Number(h.shares)>0&&h.heldSince);
+      if(!mktH.length) return;
+      const uniqueDates=[...new Set(mktH.map(h=>h.heldSince))];
+      try{
+        const resp=await fetch(EDGE_URL,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'index_history_lookup',mkt,dates:uniqueDates})
+        });
+        if(!resp.ok) return;
+        const d=await resp.json();
+        const dateReturns=d.dateReturns||{};
+        if(!Object.keys(dateReturns).length) return;
+        // Dollar-weighted hypothetical: same dollars → same dates → index
+        // Use LOCAL currency costs so comparison is FX-neutral
+        const totalLocalCost=mktH.reduce((s,h)=>s+(h.avgCost||0)*(h.shares||0),0);
+        if(totalLocalCost<=0) return;
+        let hypothetical=0;
+        for(const h of mktH){
+          const cost_i=(h.avgCost||0)*(h.shares||0);
+          const idxRet=dateReturns[h.heldSince];
+          hypothetical+=cost_i*(1+(idxRet!==undefined?idxRet:0)/100);
+        }
+        const exactRet=parseFloat(((hypothetical/totalLocalCost-1)*100).toFixed(2));
+        results[mkt]=exactRet;
+        console.log(`[exact_benchmark] ${mkt}: idx_hypothetical=+${exactRet.toFixed(1)}% (${mktH.length} holdings)`);
+      }catch(e){console.warn('[exact_benchmark]',mkt,e.message);}
+    }));
+    setExactBenchmarkReturns(results);
   }
 
   async function fetchValuation(ticker){
@@ -3469,17 +3517,26 @@ function App(){
           const portPct=portCost?(portVal-portCost)/portCost*100:0;
           const lvIdx=liveFor(mkt);
 
-          // Multi-period index returns (from live_indices edge function — real Yahoo data)
+          // Multi-period index returns (from live_indices edge fn — real Yahoo 5-year data)
           const idxYtd = lvIdx?.ytd      ?? m.idxYtd;
           const idx1y  = lvIdx?.return1y ?? null;
           const idx3y  = lvIdx?.return3y ?? null;
           const idx5y  = lvIdx?.return5y ?? null;
 
-          // ── Option 3: Time-matched benchmark comparison ───────────────────────
-          // portPct is ALL-TIME return from avg cost, not a 1-year figure.
-          // Fix: compute the cost-weighted average holding duration for this market,
-          // then compare against the index period that best matches it.
-          // Cost-weighting ensures large positions dominate the average correctly.
+          // ── EXACT dollar-weighted benchmark (edge fn v52 index_history_lookup) ─
+          // "Same dollars, same dates → index" hypothetical return per market.
+          // Compared vs portfolio return in LOCAL currency (FX-neutral).
+          const exactReturn=exactBenchmarkReturns[mkt];
+          const hasExact=exactReturn!==undefined&&exactReturn!==null;
+
+          // Local-currency portfolio return (no SGD conversion) for FX-neutral compare
+          const portCostLoc=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0)
+            .reduce((s,h)=>s+(h.avgCost||0)*(h.shares||0),0);
+          const portValLoc=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0)
+            .reduce((s,h)=>s+(h.price||0)*(h.shares||0),0);
+          const portPctLoc=portCostLoc>0?(portValLoc-portCostLoc)/portCostLoc*100:portPct;
+
+          // ── Fallback: time-matched period when exact data not yet loaded ──────
           const mktHeldActive=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0&&h.heldSince);
           const totalWtCost=mktHeldActive.reduce((s,h)=>s+toSGDlive((h.avgCost||0)*(h.shares||0),h.mkt),0);
           const wtMonths=totalWtCost>0
@@ -3488,16 +3545,16 @@ function App(){
                 const w=toSGDlive((h.avgCost||0)*(h.shares||0),h.mkt)/totalWtCost;
                 return s+mo*w;
               },0)
-            :12; // fallback to 1Y if no heldSince data
-
-          // Pick index period closest to the cost-weighted average holding duration
+            :12;
           const {matchedIdx,matchedPeriod}=(()=>{
             if(wtMonths>=48&&idx5y!==null) return{matchedIdx:idx5y,  matchedPeriod:'5Y'};
             if(wtMonths>=24&&idx3y!==null) return{matchedIdx:idx3y,  matchedPeriod:'3Y'};
             if(wtMonths>=12&&idx1y!==null) return{matchedIdx:idx1y,  matchedPeriod:'1Y'};
             return{matchedIdx:idxYtd,matchedPeriod:'YTD'};
           })();
-          const beat=portPct>matchedIdx;
+
+          // Beat: exact when available (local CCY), else time-matched (SGD)
+          const beat=hasExact?(portPctLoc>exactReturn):(portPct>matchedIdx);
 
           return(
             <div key={mkt} style={{...card,borderLeft:`3px solid ${beat?C.green:C.mutedLight}`}}>
@@ -3507,7 +3564,12 @@ function App(){
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     <Tag col={idxYtd>=0?C.green:C.red}>YTD {idxYtd>=0?"+":""}{fmt(idxYtd,1)}%</Tag>
                     {idx1y!==null&&<Tag col={idx1y>=0?C.green:C.red}>1Y {idx1y>=0?"+":""}{fmt(idx1y,1)}%</Tag>}
-                    <Tag col={beat?C.green:C.red}>{beat?`↑ Outperforming ${matchedPeriod}`:`↓ Behind ${matchedPeriod}`}</Tag>
+                    <Tag col={beat?C.green:C.red}>
+                      {beat
+                        ?(hasExact?"↑ Outperforming ★":`↑ Outperforming ${matchedPeriod}`)
+                        :(hasExact?"↓ Behind ★":`↓ Behind ${matchedPeriod}`)
+                      }
+                    </Tag>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -3533,7 +3595,7 @@ function App(){
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
                   <div>
                     <div style={{fontSize:13,color:C.muted,fontWeight:600}}>Your portfolio</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:1}}>since purchase · cost basis</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:1}}>since purchase · cost basis (SGD)</div>
                   </div>
                   <div style={{textAlign:"right"}}>
                     <div style={{fontSize:20,fontWeight:800,color:portPct>=0?C.green:C.red}}>{portPct>=0?"+":""}{fmt(portPct,1)}%</div>
@@ -3545,24 +3607,31 @@ function App(){
                 <div style={{marginBottom:6}}>
                   <div style={{fontSize:12,color:C.muted,fontWeight:700,marginBottom:6,letterSpacing:"0.04em",textTransform:"uppercase"}}>{m.index} Reference Returns</div>
                   {[
-                    ["YTD (Jan 1)",  idxYtd,  true],
-                    ["1 Year",       idx1y,   idx1y!==null],
-                    ["3 Year",       idx3y,   idx3y!==null],
-                    ["5 Year",       idx5y,   idx5y!==null],
-                  ].filter(([,,show])=>show).map(([lbl,val])=>(
-                    <div key={lbl} style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
-                      <span style={{fontSize:13,color:C.muted,width:72,flexShrink:0}}>{lbl}</span>
-                      <div style={{flex:1,height:4,borderRadius:2,background:C.border,overflow:"hidden"}}>
-                        <div style={{width:`${Math.min(Math.abs(val)/50*100,100)}%`,height:"100%",background:val>=0?C.accent:C.red,opacity:0.6,borderRadius:2}}/>
+                    ["YTD (Jan 1)",    idxYtd,    true],
+                    ["1 Year",         idx1y,     idx1y!==null],
+                    ["3 Year",         idx3y,     idx3y!==null],
+                    ["5 Year",         idx5y,     idx5y!==null],
+                    ["★ Same-date",    exactReturn, hasExact],
+                  ].filter(([,,show])=>show).map(([lbl,val])=>{
+                    const isExact=lbl==="★ Same-date";
+                    return(
+                      <div key={lbl} style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
+                        <span style={{fontSize:13,color:isExact?C.gold:C.muted,width:80,flexShrink:0,fontWeight:isExact?700:400}}>{lbl}</span>
+                        <div style={{flex:1,height:4,borderRadius:2,background:C.border,overflow:"hidden"}}>
+                          <div style={{width:`${Math.min(Math.abs(val)/50*100,100)}%`,height:"100%",background:val>=0?(isExact?C.gold:C.accent):C.red,opacity:0.7,borderRadius:2}}/>
+                        </div>
+                        <span style={{fontSize:13,fontWeight:700,color:val>=0?(isExact?C.gold:C.accent):C.red,width:52,textAlign:"right"}}>{val>=0?"+":""}{fmt(val,1)}%</span>
                       </div>
-                      <span style={{fontSize:13,fontWeight:700,color:val>=0?C.accent:C.red,width:46,textAlign:"right"}}>{val>=0?"+":""}{fmt(val,1)}%</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Note */}
                 <div style={{fontSize:11,color:C.muted,fontStyle:"italic",marginTop:6,lineHeight:1.4}}>
-                  ℹ Portfolio % = total return from avg cost. Benchmark = {m.index} <b>{matchedPeriod}</b> return — matched to your cost-weighted avg holding of <b>~{Math.round(wtMonths)} months</b>. Index returns from Yahoo Finance live data.
+                  {hasExact
+                    ?`★ Same-date = if same ${m.code} invested in ${m.index} on each actual purchase date. Comparison uses local currency (${m.code}) to eliminate FX noise. Displayed portfolio % is SGD-converted.`
+                    :`Portfolio % = total return from avg cost. Benchmark = ${m.index} ${matchedPeriod} — matched to ~${Math.round(wtMonths)} month avg holding. ★ row loads on startup.`
+                  }
                 </div>
 
                 {/* Dividend yield row — gross and net (after withholding tax) */}
@@ -6551,7 +6620,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-17:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-18:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
