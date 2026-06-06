@@ -68,14 +68,19 @@ function mktToCcy(mkt){
 }
 
 const scoreH=h=>{
-  const up=((h.intrinsic-h.price)/h.price)*100;
-  const iv=Math.max(0,Math.min(10,Math.round(5+up/10)));
+  const iv=h.intrinsic||0;
+  const up=iv>0?((iv-h.price)/h.price)*100:0;
+  // When IV is missing, use neutral score (5) — neither penalise nor reward
+  const ivScore=iv>0?Math.max(0,Math.min(10,Math.round(5+up/10))):5;
   const mt=h.moat==="Wide"?9:h.moat==="Narrow"?6:3;
   const dv=Math.min(10,Math.round(h.divYield*1.5+2));
-  return{iv,mt,dv,all:Math.round(iv*0.4+mt*0.35+dv*0.25)};
+  return{iv:ivScore,mt,dv,all:Math.round(ivScore*0.4+mt*0.35+dv*0.25)};
 };
 const getRec=h=>{
-  const up=((h.intrinsic-h.price)/h.price)*100;
+  const iv=h.intrinsic||0;
+  // No IV loaded → neutral dash; never show SELL based on $0 phantom value
+  if(iv<=0) return{lbl:"—",col:C.muted};
+  const up=((iv-h.price)/h.price)*100;
   if(up>15&&h.moat!=="None")return{lbl:"STRONG BUY",col:C.green};
   if(up>5)return{lbl:"BUY",col:"#72E5A0"};
   if(up>-10)return{lbl:"HOLD",col:C.gold};
@@ -83,36 +88,39 @@ const getRec=h=>{
 };
 const buffettScore=h=>{
   const gainPct=((h.price-h.avgCost)/h.avgCost)*100;
-  const upside=((h.intrinsic-h.price)/h.price)*100;
+  const iv=h.intrinsic||0;
+  // Guard: when IV is absent, upside is null — never compute -100% from $0
+  const upside=iv>0?((iv-h.price)/h.price)*100:null;
   const moatPts=h.moat==="Wide"?30:h.moat==="Narrow"?15:0;
   const divPts=Math.min(20,h.divYield*4);
-  const valuePts=upside>20?25:upside>10?15:upside>0?8:0;
+  // valuePts only counted when real IV exists
+  const valuePts=upside===null?0:upside>20?25:upside>10?15:upside>0?8:0;
   const pe=h.peRatio;
-  // FIX: pe=0 means MISSING DATA — require pe>0 to avoid phantom quality points
   const qualPts=(pe>0&&pe<25)?15:(pe>0&&pe<35)?8:0;
   const gainPts=gainPct>50?10:gainPct>20?5:0;
   const total=Math.round((moatPts+divPts+valuePts+qualPts+gainPts)*10)/10;
   let action,reason,col;
-  if(total>=65&&upside>10){
+  if(upside===null){
+    // No IV: score purely on business quality — no valuation deduction
+    if(total>=65){action="BUY MORE";col=C.green;reason="Strong fundamentals — intrinsic value loading";}
+    else if(total>=50){action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals — await intrinsic value confirmation";}
+    else if(total>=35){action="HOLD";col=C.gold;reason="Solid business — intrinsic value not yet available";}
+    else{action="WATCH";col=C.mutedLight;reason="Monitor — limited basis for conviction without IV";}
+  } else if(total>=65&&upside>10){
     action="BUY MORE";col=C.green;reason="Wide moat + undervalued";
   } else if(total>=50&&upside>0){
     action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals, fair value";
   } else if(total>=35&&upside>-10){
     action="HOLD";col=C.gold;reason="Solid business, fairly priced";
   } else if(h.moat==="Wide"&&upside>-50){
-    // Buffett principle: never sell a wonderful business just because it's temporarily overvalued.
-    // Wide moat stocks get HOLD even when above IV, unless extreme (>50% overvalued).
     action="HOLD";col=C.gold;reason="Quality moat — hold, price above intrinsic value";
   } else if(h.moat==="Narrow"&&upside>-25){
-    // Narrow moat + moderate overvaluation: watch, don't add
     action="WATCH";col=C.mutedLight;reason="Overvalued — await better entry point";
   } else if(h.moat==="None"){
-    // No moat: much less tolerance for overvaluation
     action=upside<-15?"CONSIDER SELLING":"WATCH";
     col=upside<-15?C.red:C.mutedLight;
     reason=upside<-15?"No economic moat + overvalued":"No durable competitive advantage";
   } else {
-    // Wide moat >50% above IV, or Narrow moat >25% above IV
     action="CONSIDER SELLING";col=C.red;
     reason=h.moat==="Wide"?"Extreme overvaluation — >50% above intrinsic value":"Overvalued + narrow moat";
   }
@@ -557,7 +565,6 @@ function App(){
   const [liveIndices,setLiveIndices]=useState({}); // live index values from Yahoo
   const [indicesSource,setIndicesSource]=useState('fallback'); // 'live'|'cached'|'fallback'
   const [indicesCachedAt,setIndicesCachedAt]=useState(null);  // ISO string of last successful live fetch
-  const [exactBenchmarkReturns,setExactBenchmarkReturns]=useState({}); // {US:45.2,SG:22.1,...} exact hypothetical index returns
   const [valuations,setValuations]=useState({});   // {TICKER: {analystTarget, dcf, graham, peFair, average, recommendation}}
   const [moatUpdatedAt,setMoatUpdatedAt]=useState(null);
   const [moatRefreshing,setMoatRefreshing]=useState(false);
@@ -681,7 +688,6 @@ function App(){
         fetchLivePrices(data.holdings);
         fetchLiveFx();
         fetchLiveIndices();
-        fetchExactBenchmarkReturns(data.holdings);
         fetchSenateTrades();
         updateSenateDataSilent(data.holdings);
         fetchMoatData(data.holdings);
@@ -1076,52 +1082,6 @@ function App(){
 
     setIndicesSource('fallback');
     console.warn('Live indices: using hardcoded MKT fallback');
-  }
-
-  // ── Exact benchmark: fetch per-holding index return from purchase date ──────
-  // Calls smart-api v52 action 'index_history_lookup' per market.
-  // Returns the hypothetical index total return since each holding was bought,
-  // weighted by cost. Answers: "what would the index have returned if I had
-  // invested the same dollars on the same dates?"
-  // Comparison uses LOCAL currency (portfolio in local CCY vs local index)
-  // to eliminate FX noise. Displayed portPct (SGD) is unchanged.
-  async function fetchExactBenchmarkReturns(currentHoldings){
-    const src=currentHoldings||holdings;
-    if(!src.length) return;
-    const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
-    const mkts=[...new Set(
-      src.filter(h=>!h.isEtf&&Number(h.shares)>0&&h.heldSince).map(h=>h.mkt)
-    )];
-    const results={};
-    await Promise.allSettled(mkts.map(async(mkt)=>{
-      const mktH=src.filter(h=>h.mkt===mkt&&Number(h.shares)>0&&h.heldSince);
-      if(!mktH.length) return;
-      const uniqueDates=[...new Set(mktH.map(h=>h.heldSince))];
-      try{
-        const resp=await fetch(EDGE_URL,{
-          method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({action:'index_history_lookup',mkt,dates:uniqueDates})
-        });
-        if(!resp.ok) return;
-        const d=await resp.json();
-        const dateReturns=d.dateReturns||{};
-        if(!Object.keys(dateReturns).length) return;
-        // Dollar-weighted hypothetical: same dollars → same dates → index
-        // Use LOCAL currency costs so comparison is FX-neutral
-        const totalLocalCost=mktH.reduce((s,h)=>s+(h.avgCost||0)*(h.shares||0),0);
-        if(totalLocalCost<=0) return;
-        let hypothetical=0;
-        for(const h of mktH){
-          const cost_i=(h.avgCost||0)*(h.shares||0);
-          const idxRet=dateReturns[h.heldSince];
-          hypothetical+=cost_i*(1+(idxRet!==undefined?idxRet:0)/100);
-        }
-        const exactRet=parseFloat(((hypothetical/totalLocalCost-1)*100).toFixed(2));
-        results[mkt]=exactRet;
-        console.log(`[exact_benchmark] ${mkt}: idx_hypothetical=+${exactRet.toFixed(1)}% (${mktH.length} holdings)`);
-      }catch(e){console.warn('[exact_benchmark]',mkt,e.message);}
-    }));
-    setExactBenchmarkReturns(results);
   }
 
   async function fetchValuation(ticker){
@@ -3517,44 +3477,14 @@ function App(){
           const portPct=portCost?(portVal-portCost)/portCost*100:0;
           const lvIdx=liveFor(mkt);
 
-          // Multi-period index returns (from live_indices edge fn — real Yahoo 5-year data)
-          const idxYtd = lvIdx?.ytd      ?? m.idxYtd;
-          const idx1y  = lvIdx?.return1y ?? null;
-          const idx3y  = lvIdx?.return3y ?? null;
-          const idx5y  = lvIdx?.return5y ?? null;
-
-          // ── EXACT dollar-weighted benchmark (edge fn v52 index_history_lookup) ─
-          // "Same dollars, same dates → index" hypothetical return per market.
-          // Compared vs portfolio return in LOCAL currency (FX-neutral).
-          const exactReturn=exactBenchmarkReturns[mkt];
-          const hasExact=exactReturn!==undefined&&exactReturn!==null;
-
-          // Local-currency portfolio return (no SGD conversion) for FX-neutral compare
-          const portCostLoc=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0)
-            .reduce((s,h)=>s+(h.avgCost||0)*(h.shares||0),0);
-          const portValLoc=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0)
-            .reduce((s,h)=>s+(h.price||0)*(h.shares||0),0);
-          const portPctLoc=portCostLoc>0?(portValLoc-portCostLoc)/portCostLoc*100:portPct;
-
-          // ── Fallback: time-matched period when exact data not yet loaded ──────
-          const mktHeldActive=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0&&h.heldSince);
-          const totalWtCost=mktHeldActive.reduce((s,h)=>s+toSGDlive((h.avgCost||0)*(h.shares||0),h.mkt),0);
-          const wtMonths=totalWtCost>0
-            ?mktHeldActive.reduce((s,h)=>{
-                const mo=(Date.now()-new Date(h.heldSince).getTime())/(1000*3600*24*30.4375);
-                const w=toSGDlive((h.avgCost||0)*(h.shares||0),h.mkt)/totalWtCost;
-                return s+mo*w;
-              },0)
-            :12;
-          const {matchedIdx,matchedPeriod}=(()=>{
-            if(wtMonths>=48&&idx5y!==null) return{matchedIdx:idx5y,  matchedPeriod:'5Y'};
-            if(wtMonths>=24&&idx3y!==null) return{matchedIdx:idx3y,  matchedPeriod:'3Y'};
-            if(wtMonths>=12&&idx1y!==null) return{matchedIdx:idx1y,  matchedPeriod:'1Y'};
-            return{matchedIdx:idxYtd,matchedPeriod:'YTD'};
-          })();
-
-          // Beat: exact when available (local CCY), else time-matched (SGD)
-          const beat=hasExact?(portPctLoc>exactReturn):(portPct>matchedIdx);
+          // Multi-period index returns (from upgraded live_indices)
+          const idxYtd   = lvIdx?.ytd      ?? m.idxYtd;
+          const idx1y    = lvIdx?.return1y  ?? null;
+          const idx3y    = lvIdx?.return3y  ?? null;
+          const idx5y    = lvIdx?.return5y  ?? null;
+          // Primary comparison: 1Y index return is the standard benchmark period
+          const primaryIdx = idx1y ?? idxYtd;
+          const beat = portPct > primaryIdx;
 
           return(
             <div key={mkt} style={{...card,borderLeft:`3px solid ${beat?C.green:C.mutedLight}`}}>
@@ -3564,12 +3494,7 @@ function App(){
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     <Tag col={idxYtd>=0?C.green:C.red}>YTD {idxYtd>=0?"+":""}{fmt(idxYtd,1)}%</Tag>
                     {idx1y!==null&&<Tag col={idx1y>=0?C.green:C.red}>1Y {idx1y>=0?"+":""}{fmt(idx1y,1)}%</Tag>}
-                    <Tag col={beat?C.green:C.red}>
-                      {beat
-                        ?(hasExact?"↑ Outperforming ★":`↑ Outperforming ${matchedPeriod}`)
-                        :(hasExact?"↓ Behind ★":`↓ Behind ${matchedPeriod}`)
-                      }
-                    </Tag>
+                    <Tag col={beat?C.green:C.red}>{beat?"↑ Beating 1Y":"↓ Below 1Y"}</Tag>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -3595,7 +3520,7 @@ function App(){
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
                   <div>
                     <div style={{fontSize:13,color:C.muted,fontWeight:600}}>Your portfolio</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:1}}>since purchase · cost basis (SGD)</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:1}}>since purchase · cost basis</div>
                   </div>
                   <div style={{textAlign:"right"}}>
                     <div style={{fontSize:20,fontWeight:800,color:portPct>=0?C.green:C.red}}>{portPct>=0?"+":""}{fmt(portPct,1)}%</div>
@@ -3607,31 +3532,24 @@ function App(){
                 <div style={{marginBottom:6}}>
                   <div style={{fontSize:12,color:C.muted,fontWeight:700,marginBottom:6,letterSpacing:"0.04em",textTransform:"uppercase"}}>{m.index} Reference Returns</div>
                   {[
-                    ["YTD (Jan 1)",    idxYtd,    true],
-                    ["1 Year",         idx1y,     idx1y!==null],
-                    ["3 Year",         idx3y,     idx3y!==null],
-                    ["5 Year",         idx5y,     idx5y!==null],
-                    ["★ Same-date",    exactReturn, hasExact],
-                  ].filter(([,,show])=>show).map(([lbl,val])=>{
-                    const isExact=lbl==="★ Same-date";
-                    return(
-                      <div key={lbl} style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
-                        <span style={{fontSize:13,color:isExact?C.gold:C.muted,width:80,flexShrink:0,fontWeight:isExact?700:400}}>{lbl}</span>
-                        <div style={{flex:1,height:4,borderRadius:2,background:C.border,overflow:"hidden"}}>
-                          <div style={{width:`${Math.min(Math.abs(val)/50*100,100)}%`,height:"100%",background:val>=0?(isExact?C.gold:C.accent):C.red,opacity:0.7,borderRadius:2}}/>
-                        </div>
-                        <span style={{fontSize:13,fontWeight:700,color:val>=0?(isExact?C.gold:C.accent):C.red,width:52,textAlign:"right"}}>{val>=0?"+":""}{fmt(val,1)}%</span>
+                    ["YTD (Jan 1)",  idxYtd,  true],
+                    ["1 Year",       idx1y,   idx1y!==null],
+                    ["3 Year",       idx3y,   idx3y!==null],
+                    ["5 Year",       idx5y,   idx5y!==null],
+                  ].filter(([,,show])=>show).map(([lbl,val])=>(
+                    <div key={lbl} style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
+                      <span style={{fontSize:13,color:C.muted,width:72,flexShrink:0}}>{lbl}</span>
+                      <div style={{flex:1,height:4,borderRadius:2,background:C.border,overflow:"hidden"}}>
+                        <div style={{width:`${Math.min(Math.abs(val)/50*100,100)}%`,height:"100%",background:val>=0?C.accent:C.red,opacity:0.6,borderRadius:2}}/>
                       </div>
-                    );
-                  })}
+                      <span style={{fontSize:13,fontWeight:700,color:val>=0?C.accent:C.red,width:46,textAlign:"right"}}>{val>=0?"+":""}{fmt(val,1)}%</span>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Note */}
                 <div style={{fontSize:11,color:C.muted,fontStyle:"italic",marginTop:6,lineHeight:1.4}}>
-                  {hasExact
-                    ?`★ Same-date = if same ${m.code} invested in ${m.index} on each actual purchase date. Comparison uses local currency (${m.code}) to eliminate FX noise. Displayed portfolio % is SGD-converted.`
-                    :`Portfolio % = total return from avg cost. Benchmark = ${m.index} ${matchedPeriod} — matched to ~${Math.round(wtMonths)} month avg holding. ★ row loads on startup.`
-                  }
+                  ℹ Portfolio % = total return from avg cost (actual purchase). Index figures shown for multi-period reference. For time-aligned comparison, use the PerfChart above.
                 </div>
 
                 {/* Dividend yield row — gross and net (after withholding tax) */}
@@ -6396,11 +6314,11 @@ function App(){
             {(()=>{
               const bs=buffettScore(h);
               const gainPctAI=((h.price-h.avgCost)/h.avgCost)*100;
-              const upsideAI=((h.intrinsic-h.price)/h.price)*100;
+              const hasIV=(h.intrinsic||0)>0;
+              const upsideAI=hasIV?((h.intrinsic-h.price)/h.price)*100:null;
               const divOk=h.divYield>0;
               const moatStr=h.moat==="Wide"?"a wide economic moat — strong competitive advantages":h.moat==="Narrow"?"a narrow moat — some competitive advantages":"no significant moat";
-              const valuation=upsideAI>15?"trading below intrinsic value — a margin of safety exists":upsideAI>0?"near fair value — limited margin of safety":"trading above intrinsic value — caution warranted";
-              // rec derives from action (not raw score) to stay consistent with the moat/reason text above
+              // rec derives from action
               const rec=bs.action==="BUY MORE"?"a strong buy"
                 :bs.action==="ADD GRADUALLY"?"a gradual accumulation candidate"
                 :bs.action==="HOLD"?"worth holding at current levels"
@@ -6411,9 +6329,54 @@ function App(){
               const peText=h.peRatio>0
                 ?`At a P/E of ${fmt(h.peRatio,1)}x, it is ${h.peRatio<20?"reasonably valued relative to earnings":h.peRatio<35?"moderately priced relative to earnings":"expensively priced relative to current earnings"}.`
                 :"P/E data unavailable — the company may not yet be profitable, or data is pending refresh.";
+              // ── Para 1: valuation assessment ────────────────────────────────
+              // When IV exists: standard upside/downside vs intrinsic
+              // When IV missing: rich qualitative fund-manager assessment using
+              //   available fundamentals — never shows $0 or -100% upside
+              const para1=hasIV?(()=>{
+                const valuation=upsideAI>15
+                  ?"The stock is trading below intrinsic value — a margin of safety exists, at "
+                    +fmtL(h.intrinsic,h.mkt)+" vs "+fmtL(h.price,h.mkt)
+                    +" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
+                  :upsideAI>0
+                  ?"The stock is near fair value — intrinsic estimate "+fmtL(h.intrinsic,h.mkt)
+                    +" vs "+fmtL(h.price,h.mkt)
+                    +" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
+                  :"The stock is trading above intrinsic value at "+fmtL(h.price,h.mkt)
+                    +" vs estimate of "+fmtL(h.intrinsic,h.mkt)
+                    +" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside) — caution warranted.";
+                return `${h.name} has ${moatStr}. ${valuation}`;
+              })():(()=>{
+                // Qualitative fund-manager assessment without IV
+                const pe=h.peRatio||0;
+                const rg=h.revenueGrowth||0;
+                const dy=h.divYield||0;
+                // PE tier
+                const peQ=pe<=0?"with no P/E data available"
+                  :pe<15?`trading at just ${fmt(pe,1)}x earnings — value territory for a quality business`
+                  :pe<22?`at ${fmt(pe,1)}x earnings — a reasonable multiple for a business of this quality`
+                  :pe<35?`at ${fmt(pe,1)}x earnings, pricing in continued execution — justified if growth persists`
+                  :`at ${fmt(pe,1)}x earnings, the market demands flawless execution at this premium`;
+                // Revenue growth colour
+                const rgQ=rg>20?` with revenue compounding at ${fmt(rg,1)}% — exceptional business momentum`
+                  :rg>10?` with ${fmt(rg,1)}% revenue growth confirming healthy market expansion`
+                  :rg>3?` growing revenue at ${fmt(rg,1)}%`
+                  :"";
+                // Moat-specific insight — what a top investor would actually say
+                const moatInsight=h.moat==="Wide"
+                  ?"The wide economic moat is the cornerstone of conviction here — pricing power, deep switching costs, or network effects compound shareholder returns over decades regardless of short-term price moves."
+                  :h.moat==="Narrow"
+                  ?"A narrow moat provides meaningful but not unassailable protection — the business case holds if management continues to reinvest wisely."
+                  :"Without a clear durable advantage, the investment case rests on valuation discipline and execution — monitor closely.";
+                // Dividend framing
+                const dvQ=dy>3?` paying a ${fmt(dy,1)}% dividend that rewards patience`
+                  :dy>0.5?` with a ${fmt(dy,1)}% dividend — modest income while compounding`
+                  :"";
+                return `${h.name} has ${moatStr} — ${peQ}${rgQ}${dvQ}. ${moatInsight} Intrinsic value is not yet available; tap 🤖 on the Intrinsic tile to load analyst price targets.`;
+              })();
               return(
                 <div style={{fontSize:15,color:C.mutedLight,lineHeight:1.8}}>
-                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
+                  <p style={{marginBottom:8}}>{para1}</p>
                   <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. {peText}</p>
                   <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
                 </div>
@@ -6620,7 +6583,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-18:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-19:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
