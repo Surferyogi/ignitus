@@ -1335,31 +1335,6 @@ function App(){
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
     const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
     const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
-
-    // ── Dividend yield model for HK/JP stocks ──────────────────────────────
-    // Mirrors the SG REIT yield model in the edge function.
-    // Uses observable dividend yield + sector-appropriate target yield.
-    // Target yields derived from long-run historical trading ranges for each
-    // market/sector. Skip if divYield > 15% (likely distressed/special dividend)
-    // or < 0.5% (token dividend, not suitable for yield valuation).
-    const getYieldTarget=(h)=>{
-      const dy=h.divYield||0;
-      if(dy<0.5||dy>15) return null;
-      const sec=(h.sector||'').toLowerCase();
-      if(h.mkt==='CN'){  // HK-listed stocks
-        if(sec.includes('financ')||sec.includes('bank')) return 0.050; // HK banks/exchanges: 5%
-        if(sec.includes('material')||sec.includes('energy')||sec.includes('industri')) return 0.040;
-        if(sec.includes('real estate')||sec.includes('reit')) return 0.055; // HK property
-        return 0.035; // HK consumer/tech with dividends
-      }
-      if(h.mkt==='JP'){  // Japanese stocks
-        if(dy<1.0) return null; // Below meaningful threshold for JP
-        if(sec.includes('industri')||sec.includes('material')||sec.includes('consumer')) return 0.030;
-        return 0.035;
-      }
-      return null;
-    };
-
     try{
       const res=await fetch(EDGE_URL,{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -1371,17 +1346,15 @@ function App(){
       });
       if(!res.ok) return;
       const d=await res.json();
-      const analystTargets = d.analystTargets || {};
-      const reitValues     = d.reitValues     || {};
-      const grahamValues   = d.grahamValues   || {};
-      const dcfValues      = d.dcfValues      || {};
+      const analystTargets = d.analystTargets || {}; // Option A
+      const reitValues     = d.reitValues     || {}; // REIT yield model
+      const grahamValues   = d.grahamValues   || {}; // Option C — Graham Number
+      const dcfValues      = d.dcfValues      || {}; // Option C — DCF (EPS)
       const total = Object.keys(analystTargets).length + Object.keys(reitValues).length
                   + Object.keys(grahamValues).length   + Object.keys(dcfValues).length;
       console.log(`[compute_intrinsic] analyst=${Object.keys(analystTargets).length} reit=${Object.keys(reitValues).length} graham=${Object.keys(grahamValues).length} dcf=${Object.keys(dcfValues).length}`);
+      if(total===0) return;
       const now=new Date().toISOString();
-      // Capture stillNA after all sources (including yield model) are applied
-      let stillNA=[];
-      let updForDB=[];  // captured outside updater for clean async DB write
       setHoldings(prev=>{
         const upd=prev.map(h=>{
           if(h.isEtf) return{...h,intrinsic:0,intrinsicMethod:'etf',intrinsicUpdatedAt:now};
@@ -1389,45 +1362,22 @@ function App(){
           const analyst = analystTargets[h.ticker];
           const graham  = grahamValues[h.ticker];
           const dcf     = dcfValues[h.ticker];
-          // Priority 1-4 from edge function (unchanged)
+          // Priority: REIT yield > analyst consensus > Graham Number > DCF (EPS)
           if(reit    > 0) return{...h,intrinsic:reit,           intrinsicMethod:'reit_yield', intrinsicUpdatedAt:now};
           if(analyst?.target > 0) return{...h,intrinsic:analyst.target,intrinsicMethod:'analyst',    intrinsicUpdatedAt:now};
           if(graham  > 0) return{...h,intrinsic:graham,         intrinsicMethod:'graham',     intrinsicUpdatedAt:now};
           if(dcf     > 0) return{...h,intrinsic:dcf,            intrinsicMethod:'dcf_eps',    intrinsicUpdatedAt:now};
-          // Priority 5: HK/JP dividend yield model (frontend extension)
-          const tgtY=getYieldTarget(h);
-          if(tgtY!==null&&(h.divYield||0)>0&&(h.price||0)>0){
-            const dps=(h.divYield/100)*h.price;
-            const fair=parseFloat((dps/tgtY).toFixed(4));
-            if(fair>0) return{...h,intrinsic:fair,intrinsicMethod:'reit_yield',intrinsicUpdatedAt:now};
-          }
-          return h;
+          return h; // no data from this pass — keep existing value
         });
-        // Capture outside updater — React updater must be pure (no async side effects)
-        stillNA=upd.filter(h=>!h.isEtf&&Number(h.shares||0)>0&&!(h.intrinsic>0));
-        updForDB=upd;
+        if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic] DB:',e));
         return upd;
       });
-      // DB persistence OUTSIDE the updater — clean async context, no Strict Mode double-fire issues
-      if(updForDB.length>0&&window.portfolioDB){
-        window.portfolioDB.updateHoldings(updForDB).catch(e=>console.warn('[intrinsic] DB:',e));
-      }
       // Persist refresh timestamp to meta
       setIntrinsicUpdatedAt(now);
       fetch(`${SB}/rest/v1/meta?on_conflict=key`,{
         method:'POST',headers:{...SBH,'Prefer':'resolution=merge-duplicates,return=minimal'},
         body:JSON.stringify({key:'intrinsic_refresh_at',value:now})
       }).catch(()=>{});
-      // ── Auto-chain: AI search for any stocks still without IV ──────────
-      // Runs silently in the background after formula. Rate-limited to 1 per
-      // 5 seconds so the Claude API isn't overwhelmed. Handles HK growth stocks
-      // (Meituan, Ganfeng, Hua Hong), JP stocks with no dividend, EU OTC etc.
-      if(stillNA.length>0){
-        console.log(`[compute_intrinsic] ${stillNA.length} stocks still NA after formula+yield — queuing background AI search`);
-        stillNA.forEach((h,i)=>{
-          setTimeout(()=>refreshSingleIntrinsicWithAI(h),(i+1)*5000);
-        });
-      }
     }catch(e){console.warn('[compute_intrinsic]',e.message);}
   }
 
@@ -3519,14 +3469,35 @@ function App(){
           const portPct=portCost?(portVal-portCost)/portCost*100:0;
           const lvIdx=liveFor(mkt);
 
-          // Multi-period index returns (from upgraded live_indices)
-          const idxYtd   = lvIdx?.ytd      ?? m.idxYtd;
-          const idx1y    = lvIdx?.return1y  ?? null;
-          const idx3y    = lvIdx?.return3y  ?? null;
-          const idx5y    = lvIdx?.return5y  ?? null;
-          // Primary comparison: 1Y index return is the standard benchmark period
-          const primaryIdx = idx1y ?? idxYtd;
-          const beat = portPct > primaryIdx;
+          // Multi-period index returns (from live_indices edge function — real Yahoo data)
+          const idxYtd = lvIdx?.ytd      ?? m.idxYtd;
+          const idx1y  = lvIdx?.return1y ?? null;
+          const idx3y  = lvIdx?.return3y ?? null;
+          const idx5y  = lvIdx?.return5y ?? null;
+
+          // ── Option 3: Time-matched benchmark comparison ───────────────────────
+          // portPct is ALL-TIME return from avg cost, not a 1-year figure.
+          // Fix: compute the cost-weighted average holding duration for this market,
+          // then compare against the index period that best matches it.
+          // Cost-weighting ensures large positions dominate the average correctly.
+          const mktHeldActive=holdings.filter(h=>h.mkt===mkt&&Number(h.shares)>0&&h.heldSince);
+          const totalWtCost=mktHeldActive.reduce((s,h)=>s+toSGDlive((h.avgCost||0)*(h.shares||0),h.mkt),0);
+          const wtMonths=totalWtCost>0
+            ?mktHeldActive.reduce((s,h)=>{
+                const mo=(Date.now()-new Date(h.heldSince).getTime())/(1000*3600*24*30.4375);
+                const w=toSGDlive((h.avgCost||0)*(h.shares||0),h.mkt)/totalWtCost;
+                return s+mo*w;
+              },0)
+            :12; // fallback to 1Y if no heldSince data
+
+          // Pick index period closest to the cost-weighted average holding duration
+          const {matchedIdx,matchedPeriod}=(()=>{
+            if(wtMonths>=48&&idx5y!==null) return{matchedIdx:idx5y,  matchedPeriod:'5Y'};
+            if(wtMonths>=24&&idx3y!==null) return{matchedIdx:idx3y,  matchedPeriod:'3Y'};
+            if(wtMonths>=12&&idx1y!==null) return{matchedIdx:idx1y,  matchedPeriod:'1Y'};
+            return{matchedIdx:idxYtd,matchedPeriod:'YTD'};
+          })();
+          const beat=portPct>matchedIdx;
 
           return(
             <div key={mkt} style={{...card,borderLeft:`3px solid ${beat?C.green:C.mutedLight}`}}>
@@ -3536,7 +3507,7 @@ function App(){
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     <Tag col={idxYtd>=0?C.green:C.red}>YTD {idxYtd>=0?"+":""}{fmt(idxYtd,1)}%</Tag>
                     {idx1y!==null&&<Tag col={idx1y>=0?C.green:C.red}>1Y {idx1y>=0?"+":""}{fmt(idx1y,1)}%</Tag>}
-                    <Tag col={beat?C.green:C.red}>{beat?"↑ Beating 1Y":"↓ Below 1Y"}</Tag>
+                    <Tag col={beat?C.green:C.red}>{beat?`↑ Outperforming ${matchedPeriod}`:`↓ Behind ${matchedPeriod}`}</Tag>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -3591,7 +3562,7 @@ function App(){
 
                 {/* Note */}
                 <div style={{fontSize:11,color:C.muted,fontStyle:"italic",marginTop:6,lineHeight:1.4}}>
-                  ℹ Portfolio % = total return from avg cost (actual purchase). Index figures shown for multi-period reference. For time-aligned comparison, use the PerfChart above.
+                  ℹ Portfolio % = total return from avg cost. Benchmark = {m.index} <b>{matchedPeriod}</b> return — matched to your cost-weighted avg holding of <b>~{Math.round(wtMonths)} months</b>. Index returns from Yahoo Finance live data.
                 </div>
 
                 {/* Dividend yield row — gross and net (after withholding tax) */}
@@ -6356,16 +6327,10 @@ function App(){
             {(()=>{
               const bs=buffettScore(h);
               const gainPctAI=((h.price-h.avgCost)/h.avgCost)*100;
-              const hasIV=(h.intrinsic||0)>0;
-              const upsideAI=hasIV?((h.intrinsic-h.price)/h.price)*100:null;
+              const upsideAI=((h.intrinsic-h.price)/h.price)*100;
               const divOk=h.divYield>0;
               const moatStr=h.moat==="Wide"?"a wide economic moat — strong competitive advantages":h.moat==="Narrow"?"a narrow moat — some competitive advantages":"no significant moat";
-              // Only show valuation sentence when real IV data exists
-              const valuationStr=!hasIV
-                ?"Intrinsic value not yet available — tap 🤖 on the Intrinsic tile to search for analyst targets."
-                :upsideAI>15?"The stock is trading below intrinsic value — a margin of safety exists, with an estimate of "+fmtL(h.intrinsic,h.mkt)+" vs "+fmtL(h.price,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
-                :upsideAI>0?"The stock is near fair value — intrinsic estimate "+fmtL(h.intrinsic,h.mkt)+" vs "+fmtL(h.price,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside)."
-                :"The stock is trading above intrinsic value at "+fmtL(h.price,h.mkt)+" vs estimate of "+fmtL(h.intrinsic,h.mkt)+" ("+(upsideAI>=0?"+":"")+fmt(upsideAI,1)+"% upside) — caution warranted.";
+              const valuation=upsideAI>15?"trading below intrinsic value — a margin of safety exists":upsideAI>0?"near fair value — limited margin of safety":"trading above intrinsic value — caution warranted";
               // rec derives from action (not raw score) to stay consistent with the moat/reason text above
               const rec=bs.action==="BUY MORE"?"a strong buy"
                 :bs.action==="ADD GRADUALLY"?"a gradual accumulation candidate"
@@ -6379,7 +6344,7 @@ function App(){
                 :"P/E data unavailable — the company may not yet be profitable, or data is pending refresh.";
               return(
                 <div style={{fontSize:15,color:C.mutedLight,lineHeight:1.8}}>
-                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. {valuationStr}</p>
+                  <p style={{marginBottom:8}}><b style={{color:C.text}}>{h.name}</b> has {moatStr}. The stock is {valuation}, with an intrinsic value estimate of {fmtL(h.intrinsic,h.mkt)} vs current price of {fmtL(h.price,h.mkt)} ({upsideAI>=0?"+":""}{fmt(upsideAI,1)}% upside).</p>
                   <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. {peText}</p>
                   <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
                 </div>
@@ -6586,7 +6551,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-16:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-17:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
