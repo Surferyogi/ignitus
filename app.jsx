@@ -573,6 +573,14 @@ function App(){
   const [valLoading,setValLoading]=useState({});
 
   const [dbStatus,setDbStatus]=useState('ready'); // 'ready' | 'saving' | 'saved' | 'error'
+
+  // ── IV is session-only. Never persist intrinsic value to DB ──────────────
+  // All DB writes go through saveHoldings which strips IV fields from payload.
+  const saveHoldings=(arr,label='[db]')=>{
+    if(!window.portfolioDB) return;
+    const stripped=arr.map(({intrinsic:_i,intrinsicMethod:_m,intrinsicUpdatedAt:_u,...h})=>h);
+    return window.portfolioDB.updateHoldings(stripped).catch(e=>console.warn(label,e));
+  };
   const [isLoading,setIsLoading]=useState(true);
   const [priceStatus,setPriceStatus]=useState('idle');
   const [fxRates,setFxRates]=useState({USD:1.27,JPY:0.0080,EUR:1.49,HKD:0.163,GBP:1.68,AUD:0.81,CNY:0.175,TWD:0.039,SGD:1.0});
@@ -646,7 +654,7 @@ function App(){
         const mktFixCount=mktCorrected.filter((h,i)=>h.mkt!==(rebuiltOnLoad.length>0?rebuiltOnLoad:data.holdings)[i]?.mkt).length;
         if(mktFixCount>0&&window.portfolioDB){
           console.log('[mkt-fix] Correcting '+mktFixCount+' holdings with wrong market in DB');
-          window.portfolioDB.updateHoldings(mktCorrected).catch(e=>console.warn('[mkt-fix] DB:',e));
+          saveHoldings(mktCorrected,'[mkt-fix]');
         }
         // Also fix trades with wrong mkt
         const tradesMktFixed=tradesWithProfit.map(t=>{
@@ -771,7 +779,7 @@ function App(){
           return p && p > 0 ? { ...h, price: p } : h;
         });
         if (window.portfolioDB) {
-          window.portfolioDB.updateHoldings(updated).catch(e => console.warn('DB:', e));
+          saveHoldings(updated,'[prices]');
         }
         return updated;
       });
@@ -823,12 +831,12 @@ function App(){
           const changes={};
           if(dy   !== undefined)          changes.divYield      = dy;   // 0 valid = non-dividend
           if(pe   !== undefined && pe>0)  changes.peRatio       = pe;
-          if(intr !== undefined && intr>0)changes.intrinsic     = intr; // Graham Number replaces stale DB value
+          // intrinsic from dividends endpoint is session-only — not stored in changes
           if(rg   !== undefined && rg!==0)changes.revenueGrowth = rg;
           return Object.keys(changes).length>0?{...h,...changes}:h;
         });
         if(window.portfolioDB){
-          window.portfolioDB.updateHoldings(updated).catch(e=>console.warn('DB div/PE:',e));
+          saveHoldings(updated,'[div-pe]');
         }
         return updated;
       });
@@ -1144,7 +1152,7 @@ function App(){
               if(livePE>0) ch.peRatio=livePE;
               return {...h,...ch};
             });
-            if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[valuation-persist]',e));
+        // IV is session-only — not persisted to DB
             return upd;
           });
         }
@@ -1256,7 +1264,7 @@ function App(){
       setHoldings(updated);
 
       // Persist to Supabase holdings table
-      if(window.portfolioDB) window.portfolioDB.updateHoldings(updated).catch(e=>console.warn('[moat-ai] DB:',e));
+      if(window.portfolioDB) saveHoldings(updated,'[moat-ai]');
 
       // Also update the moat_map in meta table
       const SB  = 'https://ckyshjxznltdkxfvhfdy.supabase.co';
@@ -1339,7 +1347,7 @@ function App(){
         changedCount++;
         return {...h,moat:newMoat};
       });
-      if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[bulk-moat] DB:',e));
+      if(window.portfolioDB) saveHoldings(upd,'[bulk-moat]');
       return upd;
     });
 
@@ -1411,7 +1419,7 @@ function App(){
           if(dcf     > 0) return{...h,intrinsic:dcf,            intrinsicMethod:'dcf_eps',    intrinsicUpdatedAt:now};
           return h; // no data from this pass — keep existing value
         });
-        if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic] DB:',e));
+        // IV is session-only — not persisted to DB
         return upd;
       });
       // Persist refresh timestamp to meta
@@ -1483,7 +1491,7 @@ function App(){
         if(!u||u.intrinsic<=0) return h;
         return{...h,intrinsic:u.intrinsic,intrinsicMethod:'ai_search'};
       });
-      if(window.portfolioDB) window.portfolioDB.updateHoldings(upd).catch(e=>console.warn('[intrinsic-ai] DB:',e));
+      // IV is session-only — not persisted to DB
       return upd;
     });
     // Persist refresh timestamp
@@ -1522,7 +1530,7 @@ function App(){
           setHoldings(prev=>{
             const updated=prev.map(x=>x.ticker===h.ticker?{...x,name:best.name}:x);
             if(window.portfolioDB){
-              window.portfolioDB.updateHoldings(updated).catch(e=>console.warn('[names] DB:',e));
+              saveHoldings(updated,'[names]');
             }
             return updated;
           });
@@ -1959,7 +1967,7 @@ function App(){
     setDbStatus('saving');
     const timer=setTimeout(async()=>{
       try{
-        await window.portfolioDB.updateHoldings(holdings);
+        await saveHoldings(holdings,'[manual-save]');
         setDbStatus('saved');
         setTimeout(()=>setDbStatus('ready'),2000);
       }catch(e){
@@ -2396,7 +2404,7 @@ function App(){
     // SELL: rebuildHoldingsFromTrades handles net share reduction.
     if(type==="DIV"){
       // Only persist the trades; holdings are unchanged
-      if(window.portfolioDB){window.portfolioDB.updateTrades([newTrades[0]]).catch(e=>console.error('DB DIV save:',e));}
+      if(window.portfolioDB){window.portfolioDB.updateTrades([newTrades[0]]).catch(e=>console.error('DB DIV save:',e));saveHoldings(rebuiltH,'[trade-buy]');}
       setShowTradeForm(false);
       setDupeWarning(null);
       setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD",divMode:"gross"});
@@ -2424,7 +2432,7 @@ function App(){
       rebuiltH[hi]={...rebuiltH[hi],shares:finalShares,fullySold:finalShares<=0};
     }
     setHoldings(rebuiltH);
-    if(window.portfolioDB){window.portfolioDB.updateHoldings(rebuiltH).catch(e=>console.error('DB:',e));}
+    if(window.portfolioDB){saveHoldings(rebuiltH,'[save-trade]');}
     setShowTradeForm(false);
     setDupeWarning(null);
     setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD"});
@@ -2601,7 +2609,7 @@ function App(){
       }
     }
     setHoldings(rebuiltH2);
-    if(window.portfolioDB){window.portfolioDB.deleteTrade(id).catch(e=>console.error('DB:',e));window.portfolioDB.updateHoldings(rebuiltH2).catch(e=>console.error('DB:',e));}
+    if(window.portfolioDB){window.portfolioDB.deleteTrade(id).catch(e=>console.error('DB:',e));saveHoldings(rebuiltH2,'[del-trade]');}
     markDirty();
   }
 
@@ -2678,7 +2686,7 @@ function App(){
     ));
     setHoldingEditId(null);
     setHoldingForm({});
-    if(window.portfolioDB){window.portfolioDB.updateHoldings(holdings).catch(e=>console.error('DB:',e));}
+    if(window.portfolioDB){saveHoldings(holdings,'[edit-holding]');}
     setTimeout(()=>fetchMoatData(holdings), 500);
     markDirty();
   }
@@ -5431,7 +5439,7 @@ function App(){
       );
       setHoldings(updated);
       if(window.portfolioDB){
-        try{ await window.portfolioDB.updateHoldings(updated); }
+        try{ await saveHoldings(updated,'[recon]'); }
         catch(e){ console.error('[recon] DB fix failed:',e); }
       }
       setFixed(p=>({...p,[r.h.ticker]:true}));
@@ -6626,7 +6634,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:07-01:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:07-02:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
