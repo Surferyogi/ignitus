@@ -2157,16 +2157,21 @@ function App(){
     if(aiText[h.ticker])return;
     setAiLoad(p=>({...p,[h.ticker]:true}));
     const sc=scoreH(h),m=MKT[h.mkt]||MKT.US,bs=buffettScore(h);
-    const up=((h.intrinsic-h.price)/h.price*100).toFixed(1);
+    const iv=h.intrinsic||0;
+    const up=iv>0?((iv-h.price)/h.price*100).toFixed(1):null;
     const prompt=[
       "Buffett-style analysis for Singapore investor. 3-4 paragraphs.",
       "Stock: "+h.name+" ("+h.ticker+") Market: "+h.mkt+" "+m.code,
       "Price: "+m.symbol+h.price+" approx S$"+fmt(toSGDlive(h.price,h.mkt))+" Avg Cost: "+m.symbol+h.avgCost,
-      "Intrinsic: "+m.symbol+h.intrinsic+" Upside: "+up+"%",
+      up!==null
+        ?"Intrinsic: "+m.symbol+iv+" Upside: "+up+"%"
+        :"Intrinsic: N/A — not yet loaded. Skip valuation comparison. Focus on business quality, moat durability, and long-term thesis.",
       "Moat: "+h.moat+" PE: "+(h.peRatio>0?h.peRatio:"N/A (pre-profit or data pending)")+" Div: "+h.divYield+"%",
       "Buffett Score: "+bs.score+"/100 Action: "+bs.action,
       "Benchmark: "+m.index+" YTD "+m.idxYtd+"%",
-      "1-Business quality and moat 2-Valuation 3-Risks 4-Buffett-style recommendation"
+      up!==null
+        ?"1-Business quality and moat 2-Valuation vs intrinsic 3-Risks 4-Buffett-style recommendation"
+        :"1-Business quality and moat 2-Competitive positioning and growth (skip IV, it is unavailable) 3-Key risks 4-Buffett-style recommendation based on quality alone"
     ].join("\n");
     try{
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:900,messages:[{role:"user",content:prompt}]})});
@@ -6583,7 +6588,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-19:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:06-20:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
