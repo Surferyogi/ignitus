@@ -1798,6 +1798,14 @@ function App(){
       for(const s of sp) if(s.dateMs>ptMs) f*=s.ratio;
       return f;
     }
+    // ── DIAGNOSTIC: log detected splits ──────────────────────────────────────────
+    const _splitKeys=Object.keys(splitEventsByTicker);
+    console.log('[TWR split-fix] mktFilter='+mktFilter+' period='+period+
+      ' | detected splits for: '+_splitKeys.join(',')+
+      ' | NVDA splits='+JSON.stringify((splitEventsByTicker['NVDA']||[]).map(s=>({d:new Date(s.dateMs).toISOString().slice(0,10),r:s.ratio})))+
+      ' | AMZN='+JSON.stringify((splitEventsByTicker['AMZN']||[]).map(s=>({d:new Date(s.dateMs).toISOString().slice(0,10),r:s.ratio})))+
+      ' | shareTimelines NVDA events='+((shareTimelines['NVDA']||[]).length));
+    // ─────────────────────────────────────────────────────────────────────────────
 
     // ── Step 3: avg-cost proxy for tickers we cannot get live price history ───────
     // Used as a constant price fallback (conservative: no appreciation shown).
@@ -6722,7 +6730,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-12:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-13:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
