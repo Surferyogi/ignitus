@@ -1718,18 +1718,19 @@ function App(){
     const allRelevantTickers=[...activeTickers,...closedTickers];
 
     // ── Step 2: build share-count + cash-flow event timelines ─────────────────────
-    // Each event: { dateMs, delta (share change), cf (SGD cash flow for TWR) }
-    //   BUY:   delta = +qty,  cf = +(price × qty)        ← money enters portfolio
-    //   SELL:  delta = -qty,  cf = -(price × qty)        ← money leaves portfolio
-    //   DIV:   delta = 0,     cf = -(t.profit)           ← net dividend out to investor
-    //          (cf is negative = money leaving portfolio; Modified Dietz strips this
-    //           from the return so dividend income doesn't deflate TWR)
-    //   TRANSFER_IN: delta = +qty, cf = +(price × qty)   ← treated like BUY for TWR
+    // Each event: { dateMs, delta (share change), cf (SGD cash flow for TWR), isTI }
+    //   BUY:         delta = +qty,  cf = +(price × qty)        ← money enters portfolio
+    //   SELL:        delta = -qty,  cf = -(price × qty)        ← money leaves portfolio
+    //   DIV/ROC:     delta = 0,     cf = -(t.profit)           ← net dist. out to investor
+    //   TRANSFER_IN: delta = +qty,  cf = MARKET VALUE at transfer date (see Step 8)
+    //                isTI = true  ← flag so Step 8 can override cf with market value
     //   SCRIP:       delta = +qty, cf = 0                 ← stock dividend, no cash
-    // IMPORTANT: TRANSFER_IN must register its cost as a cash inflow (cf > 0).
-    // If cf=0 for TI, the Modified Dietz denominator does not include the capital
-    // injected, so the TWR interprets the portfolio value jump as pure price gain —
-    // massively inflating returns (e.g. +350% fabricated return in the TI period).
+    // CRITICAL: Most TRANSFER_IN records have price=0 (book cost not stored in DBS
+    // statement). Using price×shares gives cf=0, and the `if(cf===0) return` guard
+    // would skip them entirely. That means shares arrive in V[i] with no CF registered
+    // → Modified Dietz denominator collapses → chained +999% spikes → billions%.
+    // Fix in Step 8: override TI cf with priceAtPoint(ticker, pi) × shares so the
+    // denominator correctly reflects the capital injected at the transfer date.
     const shareTimelines={};
     allRelevantTickers.forEach(ticker=>{
       shareTimelines[ticker]=trades
@@ -1741,14 +1742,62 @@ function App(){
                  : (t.type==='DIV'||t.type==='ROC') ?  0   // payment events; no share change
                  :                                     Number(t.shares), // SCRIP/TRANSFER_IN: shares added
           cf:      t.type==='BUY'||t.type==='TRANSFER_IN'
-                                  ?  Number(t.price)*Number(t.shares)  // capital invested
+                                  ?  Number(t.price)*Number(t.shares)  // capital invested (may be 0 for TI)
                  : t.type==='SELL' ? -Number(t.price)*Number(t.shares) // proceeds received
                  : (t.type==='DIV'||t.type==='ROC')
                                   ? -(Number(t.profit)||0) // div/ROC paid out (negative = outflow)
                  :                   0, // SCRIP: free shares, no cash
+          isTI:  t.type==='TRANSFER_IN', // Step 8 uses this to override cf with market value
         }))
         .sort((a,b)=>a.dateMs-b.dateMs);
     });
+
+    // ── Step 2b: detect true stock splits from SCRIP events ───────────────────────
+    // Problem: Yahoo Finance returns SPLIT-ADJUSTED historical prices (e.g. after
+    // ITOCHU 8001.T 5:1 split Dec 2025, all Sep-Nov 2024 prices appear as 1560 JPY
+    // instead of the actual 7800 JPY). But DB BUY records store the actual pre-split
+    // price (7800 JPY). This creates a 5× mismatch:
+    //   CF = 7800 × 100 = 780,000 JPY (actual money paid)
+    //   V  = 1560 × 100 = 156,000 JPY (split-adjusted price × pre-split shares)
+    //   R  = (156k−0−780k)/390k = −160% → clamped −99% → compounded to −99.6%
+    //
+    // Fix: multiply sharesAtDate by fwdSplitFactor (product of all split ratios
+    // that occur AFTER the chart point). This converts pre-split share counts to
+    // post-split equivalent, making V consistent with Yahoo's adjusted prices:
+    //   V  = 1560 × 100 × 5 = 780,000 JPY = CF → R = 0% ✓
+    //
+    // Detection: SCRIP with ratio = (before+delta)/before > 1.5 = true stock split.
+    // Threshold excludes small stock dividends (e.g. BXSL +7/600 = 1.01×, D05 +170/2309 = 1.07×).
+    const splitEventsByTicker={};
+    allRelevantTickers.forEach(ticker=>{
+      const evts=shareTimelines[ticker];
+      if(!evts?.length) return;
+      let running=0;
+      const splits=[];
+      for(const evt of evts){
+        if(evt.delta>0&&evt.cf===0&&!evt.isTI){
+          // SCRIP event: detect if it's a true stock split (ratio > 1.5×)
+          if(running>0){
+            const ratio=(running+evt.delta)/running;
+            if(ratio>1.5) splits.push({dateMs:evt.dateMs,ratio});
+          }
+          running+=evt.delta;
+        } else {
+          running+=evt.delta;
+        }
+      }
+      if(splits.length>0) splitEventsByTicker[ticker]=splits;
+    });
+    // Returns the cumulative forward split factor for a ticker at a given moment:
+    // product of all split ratios for splits that occur AFTER ptMs.
+    // Pre-split shares × fwdSplitFactor = post-split equivalent share count.
+    function fwdSplitFactor(ticker,ptMs){
+      const sp=splitEventsByTicker[ticker];
+      if(!sp) return 1;
+      let f=1;
+      for(const s of sp) if(s.dateMs>ptMs) f*=s.ratio;
+      return f;
+    }
 
     // ── Step 3: avg-cost proxy for tickers we cannot get live price history ───────
     // Used as a constant price fallback (conservative: no appreciation shown).
@@ -1767,7 +1816,7 @@ function App(){
     // Closed: top 10 by last-sell proceeds (recently significant positions).
     const topActive=[...subset]
       .sort((a,b)=>toSGDlive(b.price*b.shares,b.mkt)-toSGDlive(a.price*a.shares,a.mkt))
-      .slice(0,20);
+      .slice(0,30); // increased from 20: covers all SG/HK/JP/EU; better US/ALL coverage
     const topActiveTickers=new Set(topActive.map(h=>h.ticker));
 
     const topClosed=[...closedTickers]
@@ -1823,10 +1872,19 @@ function App(){
       }
 
       // Historical price at chart point i for a ticker.
-      // Priority: real Yahoo history → live price (active) → avg-cost (closed)
-      // End-aligned offset: Yahoo index and holdings both end at ~today.
-      // Holdings with shorter history (newer stocks) simply start later than the index.
-      // holdingIdx = i - (n - hc.length): negative means before holding existed (shares=0 anyway).
+      // Priority: real Yahoo history → avgCostProxy (constant acquisition cost).
+      //
+      // CRITICAL: NEVER fall back to live (current) price for historical chart points.
+      // Using live price projects today's value backwards in time:
+      //   A $50 BUY now worth $500 → V=$500×shares while CF=$50×shares
+      //   → R=9× PER BUY EVENT, clamped at 9.99 → 10.99^n after n such events
+      //   → the 1.9 BILLION % catastrophe seen in the screenshot.
+      //
+      // 23 TRANSFER_IN records have price=0 in DB (unknown cost basis).
+      //   avgCostProxy=0 for those → priceAtPoint=0 → V=0 and CF=0 → R=0. Neutral. ✓
+      //
+      // End-aligned offset: both Yahoo index and holdings end at ~today.
+      // holdingIdx<0 means before the stock's IPO → sharesAtDate=0 there → price irrelevant.
       function priceAtPoint(ticker, i){
         const hc=holdingHistories[ticker];
         if(hc&&hc.length>=2){
@@ -1835,14 +1893,16 @@ function App(){
             const p=hc[holdingIdx]; if(p>0) return p;
           }
         }
-        const h=holdings.find(hld=>hld.ticker===ticker);
-        if(h&&Number(h.shares)>0&&Number(h.price)>0) return Number(h.price);
+        // avgCostProxy = weighted avg acquisition cost from BUY/TI events (constant over time).
+        // Shows 0% price appreciation for non-history holdings → understates returns slightly
+        // but completely eliminates the catastrophic artificial spikes from the live-price fallback.
         return avgCostProxy[ticker]||0;
       }
 
       // ── Step 7: raw portfolio value V[i] at each chart point ──────────────────────
-      // V[i] = Σ over ALL relevant tickers of (sharesAtDate(t,i) × priceAtPoint(t,i))
-      // This is the true portfolio market value at each point in time.
+      // V[i] = Σ over ALL relevant tickers of (sharesAtDate(t,i) × fwdSplitFactor × priceAtPoint(t,i))
+      // fwdSplitFactor converts pre-split shares to post-split equivalent so V is
+      // consistent with Yahoo's split-adjusted prices (see Step 2b for explanation).
       const V=Array.from({length:n},(_,i)=>{
         const ptMs=pointMsArr[i];
         return allRelevantTickers.reduce((s,ticker)=>{
@@ -1850,24 +1910,43 @@ function App(){
           if(qty<=0) return s;
           const price=priceAtPoint(ticker,i);
           if(price<=0) return s;
-          return s+toSGDlive(price*qty,tickerMktMap[ticker]||'US');
+          const sf=fwdSplitFactor(ticker,ptMs);
+          return s+toSGDlive(price*qty*sf,tickerMktMap[ticker]||'US');
         },0);
       });
 
       // ── Step 8: net cash flow CF[i] per chart interval ────────────────────────────
       // Each trade is assigned to the chart point it falls on or after.
-      // CF > 0 = money entering portfolio (BUY cost)
-      // CF < 0 = money leaving portfolio (SELL proceeds)
+      // CF > 0 = money entering portfolio (BUY cost / TI market value)
+      // CF < 0 = money leaving portfolio (SELL proceeds / DIV / ROC)
       // SCRIP events have cf=0 and are correctly ignored here.
+      //
+      // TRANSFER_IN special handling: most TI records have price=0 (book cost not
+      // stored in DBS statement), so cf=price*shares=0. The old guard `if(cf===0) return`
+      // silently skipped them: shares arrived in V[i] with no CF registered →
+      // Modified Dietz denominator collapsed → chained +999% spikes → billions%.
+      // Fix: use priceAtPoint(ticker, pi) × shares as the market-value CF for all TI,
+      // so the denominator correctly reflects the capital injected at the transfer date.
       const CF=new Array(n).fill(0);
       allRelevantTickers.forEach(ticker=>{
         const mkt=tickerMktMap[ticker]||'US';
         shareTimelines[ticker].forEach(evt=>{
-          if(evt.cf===0) return;
+          // Skip zero-cf events UNLESS it's a TRANSFER_IN (needs market-value override)
+          if(evt.cf===0&&!evt.isTI) return;
           // Find first chart point at or after the trade date
           let pi=pointMsArr.findIndex(pts=>pts>=evt.dateMs);
           if(pi<0) pi=n-1;
-          CF[pi]+=toSGDlive(evt.cf,mkt);
+          let cf=evt.cf;
+          if(evt.isTI&&evt.delta>0){
+            // Override book cost (often 0) with Yahoo market price at transfer date.
+            // Unrealised gains that accrued before the transfer must NOT inflate TWR.
+            // Apply fwdSplitFactor so TI CF is consistent with V's split scaling
+            // (e.g. NVDA TI before 10:1 split: priceAtPt=13.55, delta=20, sf=40→CF≈10,840 ✓).
+            const mktPrice=priceAtPoint(ticker,pi);
+            if(mktPrice>0) cf=mktPrice*evt.delta*fwdSplitFactor(ticker,evt.dateMs);
+          }
+          if(cf===0) return; // price completely unavailable — skip safely
+          CF[pi]+=toSGDlive(cf,mkt);
         });
       });
 
@@ -6643,7 +6722,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:07-14:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-12:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
