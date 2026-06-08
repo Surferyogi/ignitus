@@ -1996,7 +1996,16 @@ function App(){
       // Result: the chart shows pure price appreciation independent of when or
       // how much money was added or withdrawn.
 
-      const firstNonZero=V.findIndex(v=>v>0);
+      // Find the LAST 0→non-zero V transition as the chart start.
+      // Why: If the portfolio was briefly emptied and then re-established (e.g. US portfolio
+      // held only PEP from Jan-2019, sold it Jun-2020, then TI'd 57 stocks Jan-2021), using
+      // V.findIndex would start the chart in 2019 with a confusing 7-month flat gap in 2020.
+      // Using the LAST restart ensures the chart starts at the actual portfolio establishment
+      // date (Jan-2021 for US), showing only the meaningful investment period.
+      let firstNonZero=-1;
+      for(let i=0;i<n;i++){
+        if(V[i]>0 && (i===0||V[i-1]<=0)) firstNonZero=i; // update to latest transition
+      }
       if(firstNonZero<0) throw new Error("Portfolio has no value in this period");
 
       const twrSeries=new Array(n).fill(null);
@@ -6762,7 +6771,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-17:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-18:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
