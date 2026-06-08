@@ -1963,6 +1963,19 @@ function App(){
             if(mktPrice>0) cf=mktPrice*evt.delta*fwdSplitFactor(ticker,evt.dateMs);
           }
           if(cf===0) return; // price completely unavailable — skip safely
+          // ── ORPHAN GUARD: skip negative CF when no shares were held ──────────────
+          // Root cause of +24796.3% phantom: 67 US closed tickers have SELL/DIV
+          // records in trades but NO BUY/TRANSFER_IN records (pre-trade-history lots).
+          // For these, sharesAtDate = 0 always (no buys → shares never go positive).
+          // V contribution = 0 (no shares), but SELL CF = –price×shares is negative.
+          // Modified Dietz: R = (0 + |sell_proceeds|) / portfolio_value = +1–9%
+          // phantom GAIN per sell event. With 67 such tickers × ~7% avg = 87× phantom.
+          // Fix: if cf < 0 (SELL or DIV outflow) and shares=0 before event → skip.
+          // Tickers with real positions (sharesAtDate > 0 before sell) pass through. ✓
+          if(cf<0){
+            const sharesBeforeEvt=sharesAtDate(ticker,evt.dateMs-1);
+            if(sharesBeforeEvt<=0) return; // orphan sell/div — no position → skip
+          }
           CF[pi]+=toSGDlive(cf,mkt);
         });
       });
@@ -2000,7 +2013,7 @@ function App(){
         // net flow). Clamp sub-period return to ±99% as a numerical safety net.
         const r=denom>0 ? Math.max(-0.99,Math.min((vEnd-vStart-cf)/denom,9.99)) : 0;
         // ── SPIKE DIAGNOSTIC: console.error visible in "Errors Only" filter ──────
-        if(Math.abs(r)>0.10){  // threshold=10%: catches moderate phantom gains
+        if(Math.abs(r)>0.10&&false){  // DISABLED: root cause found (orphan sells) — keep for reference
           const ptDate=pointMsArr[i]?new Date(pointMsArr[i]).toISOString().slice(0,10):'?';
           const topC=allRelevantTickers
             .map(t=>{const q=sharesAtDate(t,pointMsArr[i]);const p=priceAtPoint(t,i);const sf2=fwdSplitFactor(t,pointMsArr[i]);return{t,v:q*p*sf2};})
@@ -6749,7 +6762,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-16:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-17:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
