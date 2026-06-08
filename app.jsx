@@ -1684,9 +1684,6 @@ function App(){
 
   async function fetchPerfChartData(mktFilter, period){
     const key=mktFilter+"_"+period;
-    // ── DIAGNOSTIC: log EVERY call, including early-returns ──────────────────────
-    console.log('[TWR-call] key='+key+' cached='+!!perfChartData[key]+' loading='+!!perfChartLoading[key]);
-    // ─────────────────────────────────────────────────────────────────────────────
     if(perfChartData[key]) return;
     if(perfChartLoading[key]) return;
     setPerfChartLoading(prev=>({...prev,[key]:true}));
@@ -1801,15 +1798,6 @@ function App(){
       for(const s of sp) if(s.dateMs>ptMs) f*=s.ratio;
       return f;
     }
-    // ── DIAGNOSTIC: log detected splits ──────────────────────────────────────────
-    const _splitKeys=Object.keys(splitEventsByTicker);
-    console.log('[TWR split-fix] mktFilter='+mktFilter+' period='+period+
-      ' | detected splits for: '+_splitKeys.join(',')+
-      ' | NVDA splits='+JSON.stringify((splitEventsByTicker['NVDA']||[]).map(s=>({d:new Date(s.dateMs).toISOString().slice(0,10),r:s.ratio})))+
-      ' | AMZN='+JSON.stringify((splitEventsByTicker['AMZN']||[]).map(s=>({d:new Date(s.dateMs).toISOString().slice(0,10),r:s.ratio})))+
-      ' | shareTimelines NVDA events='+((shareTimelines['NVDA']||[]).length));
-    // ─────────────────────────────────────────────────────────────────────────────
-
     // ── Step 3: avg-cost proxy for tickers we cannot get live price history ───────
     // Used as a constant price fallback (conservative: no appreciation shown).
     // Better than 0 for the TWR denominator — at least the scale is right.
@@ -1842,11 +1830,29 @@ function App(){
 
     const holdingTickers=[...topActiveTickers,...topClosed];
 
+    // ── Step 4b: CRITICAL — force all split-affected tickers to get real Yahoo prices ─
+    // Without this, tickers outside top-30 fall back to avgCostProxy in priceAtPoint.
+    // avgCostProxy = weighted avg of actual DB prices — a mix of pre-split and post-split
+    // values (e.g. BKNG BUYs at ~$3,000 pre-25:1 split). When fwdSplitFactor is then
+    // applied in V: V = shares × sf × avgCostProxy ≈ shares × sf × (sf × yahoo_price)
+    // = sf² × actual_value, while CF = actual_price × shares = sf × actual_value.
+    // Result: phantom R = sf−1 at every pre-split BUY event.
+    // For BKNG (sf=25): phantom +2400% per BUY → compounding to +22583.8%.
+    // Fix: include all detected split tickers in the fetch so holdingHistories always
+    // contains real Yahoo (split-adjusted) prices for them.
+    // priceAtPoint(split_ticker) then returns yahoo_adj_price, and
+    // fwdSplitFactor × yahoo_adj_price = actual_price = CF/shares → R = 0%. ✓
+    const splitTickersSet=new Set(Object.keys(splitEventsByTicker));
+    const extraSplitTickers=[...splitTickersSet].filter(t=>
+      allRelevantTickers.includes(t) && !topActiveTickers.has(t) && !topClosed.includes(t)
+    );
+    const holdingTickersForFetch=[...holdingTickers,...extraSplitTickers];
+
     try{
       // ── Step 5: fetch index + price histories from edge function ──────────────────
       const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({action:"portfolio_chart",indexTicker:idxTicker,holdingTickers,period}),
+        body:JSON.stringify({action:"portfolio_chart",indexTicker:idxTicker,holdingTickers:holdingTickersForFetch,period}),
       });
       if(!res.ok) throw new Error("HTTP "+res.status);
       const d=await res.json();
@@ -1993,6 +1999,16 @@ function App(){
         // Guard: denom should always be positive (it's starting value + half of
         // net flow). Clamp sub-period return to ±99% as a numerical safety net.
         const r=denom>0 ? Math.max(-0.99,Math.min((vEnd-vStart-cf)/denom,9.99)) : 0;
+        // ── SPIKE DIAGNOSTIC: console.error visible in "Errors Only" filter ──────
+        if(Math.abs(r)>0.5){
+          const ptDate=pointMsArr[i]?new Date(pointMsArr[i]).toISOString().slice(0,10):'?';
+          const topC=allRelevantTickers
+            .map(t=>{const q=sharesAtDate(t,pointMsArr[i]);const p=priceAtPoint(t,i);const sf2=fwdSplitFactor(t,pointMsArr[i]);return{t,v:q*p*sf2};})
+            .filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,3)
+            .map(x=>x.t+'='+x.v.toFixed(0)).join(',');
+          console.error('[TWR-SPIKE] mkt='+mktFilter+' i='+i+' date='+ptDate+' R='+r.toFixed(2)+' vS='+vStart.toFixed(0)+' vE='+vEnd.toFixed(0)+' CF='+cf.toFixed(0)+' TOP:'+topC);
+        }
+        // ──────────────────────────────────────────────────────────────────────────
         twrSeries[i]=prev*(1+r);
       }
 
@@ -6733,7 +6749,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-14:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-16:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
