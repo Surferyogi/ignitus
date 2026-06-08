@@ -2000,13 +2000,13 @@ function App(){
         // net flow). Clamp sub-period return to ±99% as a numerical safety net.
         const r=denom>0 ? Math.max(-0.99,Math.min((vEnd-vStart-cf)/denom,9.99)) : 0;
         // ── SPIKE DIAGNOSTIC: console.error visible in "Errors Only" filter ──────
-        if(Math.abs(r)>0.5){
+        if(Math.abs(r)>0.10){  // threshold=10%: catches moderate phantom gains
           const ptDate=pointMsArr[i]?new Date(pointMsArr[i]).toISOString().slice(0,10):'?';
           const topC=allRelevantTickers
             .map(t=>{const q=sharesAtDate(t,pointMsArr[i]);const p=priceAtPoint(t,i);const sf2=fwdSplitFactor(t,pointMsArr[i]);return{t,v:q*p*sf2};})
             .filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,3)
             .map(x=>x.t+'='+x.v.toFixed(0)).join(',');
-          console.error('[TWR-SPIKE] mkt='+mktFilter+' i='+i+' date='+ptDate+' R='+r.toFixed(2)+' vS='+vStart.toFixed(0)+' vE='+vEnd.toFixed(0)+' CF='+cf.toFixed(0)+' TOP:'+topC);
+          console.error('[TWR-SPIKE] mkt='+mktFilter+' i='+i+' date='+ptDate+' R='+r.toFixed(3)+' vS='+vStart.toFixed(0)+' vE='+vEnd.toFixed(0)+' CF='+cf.toFixed(0)+' TOP:'+topC);
         }
         // ──────────────────────────────────────────────────────────────────────────
         twrSeries[i]=prev*(1+r);
@@ -6749,7 +6749,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-16:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-16:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
