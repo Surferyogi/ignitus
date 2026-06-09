@@ -506,6 +506,15 @@ const PortfolioSearchInput=React.memo(function PortfolioSearchInput({onSearch,on
 });
 
 
+// ── Supabase auth helpers (module-level) ────────────────────────────────────
+// After login, localStorage holds 'ign_jwt' (session access token, role='authenticated').
+// Without a valid JWT the policies block all DB access — anon key alone is refused.
+const SB_URL_G='https://ckyshjxznltdkxfvhfdy.supabase.co';
+const SB_ANON_G='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+const sbH=(ex={})=>{
+  const j=(typeof localStorage!=='undefined'?localStorage.getItem('ign_jwt'):null)||SB_ANON_G;
+  return Object.assign({'apikey':SB_ANON_G,'Authorization':'Bearer '+j,'Content-Type':'application/json'},ex||{});
+};
 function App(){
   const [tab,setTab]=useState("portfolio");
   const [holdings,setHoldings]=useState(ALL_H);
@@ -712,8 +721,7 @@ function App(){
         (async()=>{
           try{
             const SB2='https://ckyshjxznltdkxfvhfdy.supabase.co';
-            const KEY2='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-            const HDR2={'apikey':KEY2,'Authorization':'Bearer '+KEY2};
+                        const HDR2=sbH();
             const rc=await fetch(`${SB2}/rest/v1/meta?key=eq.nonUS_iv_cache`,{headers:HDR2});
             if(rc.ok){
               const rowsc=await rc.json();
@@ -760,8 +768,7 @@ function App(){
         (async()=>{
           try{
             const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-            const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-            const HDR={'apikey':KEY,'Authorization':'Bearer '+KEY};
+                        const HDR=sbH();
             const r=await fetch(`${SB}/rest/v1/meta?key=eq.intrinsic_refresh_at`,{headers:HDR});
             if(r.ok){
               const rows=await r.json();
@@ -1050,8 +1057,7 @@ function App(){
 
   async function fetchLiveFx(){
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const SBH={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
+        const SBH=sbH();
     const FX_CACHE_KEY='fx_lkg'; // FIX 4: LKG cache key in Supabase meta
 
     try{
@@ -1078,7 +1084,7 @@ function App(){
     }
     try{
       const cacheRes=await fetch(SB+`/rest/v1/meta?key=eq.${FX_CACHE_KEY}`,{
-        headers:{'apikey':KEY,'Authorization':'Bearer '+KEY}
+        headers:sbH()
       });
       if(cacheRes.ok){
         const rows=await cacheRes.json();
@@ -1100,8 +1106,7 @@ function App(){
 
   async function fetchLiveIndices(){
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const SBH={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
+        const SBH=sbH();
     const CACHE_KEY='indices_lkg';
 
     try{
@@ -1221,8 +1226,8 @@ function App(){
 
   async function fetchMoatData(currentHoldings) {
     const SB  = 'https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY = 'sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const HDR = { 'apikey': KEY, 'Authorization': 'Bearer ' + KEY };
+    
+    const HDR = sbH();
     try {
       const res = await fetch(`${SB}/rest/v1/meta?key=eq.moat_map`, { headers: HDR });
       if (!res.ok) { console.warn('[moat] meta fetch failed:', res.status); return; }
@@ -1325,8 +1330,8 @@ function App(){
 
       // Also update the moat_map in meta table
       const SB  = 'https://ckyshjxznltdkxfvhfdy.supabase.co';
-      const KEY = 'sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-      const HDR = {'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+      
+      const HDR = sbH();
       const metaRes = await fetch(`${SB}/rest/v1/meta?key=eq.moat_map`,{headers:HDR});
       if(metaRes.ok){
         const rows = await metaRes.json();
@@ -1355,8 +1360,7 @@ function App(){
     const stocks=activeHoldings;
     const BATCH=5;
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const HDR={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+        const HDR=sbH();
     const allUpdates={};
 
     for(let i=0;i<stocks.length;i+=BATCH){
@@ -1440,8 +1444,7 @@ function App(){
     if(!src.length) return;
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+        const SBH=sbH();
     try{
       const res=await fetch(EDGE_URL,{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -1521,8 +1524,7 @@ function App(){
     const stocks=activeHoldings.filter(h=>!h.isEtf);
     const BATCH=3; // 3 stocks per Claude call to keep responses focused
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const SBH={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+        const SBH=sbH();
     const allResults={};
 
     for(let i=0;i<stocks.length;i+=BATCH){
@@ -1662,8 +1664,7 @@ function App(){
     if(updated>0){
       try{
         const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-        const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-        const HDR={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+                const HDR=sbH();
         const cachePayload=JSON.stringify({refreshed_at:now,ivMap:allResults});
         await fetch(`${SB}/rest/v1/meta`,{
           method:'POST',
@@ -1820,8 +1821,7 @@ function App(){
 
   async function updateSenateDataSilent(passedHoldings){
     const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
-    const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
-    const SBH={'Content-Type':'application/json','apikey':KEY,'Authorization':'Bearer '+KEY};
+        const SBH=sbH();
     try{
       let trades=[];
       const res=await fetch(SB+'/functions/v1/smart-api',{
@@ -7058,7 +7058,10 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-11:00</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-12:00</span></div>
+                <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
+              </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
