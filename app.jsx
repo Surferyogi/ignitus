@@ -1582,19 +1582,28 @@ function App(){
 
   // ── Non-US Web IV: targeted web-search for HK/CN, JP, SG banks, EU stocks ─
   // Runs ONLY on the ~15 tickers that compute_intrinsic can't reach via FMP.
-  // Fetches analyst consensus price targets via Claude + web_search.
-  // Result stored as intrinsicMethod='web_consensus' (session-only).
+  // ── Web Search IV: dynamically finds ALL non-ETF stocks with no IV ─────────
+  // Runs for any holding where computeAllIntrinsic + Finnhub returned nothing.
+  // Primary targets: HK/CN, JP, SG banks, EU (not covered by FMP/Finnhub).
+  // Results cached in meta.nonUS_iv_cache for instant restore next session.
   const NON_US_IV_TICKERS=new Set([
     '0388.HK','0700.HK','1347.HK','1772.HK','2318.HK','3690.HK','3988.HK',
     '9618.HK','9988.HK','8001.T','8031.T','D05.SI','O39.SI','U11.SI','ESLOF'
-    // 2177.HK (UNQ) excluded — zero analyst coverage
   ]);
   async function refreshNonUSIntrinsicWithWebSearch(){
     if(nonUSIVRefreshing||intrinsicRefreshing) return;
     setNonUSIVRefreshing(true);
-    setNonUSIVStatus('Starting…');
-    const targets=activeHoldings.filter(h=>!h.isEtf&&NON_US_IV_TICKERS.has(h.ticker));
-    if(!targets.length){setNonUSIVRefreshing(false);setNonUSIVStatus('No targets found');return;}
+    setNonUSIVStatus('Scanning for stocks with missing IV…');
+    // Dynamic: target ALL non-ETF active stocks with no IV after API compute
+    const targets=activeHoldings.filter(h=>
+      !h.isEtf&&h.shares>0&&(!h.intrinsicMethod||h.intrinsicMethod==='')
+    );
+    if(!targets.length){
+      setNonUSIVStatus('✅ All stocks have IV — nothing to search');
+      setNonUSIVRefreshing(false);
+      return;
+    }
+    setNonUSIVStatus(`Found ${targets.length} stocks without IV — starting web search…`);
     const BATCH=3;
     const allResults={};
     for(let i=0;i<targets.length;i+=BATCH){
@@ -1669,7 +1678,7 @@ function App(){
   async function refreshSingleNonUSIV(ticker){
     if(nonUSIVRefreshing||intrinsicRefreshing) return;
     const h=holdings.find(x=>x.ticker===ticker);
-    if(!h||h.isEtf||!NON_US_IV_TICKERS.has(ticker)) return;
+    if(!h||h.isEtf) return;
     setNonUSIVRefreshing(true);
     setNonUSIVStatus(`Searching ${ticker}…`);
     const prompt=
@@ -1677,7 +1686,7 @@ function App(){
       +'Use web search. Return ONLY JSON — no markdown:\n'
       +'[{"ticker":"...","intrinsic":123.45,"n_analysts":17,"source":"e.g. Investing.com"}]\n\n'
       +`${ticker} — ${h.name} (${h.mkt}), current price ${h.price}\n`
-      +'Local currency: HKD for .HK, JPY for .T, SGD for .SI, USD for ESLOF';
+      +'Local currency: HKD for .HK, JPY for .T, SGD for .SI, EUR for EU/ESLOF, USD for US stocks.';
     try{
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -3226,7 +3235,7 @@ function App(){
                   {!isSold&&<div style={{fontSize:14,color:C.mutedLight,marginTop:1}}>
                     Intrinsic: {effIV>0
                       ?<><b style={{color:upside>=0?C.green:C.red}}>{fmtL(effIV,h.mkt)}</b>{compIV>0&&<span style={{color:C.purple,fontSize:12,fontWeight:700,marginLeft:3}}>●</span>}<span style={{color:C.muted,fontWeight:400}}> {upside>=0?"+":""}{fmt(upside,1)}% upside</span></>
-                      :<>{!h.isEtf&&<><span style={{fontSize:12,fontWeight:700,color:C.red,background:C.red+"18",border:`1px solid ${C.red}40`,borderRadius:3,padding:"1px 5px",marginRight:4}}>⚠ IV missing</span>{NON_US_IV_TICKERS.has(h.ticker)&&<span onClick={(e)=>{e.stopPropagation();refreshSingleNonUSIV(h.ticker);}} title={`Fetch analyst consensus for ${h.ticker} via web search`} style={{fontSize:11,fontWeight:700,color:C.gold||'#f59e0b',background:(C.gold||'#f59e0b')+'20',border:`1px solid ${C.gold||'#f59e0b'}40`,borderRadius:3,padding:"1px 5px",marginRight:4,cursor:"pointer"}}>🌐</span>}</> }<span style={{color:C.muted}}>—</span></>}
+                      :<>{!h.isEtf&&<><span style={{fontSize:12,fontWeight:700,color:C.red,background:C.red+"18",border:`1px solid ${C.red}40`,borderRadius:3,padding:"1px 5px",marginRight:4}}>⚠ IV missing</span>{!h.intrinsicMethod&&<span onClick={(e)=>{e.stopPropagation();refreshSingleNonUSIV(h.ticker);}} title={`Fetch analyst consensus for ${h.ticker} via web search`} style={{fontSize:11,fontWeight:700,color:C.gold||'#f59e0b',background:(C.gold||'#f59e0b')+'20',border:`1px solid ${C.gold||'#f59e0b'}40`,borderRadius:3,padding:"1px 5px",marginRight:4,cursor:"pointer"}}>🌐</span>}</> }<span style={{color:C.muted}}>—</span></>}
                   </div>}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0,marginLeft:8}}>
@@ -3792,13 +3801,13 @@ function App(){
                       </button>
                       <button onClick={()=>refreshNonUSIntrinsicWithWebSearch()}
                         disabled={nonUSIVRefreshing||intrinsicRefreshing}
-                        title={`Fetch analyst consensus price targets for ${nonUSMissing} non-US stocks (HK/CN, JP, SG banks, EU) via web search`}
+                        title={`Web-search analyst consensus for all ${noMethod} stocks with no IV (HK/CN, JP, SG banks, EU, any API gap)`}
                         style={{padding:"5px 10px",borderRadius:8,
                           border:`1px solid ${(C.gold||'#f59e0b')}`,
                           background:nonUSIVRefreshing?C.surface:(C.gold||'#f59e0b')+"20",
                           color:nonUSIVRefreshing?C.muted:(C.gold||'#f59e0b'),
                           fontSize:12,fontWeight:700,cursor:nonUSIVRefreshing?"not-allowed":"pointer"}}>
-                        {nonUSIVRefreshing?"⏳ Fetching…":"🌐 Non-US Targets"}
+                        {nonUSIVRefreshing?"⏳ Fetching…":("🌐 Web Search IV"+(noMethod>0?" ("+noMethod+")":" "))}
                       </button>
                       <button onClick={()=>refreshAllIntrinsicWithAI()} disabled={intrinsicRefreshing||nonUSIVRefreshing}
                         style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.purple}`,
@@ -3821,7 +3830,7 @@ function App(){
                   </div>
                   <div style={{fontSize:11,color:C.muted,lineHeight:1.6,borderTop:`1px solid ${C.border}`,paddingTop:6}}>
                     <b>🔄 Formula</b>: REIT yield + FMP analyst targets + Graham/DCF ·{' '}
-                    <b>🌐 Non-US Targets</b>: Analyst consensus for HK/CN·JP·SG banks·EU via web search (~60s) ·{' '}
+                    <b>🌐 Web Search IV</b>: Searches analyst consensus for ANY stock still missing IV after 🔄 Formula (HK/CN·JP·SG banks·EU + gaps) ·{' '}
                     <b>🤖 AI All</b>: Claude web-searches all stocks (slower, ~2min) ·{' '}
                     <b style={{color:C.gold}}>💰 ETF Yield</b>: Income ETFs use yield÷cap-rate (PBDC 9%, O9P.SI 6%) ·{' '}
                     <b>🚫 ETF</b>: Equity/gold ETFs have no IV — use sector P/E vs. history instead
@@ -6244,7 +6253,7 @@ function App(){
                           borderRadius:5,padding:"3px 7px",marginBottom:4}}>
                           <span style={{fontSize:12,fontWeight:700,color:C.red}}>⚠ IV not available</span>
                         </div>
-                        {NON_US_IV_TICKERS.has(h.ticker)?(
+                        {!h.intrinsicMethod&&!h.isEtf?(
                           <div style={{marginTop:6}}>
                             <button
                               onClick={()=>refreshSingleNonUSIV(h.ticker)}
@@ -6264,7 +6273,7 @@ function App(){
                         ):(
                           <div style={{fontSize:12,color:C.muted,lineHeight:1.4}}>
                             No analyst target, Graham Number, or DCF data.<br/>
-                            Try <b>🌐 Non-US Targets</b> or <b>🤖 AI All</b> in the Insights tab.
+                            Try <b>🌐 Web Search IV</b> or <b>🤖 AI All</b> in the Insights tab.
                           </div>
                         )}
                       </div>
@@ -6569,8 +6578,8 @@ function App(){
                   </div>
                 ):(
                   <div style={{textAlign:"center",fontSize:13,color:C.muted,marginTop:10,padding:"8px 12px",background:C.surface,borderRadius:6,lineHeight:1.5}}>
-                    ⚠ No valuation data available.{NON_US_IV_TICKERS.has(h.ticker)&&<><br/><span style={{color:C.gold||'#f59e0b',fontWeight:700}}>Use 🌐 Get Analyst Target on the Intrinsic tile above</span> (non-US stocks are not covered by FMP).</>}
-                    {!NON_US_IV_TICKERS.has(h.ticker)&&<><br/>Run 🔄 Formula or 🤖 AI All in the Insights tab.</>}
+                    ⚠ No valuation data available.{!h.intrinsicMethod&&!h.isEtf&&<><br/><span style={{color:C.gold||'#f59e0b',fontWeight:700}}>Use 🌐 Get Analyst Target on the Intrinsic tile above</span> (not covered by FMP — web search will find it).</>}
+                    
                   </div>
                 )}
 
@@ -7044,7 +7053,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-18:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-20:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
