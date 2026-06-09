@@ -705,6 +705,58 @@ function App(){
         fetchMissingNames(mktCorrected);
         // Compute intrinsic values on load + check for quarterly AI refresh
         computeAllIntrinsic(data.holdings);
+        // ── Load Non-US IV cache from meta (HK/JP/EU analyst targets) ──────
+        // These markets have no API coverage at current tier.
+        // We persist results in meta.nonUS_iv_cache (refreshed via 🌐 button).
+        // Auto-refresh if cache is >7 days old.
+        (async()=>{
+          try{
+            const SB2='https://ckyshjxznltdkxfvhfdy.supabase.co';
+            const KEY2='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+            const HDR2={'apikey':KEY2,'Authorization':'Bearer '+KEY2};
+            const rc=await fetch(`${SB2}/rest/v1/meta?key=eq.nonUS_iv_cache`,{headers:HDR2});
+            if(rc.ok){
+              const rowsc=await rc.json();
+              if(rowsc.length>0&&rowsc[0].value){
+                try{
+                  const cache=JSON.parse(rowsc[0].value);
+                  const ivMap=cache.ivMap||{};
+                  const refreshedAt=cache.refreshed_at||null;
+                  const cacheEntries=Object.keys(ivMap).length;
+                  if(cacheEntries>0){
+                    const cacheDate=refreshedAt?new Date(refreshedAt).toISOString():null;
+                    setHoldings(prev=>prev.map(h=>{
+                      const c=ivMap[h.ticker];
+                      if(!c||c.intrinsic<=0) return h;
+                      return{...h,intrinsic:c.intrinsic,
+                        intrinsicMethod:'web_consensus',
+                        intrinsicUpdatedAt:cacheDate||new Date().toISOString(),
+                        _ivSource:(c.source||'')+(cacheDate?` · cached ${cacheDate.slice(0,10)}`:''),
+                        _ivN:c.nAnalysts||0};
+                    }));
+                    console.log(`[nonUS-iv] Loaded cache: ${cacheEntries} tickers from ${refreshedAt?.slice(0,10)||'?'}`);
+                    // Auto-refresh if cache >7 days old
+                    if(refreshedAt){
+                      const ageDays=Math.floor((Date.now()-new Date(refreshedAt).getTime())/86400000);
+                      if(ageDays>7){
+                        console.log(`[nonUS-iv] Cache is ${ageDays}d old — auto-refreshing`);
+                        setTimeout(()=>refreshNonUSIntrinsicWithWebSearch(),12000);
+                      }
+                    }
+                  } else {
+                    // No cache yet — auto-run in background on first use
+                    console.log('[nonUS-iv] No cache found — scheduling auto-fetch');
+                    setTimeout(()=>refreshNonUSIntrinsicWithWebSearch(),15000);
+                  }
+                }catch(ep){console.warn('[nonUS-iv] cache parse error:',ep);}
+              } else {
+                // No cache row at all — schedule first-time fetch
+                console.log('[nonUS-iv] No cache row — scheduling first-time fetch');
+                setTimeout(()=>refreshNonUSIntrinsicWithWebSearch(),15000);
+              }
+            }
+          }catch(eca){console.warn('[nonUS-iv] cache load error:',eca);}
+        })();
         (async()=>{
           try{
             const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
@@ -1592,6 +1644,21 @@ function App(){
         intrinsicUpdatedAt:now,
         _ivSource:u.source,_ivN:u.nAnalysts};
     }));
+    // ── Persist to meta.nonUS_iv_cache so next session restores instantly ──
+    if(updated>0){
+      try{
+        const SB='https://ckyshjxznltdkxfvhfdy.supabase.co';
+        const KEY='sb_publishable_y-wyxLIPM0eiQOezFH6UYQ_WEJzxLGz';
+        const HDR={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
+        const cachePayload=JSON.stringify({refreshed_at:now,ivMap:allResults});
+        await fetch(`${SB}/rest/v1/meta`,{
+          method:'POST',
+          headers:{...HDR,'Prefer':'resolution=merge-duplicates'},
+          body:JSON.stringify({key:'nonUS_iv_cache',value:cachePayload})
+        });
+        console.log(`[nonUS-iv] Cache saved: ${updated} tickers → meta.nonUS_iv_cache`);
+      }catch(ec){console.warn('[nonUS-iv] cache save error:',ec);}
+    }
     setNonUSIVStatus(`✅ ${updated}/${targets.length} updated`);
     console.log(`[nonUS-iv] Done — ${updated}/${targets.length} updated`,allResults);
     setNonUSIVRefreshing(false);
@@ -6977,7 +7044,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-16:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-18:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
