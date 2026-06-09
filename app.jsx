@@ -1597,6 +1597,57 @@ function App(){
     setNonUSIVRefreshing(false);
   }
 
+
+  // ── Single-stock Non-US IV: web-search for one ticker from the detail view ─
+  async function refreshSingleNonUSIV(ticker){
+    if(nonUSIVRefreshing||intrinsicRefreshing) return;
+    const h=holdings.find(x=>x.ticker===ticker);
+    if(!h||h.isEtf||!NON_US_IV_TICKERS.has(ticker)) return;
+    setNonUSIVRefreshing(true);
+    setNonUSIVStatus(`Searching ${ticker}…`);
+    const prompt=
+      'Search for the current analyst consensus 12-month price target for this stock. '
+      +'Use web search. Return ONLY JSON — no markdown:\n'
+      +'[{"ticker":"...","intrinsic":123.45,"n_analysts":17,"source":"e.g. Investing.com"}]\n\n'
+      +`${ticker} — ${h.name} (${h.mkt}), current price ${h.price}\n`
+      +'Local currency: HKD for .HK, JPY for .T, SGD for .SI, USD for ESLOF';
+    try{
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          model:'claude-sonnet-4-20250514',max_tokens:400,
+          tools:[{'type':'web_search_20250305','name':'web_search'}],
+          messages:[{role:'user',content:prompt}]
+        })
+      });
+      const d=await res.json();
+      const textBlocks=(d.content||[]).filter(c=>c.type==='text');
+      const raw=textBlocks[textBlocks.length-1]?.text||'[]';
+      let results=[];
+      try{results=JSON.parse(raw);}catch(e){
+        const m=raw.match(/\[[\s\S]*?\]/);
+        if(m) try{results=JSON.parse(m[0]);}catch(e2){}
+      }
+      const r=Array.isArray(results)?results.find(x=>x.ticker===ticker||results.length===1):null;
+      if(r&&r.intrinsic>0){
+        const now=new Date().toISOString();
+        setHoldings(prev=>prev.map(x=>x.ticker!==ticker?x:{
+          ...x,intrinsic:r.intrinsic,
+          intrinsicMethod:'web_consensus',
+          intrinsicUpdatedAt:now,
+          _ivSource:r.source||'',_ivN:r.n_analysts||0
+        }));
+        setNonUSIVStatus(`✅ ${ticker}: ${r.intrinsic}`);
+      } else {
+        setNonUSIVStatus(`⚠ No target found for ${ticker}`);
+      }
+    }catch(e){
+      console.warn('[nonUS-iv-single]',e);
+      setNonUSIVStatus(`⚠ Error fetching ${ticker}`);
+    }
+    setNonUSIVRefreshing(false);
+  }
+
   async function fetchMissingNames(currentHoldings){
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
     const unnamed=(currentHoldings||holdings).filter(h=>
@@ -3108,7 +3159,7 @@ function App(){
                   {!isSold&&<div style={{fontSize:14,color:C.mutedLight,marginTop:1}}>
                     Intrinsic: {effIV>0
                       ?<><b style={{color:upside>=0?C.green:C.red}}>{fmtL(effIV,h.mkt)}</b>{compIV>0&&<span style={{color:C.purple,fontSize:12,fontWeight:700,marginLeft:3}}>●</span>}<span style={{color:C.muted,fontWeight:400}}> {upside>=0?"+":""}{fmt(upside,1)}% upside</span></>
-                      :<>{!h.isEtf&&<span style={{fontSize:12,fontWeight:700,color:C.red,background:C.red+"18",border:`1px solid ${C.red}40`,borderRadius:3,padding:"1px 5px",marginRight:4}}>⚠ IV missing</span>}<span style={{color:C.muted}}>—</span></>}
+                      :<>{!h.isEtf&&<><span style={{fontSize:12,fontWeight:700,color:C.red,background:C.red+"18",border:`1px solid ${C.red}40`,borderRadius:3,padding:"1px 5px",marginRight:4}}>⚠ IV missing</span>{NON_US_IV_TICKERS.has(h.ticker)&&<span onClick={(e)=>{e.stopPropagation();refreshSingleNonUSIV(h.ticker);}} title={`Fetch analyst consensus for ${h.ticker} via web search`} style={{fontSize:11,fontWeight:700,color:C.gold||'#f59e0b',background:(C.gold||'#f59e0b')+'20',border:`1px solid ${C.gold||'#f59e0b'}40`,borderRadius:3,padding:"1px 5px",marginRight:4,cursor:"pointer"}}>🌐</span>}</> }<span style={{color:C.muted}}>—</span></>}
                   </div>}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0,marginLeft:8}}>
@@ -6126,10 +6177,29 @@ function App(){
                           borderRadius:5,padding:"3px 7px",marginBottom:4}}>
                           <span style={{fontSize:12,fontWeight:700,color:C.red}}>⚠ IV not available</span>
                         </div>
-                        <div style={{fontSize:12,color:C.muted,lineHeight:1.4}}>
-                          No analyst target, Graham Number, or DCF data returned.<br/>
-                          Try 🤖 AI Refresh in the Insights tab.
-                        </div>
+                        {NON_US_IV_TICKERS.has(h.ticker)?(
+                          <div style={{marginTop:6}}>
+                            <button
+                              onClick={()=>refreshSingleNonUSIV(h.ticker)}
+                              disabled={nonUSIVRefreshing}
+                              style={{display:"flex",alignItems:"center",gap:5,
+                                padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:700,
+                                border:`1px solid ${C.gold||'#f59e0b'}`,
+                                background:(C.gold||'#f59e0b')+"20",
+                                color:nonUSIVRefreshing?C.muted:(C.gold||'#f59e0b'),
+                                cursor:nonUSIVRefreshing?"not-allowed":"pointer",width:"100%",justifyContent:"center"}}>
+                              {nonUSIVRefreshing?"⏳ Fetching…":"🌐 Get Analyst Target"}
+                            </button>
+                            <div style={{fontSize:11,color:C.muted,marginTop:4,lineHeight:1.4}}>
+                              Searches analyst consensus via web · result in ~10s
+                            </div>
+                          </div>
+                        ):(
+                          <div style={{fontSize:12,color:C.muted,lineHeight:1.4}}>
+                            No analyst target, Graham Number, or DCF data.<br/>
+                            Try <b>🌐 Non-US Targets</b> or <b>🤖 AI All</b> in the Insights tab.
+                          </div>
+                        )}
                       </div>
                     ):(
                       <>
@@ -6431,14 +6501,15 @@ function App(){
                     <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>{bestAvgLabel}</div>
                   </div>
                 ):(
-                  <div style={{textAlign:"center",fontSize:14,color:C.muted,marginTop:10,padding:"8px",background:C.surface,borderRadius:6}}>
-                    ⚠ No data available — run 🔄 Formula or 🤖 AI Web Refresh in Buffett tab
+                  <div style={{textAlign:"center",fontSize:13,color:C.muted,marginTop:10,padding:"8px 12px",background:C.surface,borderRadius:6,lineHeight:1.5}}>
+                    ⚠ No valuation data available.{NON_US_IV_TICKERS.has(h.ticker)&&<><br/><span style={{color:C.gold||'#f59e0b',fontWeight:700}}>Use 🌐 Get Analyst Target on the Intrinsic tile above</span> (non-US stocks are not covered by FMP).</>}
+                    {!NON_US_IV_TICKERS.has(h.ticker)&&<><br/>Run 🔄 Formula or 🤖 AI All in the Insights tab.</>}
                   </div>
                 )}
 
                 {/* Disclaimer */}
                 <div style={{fontSize:12,color:C.mutedLight,marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
-                  <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = over/undervaluation at today's price. Negative = overvalued. <b>DCF (EPS)</b> discounts 5 years of projected earnings. <b>Peter Lynch</b> = PEG 1.0 fair value. <b style={{color:C.green}}>Analyst Consensus</b> / <b style={{color:C.purple}}>AI Web Search</b> = analyst price targets from Yahoo or web. <b>BEST ESTIMATE</b> drives the Intrinsic tile above.
+                  <b style={{color:C.gold}}>How to read this:</b> <b>vs Market</b> = over/undervaluation at today's price. Negative = overvalued. <b>DCF (EPS)</b> discounts 5 years of projected earnings. <b>Peter Lynch</b> = PEG 1.0 fair value. <b style={{color:C.green}}>Analyst Consensus</b> / <b style={{color:C.purple}}>AI Web Search</b> / <b style={{color:C.gold||'#f59e0b'}}>🌐 Web Consensus</b> = analyst price targets from Yahoo, AI, or web search. <b>BEST ESTIMATE</b> drives the Intrinsic tile above.
                 </div>
               </div>
             );
@@ -6906,7 +6977,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-14:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-16:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
