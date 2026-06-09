@@ -1414,13 +1414,20 @@ function App(){
         const upd=prev.map(h=>{
           if(h.isEtf){
             // Income ETFs: yield model (PBDC=BDC @ 9% cap, O9P.SI=Asia HY bond @ 6% cap)
-            const dy=h.divYield||0; const px=h.price||0;
-            const incomeEtfs={'PBDC':{cap:0.09},'O9P.SI':{cap:0.06}};
+            // fallbackYield: used if Yahoo/FMP returns div_yield=0 for this ticker
+            const incomeEtfs={
+              'PBDC':  {cap:0.09, fallbackYield:11.71}, // BDC ETF; ~11-12% yield; source: dividendinvestor.com Apr 2026
+              'O9P.SI':{cap:0.06, fallbackYield:7.09},  // Asia HY bond ETF; ~7% yield
+            };
             const etfCap=incomeEtfs[h.ticker];
-            if(etfCap&&dy>0&&px>0){
-              const annualIncome=px*(dy/100);
-              const yieldIV=+(annualIncome/etfCap.cap).toFixed(4);
-              return{...h,intrinsic:yieldIV,intrinsicMethod:'etf_yield',intrinsicUpdatedAt:now};
+            if(etfCap){
+              const dy=(h.divYield>0?h.divYield:etfCap.fallbackYield)||0;
+              const px=h.price||0;
+              if(dy>0&&px>0){
+                const annualIncome=px*(dy/100);
+                const yieldIV=+(annualIncome/etfCap.cap).toFixed(4);
+                return{...h,intrinsic:yieldIV,intrinsicMethod:'etf_yield',intrinsicUpdatedAt:now};
+              }
             }
             return{...h,intrinsic:0,intrinsicMethod:'etf',intrinsicUpdatedAt:now};
           }
@@ -6405,7 +6412,7 @@ function App(){
                       <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>
                         {storedMethod==='analyst'?'Yahoo quoteSummary'
                           :storedMethod==='ai_search'?'🤖 AI web search'
-                          :storedMethod==='web_consensus'?`🌐 Web consensus${sel._ivSource?` · ${sel._ivSource}`:''}`
+                          :storedMethod==='web_consensus'?`🌐 Web consensus${h._ivSource?` · ${h._ivSource}`:''}`
                           :storedMethod==='etf_yield'?'💰 Income yield ÷ cap rate'
                           :storedMethod==='graham'?'√(22.5·EPS·BVPS)'
                           :storedMethod==='dcf_eps'?'5-yr DCF·EPS'
@@ -6899,7 +6906,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-11:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-14:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
