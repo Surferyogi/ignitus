@@ -1819,6 +1819,14 @@ function App(){
     const topActiveTickers=new Set(topActive.map(h=>h.ticker));
 
     const topClosed=[...closedTickers]
+      // Exclude orphan-sell tickers (avgCostProxy=0 means no BUY/TI → shares were never
+      // positive in the trade log). Including them wastes holdingHistory slots that real
+      // closed tickers need for accurate price history.
+      // e.g. S58.SI (orphan sell $17,980) was displacing BTOU.SI ($2,700 last sell) and
+      // OXMU.SI ($756) — both real positions — from the top-10 Yahoo-price fetch list.
+      // Without real Yahoo prices those tickers fall back to flat avgCostProxy, hiding
+      // their -84% and -72% losses and making the SG chart show -7% instead of -15%.
+      .filter(ticker=>avgCostProxy[ticker]>0)
       .map(ticker=>{
         const lastSell=shareTimelines[ticker].filter(e=>e.cf<0).slice(-1)[0];
         return {ticker, val: lastSell ? Math.abs(lastSell.cf) : 0};
@@ -2435,7 +2443,11 @@ function App(){
           fullySold:isFullySold, // flag for UI
         });
       } else {
-        // New ticker from trades not yet in holdings — use trades-computed avg as the starting point
+        // New ticker from trades not yet in holdings.
+        // GUARD: skip if fully sold (shares=0) OR orphan-sell-only (no BUY records).
+        // Without this, ghost holdings with shares=0, avg=0, held_since=null pollute the DB.
+        // (Root cause of the 79 ghost rows cleaned up 2026-06-09 after the float-ID fix.)
+        if(isFullySold||buys.length===0) return;
         rebuilt.push({
           id:Date.now()+Math.floor(Math.random()*9007),ticker,name:ticker,mkt:detectMktFromTicker(ticker)||buys[0]?.mkt||"US",
           sector:"Technology",msStyle:"Large Blend",
@@ -5525,7 +5537,10 @@ function App(){
         // Genuine, fixable share-count error: mismatch with a complete trade history.
         const sharesFixable=sharesMismatch&&!missingOpeningLot;
         const hasMismatch=sharesMismatch;
-        const avgOnlyDiscrepancy=!sharesMismatch&&avgMismatch;
+        // Avg cost differences are EXPECTED — DBS statement avg is authoritative;
+        // trade history is supplementary and often incomplete for pre-2021 positions.
+        // Treat these as OK, not as auditable discrepancies. (User decision 2026-06-09.)
+        const avgOnlyDiscrepancy=false;
 
         return{
           h,
@@ -5619,7 +5634,7 @@ function App(){
 
         {/* Filter pills */}
         <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto"}}>
-          {[["all","All",""],["mismatch","❌ Shares",C.red],["avgdiff","ℹ Avg Diff",C.accent],["notrade","⚠ No Trades",C.gold],["ok","✅ OK",C.green]].map(([key,label,col])=>(
+          {[["all","All",""],["mismatch","❌ Shares",C.red],["notrade","⚠ No Trades",C.gold],["ok","✅ OK",C.green]].map(([key,label,col])=>(
             <button key={key} onClick={()=>setReconFilter(key)}
               style={reconFilter===key
                 ?{...PILL_ACTIVE,...(col?{background:col+"22",color:col,borderColor:col}:{})}
@@ -6771,7 +6786,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:08-18:30</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-09:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
