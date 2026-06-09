@@ -1488,10 +1488,15 @@ function App(){
           const graham  = grahamValues[h.ticker];
           const dcf     = dcfValues[h.ticker];
           // Priority: REIT yield > analyst consensus > Graham Number > DCF (EPS)
+          // CACHE GUARD: never overwrite a cached analyst consensus (web_consensus / analyst)
+          // with a formula-derived Graham/DCF value. The cache holds real analyst targets
+          // (NVDA=$309, COHR=$380, etc.) — Graham Number from EPS would give meaninglessly
+          // low values for high-PE growth stocks and destroy the correct cached IV.
+          const hasCachedConsensus=h.intrinsic>0&&(h.intrinsicMethod==='web_consensus'||h.intrinsicMethod==='analyst');
           if(reit    > 0) return{...h,intrinsic:reit,           intrinsicMethod:'reit_yield', intrinsicUpdatedAt:now};
           if(analyst?.target > 0) return{...h,intrinsic:analyst.target,intrinsicMethod:'analyst',    intrinsicUpdatedAt:now};
-          if(graham  > 0) return{...h,intrinsic:graham,         intrinsicMethod:'graham',     intrinsicUpdatedAt:now};
-          if(dcf     > 0) return{...h,intrinsic:dcf,            intrinsicMethod:'dcf_eps',    intrinsicUpdatedAt:now};
+          if(graham  > 0){if(hasCachedConsensus) return h; return{...h,intrinsic:graham,         intrinsicMethod:'graham',     intrinsicUpdatedAt:now};}
+          if(dcf     > 0){if(hasCachedConsensus) return h; return{...h,intrinsic:dcf,            intrinsicMethod:'dcf_eps',    intrinsicUpdatedAt:now};}
           return h; // no data from this pass — keep existing value
         });
         // IV is session-only — not persisted to DB
@@ -7053,7 +7058,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-20:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-11:00</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
