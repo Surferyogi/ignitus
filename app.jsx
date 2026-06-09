@@ -570,6 +570,8 @@ function App(){
   const [moatRefreshing,setMoatRefreshing]=useState(false);
   const [moatAiLoading,setMoatAiLoading]=useState({});
   const [intrinsicRefreshing,setIntrinsicRefreshing]=useState(false);
+  const [nonUSIVRefreshing,setNonUSIVRefreshing]=useState(false);
+  const [nonUSIVStatus,setNonUSIVStatus]=useState('');
   const [intrinsicUpdatedAt,setIntrinsicUpdatedAt]=useState(null);
   const [stmtTotal,setStmtTotal]=useState(null); // Option C: DBS statement anchor total (SGD)
   const [showSoldStocks,setShowSoldStocks]=useState(false); // toggle sold stocks section per marketent
@@ -1410,7 +1412,18 @@ function App(){
       const now=new Date().toISOString();
       setHoldings(prev=>{
         const upd=prev.map(h=>{
-          if(h.isEtf) return{...h,intrinsic:0,intrinsicMethod:'etf',intrinsicUpdatedAt:now};
+          if(h.isEtf){
+            // Income ETFs: yield model (PBDC=BDC @ 9% cap, O9P.SI=Asia HY bond @ 6% cap)
+            const dy=h.divYield||0; const px=h.price||0;
+            const incomeEtfs={'PBDC':{cap:0.09},'O9P.SI':{cap:0.06}};
+            const etfCap=incomeEtfs[h.ticker];
+            if(etfCap&&dy>0&&px>0){
+              const annualIncome=px*(dy/100);
+              const yieldIV=+(annualIncome/etfCap.cap).toFixed(4);
+              return{...h,intrinsic:yieldIV,intrinsicMethod:'etf_yield',intrinsicUpdatedAt:now};
+            }
+            return{...h,intrinsic:0,intrinsicMethod:'etf',intrinsicUpdatedAt:now};
+          }
           const reit    = reitValues[h.ticker];
           const analyst = analystTargets[h.ticker];
           const graham  = grahamValues[h.ticker];
@@ -1505,6 +1518,76 @@ function App(){
     console.log(`[intrinsic-ai] Done — ${Object.keys(allResults).length}/${stocks.length} updated`);
     setIntrinsicUpdatedAt(now);
     setIntrinsicRefreshing(false);
+  }
+
+
+  // ── Non-US Web IV: targeted web-search for HK/CN, JP, SG banks, EU stocks ─
+  // Runs ONLY on the ~15 tickers that compute_intrinsic can't reach via FMP.
+  // Fetches analyst consensus price targets via Claude + web_search.
+  // Result stored as intrinsicMethod='web_consensus' (session-only).
+  const NON_US_IV_TICKERS=new Set([
+    '0388.HK','0700.HK','1347.HK','1772.HK','2318.HK','3690.HK','3988.HK',
+    '9618.HK','9988.HK','8001.T','8031.T','D05.SI','O39.SI','U11.SI','ESLOF'
+    // 2177.HK (UNQ) excluded — zero analyst coverage
+  ]);
+  async function refreshNonUSIntrinsicWithWebSearch(){
+    if(nonUSIVRefreshing||intrinsicRefreshing) return;
+    setNonUSIVRefreshing(true);
+    setNonUSIVStatus('Starting…');
+    const targets=activeHoldings.filter(h=>!h.isEtf&&NON_US_IV_TICKERS.has(h.ticker));
+    if(!targets.length){setNonUSIVRefreshing(false);setNonUSIVStatus('No targets found');return;}
+    const BATCH=3;
+    const allResults={};
+    for(let i=0;i<targets.length;i+=BATCH){
+      const batch=targets.slice(i,i+BATCH);
+      const doneCount=Math.min(i+BATCH,targets.length);
+      setNonUSIVStatus(`Searching ${doneCount}/${targets.length}: ${batch.map(h=>h.ticker).join(', ')}`);
+      const prompt=
+        'Search for the current analyst consensus 12-month price target for each stock. '
+        +'Use web search to find data from Investing.com, TipRanks, Bloomberg, or broker research. '
+        +'Return ONLY a JSON array — no markdown, no preamble:\n'
+        +'[{"ticker":"...","intrinsic":123.45,"n_analysts":17,"source":"e.g. Investing.com"}]\n\n'
+        +'Stocks (local currency — HKD for .HK, JPY for .T, SGD for .SI, USD for ESLOF):\n'
+        +batch.map(h=>`${h.ticker} — ${h.name} (${h.mkt}), current price ${h.price}`).join('\n');
+      try{
+        const res=await fetch('https://api.anthropic.com/v1/messages',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            model:'claude-sonnet-4-20250514',max_tokens:800,
+            tools:[{'type':'web_search_20250305','name':'web_search'}],
+            messages:[{role:'user',content:prompt}]
+          })
+        });
+        const d=await res.json();
+        const textBlocks=(d.content||[]).filter(c=>c.type==='text');
+        const raw=textBlocks[textBlocks.length-1]?.text||'[]';
+        let results=[];
+        try{results=JSON.parse(raw);}catch(e){
+          const m=raw.match(/\[[\s\S]*?\]/);
+          if(m) try{results=JSON.parse(m[0]);}catch(e2){}
+        }
+        if(Array.isArray(results)){
+          results.forEach(r=>{
+            if(r.ticker&&r.intrinsic>0)
+              allResults[r.ticker]={intrinsic:r.intrinsic,source:r.source||'',nAnalysts:r.n_analysts||0};
+          });
+        }
+      }catch(e){console.warn('[nonUS-iv] batch error:',e);}
+      if(i+BATCH<targets.length) await new Promise(r=>setTimeout(r,1500));
+    }
+    const now=new Date().toISOString();
+    const updated=Object.keys(allResults).length;
+    setHoldings(prev=>prev.map(h=>{
+      const u=allResults[h.ticker];
+      if(!u||u.intrinsic<=0) return h;
+      return{...h,intrinsic:u.intrinsic,
+        intrinsicMethod:'web_consensus',
+        intrinsicUpdatedAt:now,
+        _ivSource:u.source,_ivN:u.nAnalysts};
+    }));
+    setNonUSIVStatus(`✅ ${updated}/${targets.length} updated`);
+    console.log(`[nonUS-iv] Done — ${updated}/${targets.length} updated`,allResults);
+    setNonUSIVRefreshing(false);
   }
 
   async function fetchMissingNames(currentHoldings){
@@ -3541,13 +3624,17 @@ function App(){
               })();
               const intrinsicStale=intrinsicAgeDays!==null&&intrinsicAgeDays>90;
               const ageLabel=intrinsicAgeDays===null?null:intrinsicAgeDays===0?'today':intrinsicAgeDays===1?'yesterday':`${intrinsicAgeDays}d ago`;
-              const etfCount    = activeHoldings.filter(h=>h.isEtf).length;
-              const reitCount   = activeHoldings.filter(h=>!h.isEtf&&h.intrinsicMethod==='reit_yield').length;
-              const analystCount= activeHoldings.filter(h=>h.intrinsicMethod==='analyst').length;
-              const grahamCount = activeHoldings.filter(h=>h.intrinsicMethod==='graham').length;
-              const dcfCount    = activeHoldings.filter(h=>h.intrinsicMethod==='dcf_eps').length;
-              const aiCount     = activeHoldings.filter(h=>h.intrinsicMethod==='ai_search').length;
-              const noMethod    = activeHoldings.filter(h=>!h.isEtf&&!h.intrinsicMethod).length;
+              const etfCount      = activeHoldings.filter(h=>h.isEtf).length;
+              const etfYieldCount = activeHoldings.filter(h=>h.intrinsicMethod==='etf_yield').length;
+              const etfNoIVCount  = activeHoldings.filter(h=>h.isEtf&&h.intrinsicMethod==='etf').length;
+              const reitCount     = activeHoldings.filter(h=>!h.isEtf&&h.intrinsicMethod==='reit_yield').length;
+              const analystCount  = activeHoldings.filter(h=>h.intrinsicMethod==='analyst').length;
+              const grahamCount   = activeHoldings.filter(h=>h.intrinsicMethod==='graham').length;
+              const dcfCount      = activeHoldings.filter(h=>h.intrinsicMethod==='dcf_eps').length;
+              const aiCount       = activeHoldings.filter(h=>h.intrinsicMethod==='ai_search').length;
+              const webCount      = activeHoldings.filter(h=>h.intrinsicMethod==='web_consensus').length;
+              const noMethod      = activeHoldings.filter(h=>!h.isEtf&&!h.intrinsicMethod).length;
+              const nonUSMissing  = activeHoldings.filter(h=>!h.isEtf&&NON_US_IV_TICKERS.has(h.ticker)&&!h.intrinsicMethod).length;
               return(
                 <div style={{background:C.surface,borderRadius:10,padding:"10px 14px",marginBottom:10,border:`1px solid ${intrinsicStale?C.red+'60':C.border}`}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -3564,35 +3651,55 @@ function App(){
                         {intrinsicUpdatedAt?.includes('search')&&(
                           <span style={{fontSize:12,color:C.accent}}>{intrinsicUpdatedAt}</span>
                         )}
+                        {nonUSIVStatus&&(
+                          <span style={{fontSize:11,color:nonUSIVStatus.startsWith('✅')?C.green:C.accent,fontStyle:'italic'}}>
+                            {nonUSIVStatus}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div style={{display:"flex",gap:6,flexShrink:0}}>
-                      <button onClick={()=>computeAllIntrinsic()} disabled={intrinsicRefreshing}
+                    <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                      <button onClick={()=>computeAllIntrinsic()} disabled={intrinsicRefreshing||nonUSIVRefreshing}
                         style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.border}`,
-                          background:intrinsicRefreshing?C.surface:C.border+"40",color:intrinsicRefreshing?C.muted:C.mutedLight,
-                          fontSize:12,fontWeight:700,cursor:intrinsicRefreshing?"not-allowed":"pointer"}}>
+                          background:C.border+"40",color:C.mutedLight,
+                          fontSize:12,fontWeight:700,cursor:"pointer"}}>
                         🔄 Formula
                       </button>
-                      <button onClick={()=>refreshAllIntrinsicWithAI()} disabled={intrinsicRefreshing}
+                      <button onClick={()=>refreshNonUSIntrinsicWithWebSearch()}
+                        disabled={nonUSIVRefreshing||intrinsicRefreshing}
+                        title={`Fetch analyst consensus price targets for ${nonUSMissing} non-US stocks (HK/CN, JP, SG banks, EU) via web search`}
+                        style={{padding:"5px 10px",borderRadius:8,
+                          border:`1px solid ${(C.gold||'#f59e0b')}`,
+                          background:nonUSIVRefreshing?C.surface:(C.gold||'#f59e0b')+"20",
+                          color:nonUSIVRefreshing?C.muted:(C.gold||'#f59e0b'),
+                          fontSize:12,fontWeight:700,cursor:nonUSIVRefreshing?"not-allowed":"pointer"}}>
+                        {nonUSIVRefreshing?"⏳ Fetching…":"🌐 Non-US Targets"}
+                      </button>
+                      <button onClick={()=>refreshAllIntrinsicWithAI()} disabled={intrinsicRefreshing||nonUSIVRefreshing}
                         style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.purple}`,
                           background:intrinsicRefreshing?C.surface:C.purple+"18",color:intrinsicRefreshing?C.muted:C.purple,
                           fontSize:12,fontWeight:700,cursor:intrinsicRefreshing?"not-allowed":"pointer"}}>
-                        {intrinsicRefreshing?"⏳ Searching…":"🤖 AI Web Refresh"}
+                        {intrinsicRefreshing?"⏳ Searching…":"🤖 AI All"}
                       </button>
                     </div>
                   </div>
-                  <div style={{display:"flex",gap:8,fontSize:11,flexWrap:"wrap",marginBottom:4}}>
-                    <span style={{color:C.muted}}>🚫 ETF: <b style={{color:C.text}}>{etfCount}</b></span>
-                    {analystCount>0&&<span style={{color:C.green}}>📊 Analyst: <b>{analystCount}</b></span>}
-                    {reitCount>0  &&<span style={{color:C.gold}}>🏢 REIT yield: <b>{reitCount}</b></span>}
-                    {grahamCount>0&&<span style={{color:C.accent}}>📐 Graham: <b>{grahamCount}</b></span>}
-                    {dcfCount>0   &&<span style={{color:C.accentDim}}>📈 DCF·EPS: <b>{dcfCount}</b></span>}
-                    {aiCount>0    &&<span style={{color:C.purple}}>🤖 AI Web: <b>{aiCount}</b></span>}
-                    {noMethod>0   &&<span style={{color:C.red}}>⚠ None: <b>{noMethod}</b></span>}
+                  <div style={{display:"flex",gap:8,fontSize:11,flexWrap:"wrap",marginBottom:6}}>
+                    {etfYieldCount>0&&<span style={{color:C.gold}}>💰 ETF Yield: <b>{etfYieldCount}</b></span>}
+                    {etfNoIVCount>0 &&<span style={{color:C.muted}}>🚫 ETF (no IV): <b style={{color:C.text}}>{etfNoIVCount}</b></span>}
+                    {analystCount>0 &&<span style={{color:C.green}}>📊 Analyst: <b>{analystCount}</b></span>}
+                    {reitCount>0    &&<span style={{color:C.gold}}>🏢 REIT: <b>{reitCount}</b></span>}
+                    {grahamCount>0  &&<span style={{color:C.accent}}>📐 Graham: <b>{grahamCount}</b></span>}
+                    {dcfCount>0     &&<span style={{color:C.accentDim}}>📈 DCF: <b>{dcfCount}</b></span>}
+                    {aiCount>0      &&<span style={{color:C.purple}}>🤖 AI: <b>{aiCount}</b></span>}
+                    {webCount>0     &&<span style={{color:C.gold||'#f59e0b'}}>🌐 Web: <b>{webCount}</b></span>}
+                    {noMethod>0     &&<span style={{color:C.red}}>⚠ None: <b>{noMethod}</b></span>}
                   </div>
-                  <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>
-                    <b>🔄 Formula</b>: REIT yield model + Yahoo analyst targets (Option A) + Graham/DCF fallback (Option C) ·
-                    <b> 🤖 AI Web Refresh</b>: Claude web-searches analyst targets for every stock · Auto-runs if &gt;90 days stale
+                  <div style={{fontSize:11,color:C.muted,lineHeight:1.6,borderTop:`1px solid ${C.border}`,paddingTop:6}}>
+                    <b>🔄 Formula</b>: REIT yield + FMP analyst targets + Graham/DCF ·{' '}
+                    <b>🌐 Non-US Targets</b>: Analyst consensus for HK/CN·JP·SG banks·EU via web search (~60s) ·{' '}
+                    <b>🤖 AI All</b>: Claude web-searches all stocks (slower, ~2min) ·{' '}
+                    <b style={{color:C.gold}}>💰 ETF Yield</b>: Income ETFs use yield÷cap-rate (PBDC 9%, O9P.SI 6%) ·{' '}
+                    <b>🚫 ETF</b>: Equity/gold ETFs have no IV — use sector P/E vs. history instead
                   </div>
                 </div>
               );
@@ -5994,11 +6101,13 @@ function App(){
                       Intrinsic {(()=>{
                         if(computedIV>0) return <span style={{color:C.purple,fontSize:11,fontWeight:700}}>●calc</span>;
                         const m=h.intrinsicMethod;
-                        if(m==='analyst')    return <span style={{color:C.green,  fontSize:10,fontWeight:700,background:C.green+'15',padding:"1px 4px",borderRadius:3}}>analyst</span>;
-                        if(m==='reit_yield') return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'15', padding:"1px 4px",borderRadius:3}}>yield</span>;
-                        if(m==='graham')     return <span style={{color:C.accent, fontSize:10,fontWeight:700,background:C.accent+'15',padding:"1px 4px",borderRadius:3}}>Graham</span>;
-                        if(m==='dcf_eps')    return <span style={{color:C.accentDim,fontSize:10,fontWeight:700,background:C.accentDim+'20',padding:"1px 4px",borderRadius:3}}>DCF</span>;
-                        if(m==='ai_search')  return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>🤖AI</span>;
+                        if(m==='analyst')      return <span style={{color:C.green,  fontSize:10,fontWeight:700,background:C.green+'15',padding:"1px 4px",borderRadius:3}}>analyst</span>;
+                        if(m==='reit_yield')   return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'15', padding:"1px 4px",borderRadius:3}}>yield</span>;
+                        if(m==='graham')       return <span style={{color:C.accent, fontSize:10,fontWeight:700,background:C.accent+'15',padding:"1px 4px",borderRadius:3}}>Graham</span>;
+                        if(m==='dcf_eps')      return <span style={{color:C.accentDim,fontSize:10,fontWeight:700,background:C.accentDim+'20',padding:"1px 4px",borderRadius:3}}>DCF</span>;
+                        if(m==='ai_search')    return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>🤖AI</span>;
+                        if(m==='web_consensus')return <span style={{color:C.gold||'#f59e0b',fontSize:10,fontWeight:700,background:(C.gold||'#f59e0b')+'20',padding:"1px 4px",borderRadius:3}}>🌐Web</span>;
+                        if(m==='etf_yield')    return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'15', padding:"1px 4px",borderRadius:3}}>💰yield</span>;
                         if(ivNoMethod)       return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'18', padding:"1px 4px",borderRadius:3}}>⚠ unverified</span>;
                         return null;
                       })()}
@@ -6163,11 +6272,13 @@ function App(){
             const storedIV=h.intrinsic||0;
             const storedMethod=h.intrinsicMethod||null;
             const MLABELS={
-              analyst:   'Analyst Consensus (Yahoo)',
-              graham:    'Graham Number (Yahoo)',
-              dcf_eps:   'DCF·EPS (Yahoo)',
-              reit_yield:'REIT Yield Model',
-              ai_search: 'AI Web Search',
+              analyst:       'Analyst Consensus (Yahoo)',
+              graham:        'Graham Number (Yahoo)',
+              dcf_eps:       'DCF·EPS (Yahoo)',
+              reit_yield:    'REIT Yield Model',
+              ai_search:     'AI Web Search',
+              web_consensus: '🌐 Web Consensus',
+              etf_yield:     '💰 ETF Yield Model',
             };
             const storedLabel=storedMethod?(MLABELS[storedMethod]||storedMethod):'Stored Estimate';
             const hasStoredIV=storedIV>0&&storedMethod!=='etf';
@@ -6196,8 +6307,8 @@ function App(){
               finnhubAnalystTgt>0?finnhubAnalystTgt:0,
               showYahooTgt?yahooTgt:0,
               computedAvg>0?computedAvg:0,   // DCF+Lynch avg
-              // Include stored value ONLY if it comes from an analyst (avoids double-count with DCF models)
-              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search')?storedIV:0,
+              // Include stored value if analyst, AI, or web consensus
+              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search'||storedMethod==='web_consensus'||storedMethod==='etf_yield')?storedIV:0,
             ].filter(v=>v>0);
             const bestAvg=allPts.length>0?allPts.reduce((s,v)=>s+v,0)/allPts.length:storedIV>0?storedIV:0;
             const bestAvgUpside=priceLive>0&&bestAvg>0?((bestAvg-priceLive)/priceLive*100):0;
@@ -6205,7 +6316,7 @@ function App(){
               finnhubAnalystTgt>0?`Analyst (${vals.numAnalysts||rec.totalAnalysts||0})`:null,
               showYahooTgt?'Yahoo analyst':null,
               computedAvg>0?'DCF+Lynch':null,
-              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search')?storedLabel:null,
+              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search'||storedMethod==='web_consensus'||storedMethod==='etf_yield')?storedLabel:null,
             ].filter(Boolean);
             const bestAvgLabel=bestAvgSources.length>0?`avg of: ${bestAvgSources.join(' · ')}`
                               :storedIV>0?storedLabel:'—';
@@ -6285,7 +6396,7 @@ function App(){
                 {hasStoredIV&&(()=>{
                   const upside=priceLive>0?((storedIV-priceLive)/priceLive*100):0;
                   const col=upside>=15?C.green:upside>=0?C.gold:C.red;
-                  const srcColor=storedMethod==='analyst'?C.green:storedMethod==='ai_search'?C.purple:C.accent;
+                  const srcColor=storedMethod==='analyst'?C.green:storedMethod==='ai_search'?C.purple:storedMethod==='web_consensus'?(C.gold||'#f59e0b'):storedMethod==='etf_yield'?C.gold:C.accent;
                   return(
                     <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${srcColor}30`,background:srcColor+"06",borderRadius:4,padding:"6px 4px"}}>
                       <div style={{fontWeight:700,color:srcColor}}>{storedLabel}</div>
@@ -6294,6 +6405,8 @@ function App(){
                       <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>
                         {storedMethod==='analyst'?'Yahoo quoteSummary'
                           :storedMethod==='ai_search'?'🤖 AI web search'
+                          :storedMethod==='web_consensus'?`🌐 Web consensus${sel._ivSource?` · ${sel._ivSource}`:''}`
+                          :storedMethod==='etf_yield'?'💰 Income yield ÷ cap rate'
                           :storedMethod==='graham'?'√(22.5·EPS·BVPS)'
                           :storedMethod==='dcf_eps'?'5-yr DCF·EPS'
                           :'stored value'}
@@ -6786,7 +6899,7 @@ function App(){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-09:00</span></div>
+              <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:09-11:30</span></div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
               <button onClick={()=>setShowValue(v=>!v)} title={showValue?"Hide portfolio values":"Show portfolio values"} style={{
   background:showValue?"none":C.accent+"20",
