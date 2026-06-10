@@ -2269,8 +2269,11 @@ function App(){
         // Guard: denom should always be positive (it's starting value + half of
         // net flow). Clamp sub-period return to ±99% as a numerical safety net.
         const r=denom>0 ? Math.max(-0.99,Math.min((vEnd-vStart-cf)/denom,9.99)) : 0;
-        // ── SPIKE DIAGNOSTIC: console.error visible in "Errors Only" filter ──────
-        if(Math.abs(r)>0.10&&false){  // DISABLED: root cause found (orphan sells) — keep for reference
+        // ── SPIKE TRIPWIRE (PERMANENT — do not disable): |R|>10% in one interval
+        // is a phantom-gain alarm. Fires console.error, visible in "Errors Only"
+        // filter, so any future single-interval phantom is visible the day it
+        // appears. Re-enabled v2026:06:10-14:30 per prevention list (ignitus 10). ──
+        if(Math.abs(r)>0.10){  // PERMANENT tripwire — threshold 10%
           const ptDate=pointMsArr[i]?new Date(pointMsArr[i]).toISOString().slice(0,10):'?';
           const topC=allRelevantTickers
             .map(t=>{const q=sharesAtDate(t,pointMsArr[i]);const p=priceAtPoint(t,i);const sf2=fwdSplitFactor(t,pointMsArr[i]);return{t,v:q*p*sf2};})
@@ -7077,7 +7080,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-14:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-14:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
