@@ -2113,9 +2113,16 @@ function App(){
         let qty=0;
         for(const e of evts){
           if(e.dateMs>ptMs) break;
-          qty+=e.delta;
+          // RUNNING clamp (not just final): orphan SELLs from lots that predate the
+          // trade log (e.g. D05.SI −500 sold 2020-03-27, U11.SI −400 sold 2020-11-11)
+          // must be no-ops, not permanent negative offsets. Verified vs stmt_transactions
+          // (authoritative DBS statements): DBS = 1100 BUY + 1209 TI + 170 BONUS = 2479,
+          // UOB = 600 BUY + 700 TI = 1300 — NO sells in tracked history. The old
+          // end-clamp Math.max(0, Σdelta) baked −500/−400 into every chart point,
+          // understating V by ~S$47k. Consistent with the CF orphan guard in Step 8.
+          qty=Math.max(0,qty+e.delta);
         }
-        return Math.max(0,qty);
+        return qty;
       }
 
       // Historical price at chart point i for a ticker.
@@ -2136,13 +2143,24 @@ function App(){
         const hc=holdingHistories[ticker];
         if(hc&&hc.length>=2){
           const holdingIdx=i-(n-hc.length); // end-aligned; not proportional
+          // BACKFILL GUARD: when the holding's history is shorter than the index
+          // (Yahoo returns e.g. 124 pts for SGX stocks vs 125 for ES3.SI), holdingIdx
+          // is negative for the first (n−hc.length) chart points. Falling back to
+          // avgCostProxy there mixes COST BASIS with MARKET prices in one TWR series:
+          // the entire unrealized gain detonates as a phantom return at the switchover
+          // (SG 6M: V jumped S$236k→S$297k at i=1 → fake +25.8% → chart +46.4% instead
+          // of the true +16.4%). Fix: flat-extrapolate the EARLIEST real price hc[0]
+          // backwards. The position long predates the window, so hc[0] is the closest
+          // known market price; price-to-price → no phantom jump. For windows that
+          // predate the position itself, sharesAtDate=0 makes the price irrelevant.
+          if(holdingIdx<0){ const p0=hc[0]; if(p0>0) return p0; }
           if(holdingIdx>=0&&holdingIdx<hc.length){
             const p=hc[holdingIdx]; if(p>0) return p;
           }
         }
         // avgCostProxy = weighted avg acquisition cost from BUY/TI events (constant over time).
-        // Shows 0% price appreciation for non-history holdings → understates returns slightly
-        // but completely eliminates the catastrophic artificial spikes from the live-price fallback.
+        // Now used ONLY when a ticker has no fetched history at all (outside top-30/top-10):
+        // constant price → 0% appreciation contribution → conservative but spike-free.
         return avgCostProxy[ticker]||0;
       }
 
@@ -7059,7 +7077,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-12:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-14:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
