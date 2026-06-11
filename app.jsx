@@ -2505,9 +2505,17 @@ function App(){
   // DIV/ROC = inflow net cash (profit); SCRIP = zero. Terminal inflow = current value.
   // Bisection on NPV over [-95%, +1000%]; returns null (display "--") if unsolvable.
   const xirrSGD=useMemo(()=>{
+    // ORPHAN-FLOW FIX (v2026:06:12-08:30): pre-inception trades (2019–2020) contain ~S$654k of
+    // SELL proceeds with almost no recorded BUYs — positions that predate the trade log (same
+    // root cause as the TWR phantom-gain bug). Including them makes NPV positive at BOTH bracket
+    // ends (verified vs live data) → no sign change → solver returned null → "--" in production.
+    // Fix: start the clock at the first TRANSFER_IN (DBS portfolio inception, 2021-01-28) — the
+    // same start convention as the TWR charts. The transfers-in already capture opening capital.
+    const tiDs=trades.filter(t=>t.type==="TRANSFER_IN").map(t=>Date.parse(t.date)).filter(isFinite);
+    const inception=tiDs.length?Math.min(...tiDs):-Infinity;
     const flows=[];
     trades.forEach(t=>{
-      const d=Date.parse(t.date); if(!isFinite(d)) return;
+      const d=Date.parse(t.date); if(!isFinite(d)||d<inception) return;
       const amt=(Number(t.price)||0)*(Number(t.shares)||0);
       if(t.type==="BUY"||t.type==="TRANSFER_IN") flows.push({d,cf:-ccyToSGD(amt,t.ccy||t.mkt)});
       else if(t.type==="SELL") flows.push({d,cf:ccyToSGD(amt,t.ccy||t.mkt)});
@@ -4039,7 +4047,7 @@ function App(){
                 );
               })}
               <div style={{fontSize:12,color:C.muted,marginTop:6}}>
-                Net = cash credited per DBS statements (the only figure statements record) · Gross = derived as net ÷ (1−WHT): US 30%, JP 20.315%, EU 15%, SG/HK 0% — validated exact vs Apple&apos;s declared rate · For SG/HK there is no WHT, so gross = net is correct · SGD at current FX · YoC (yield on cost) = year&apos;s net dividends ÷ current cost basis of {selT?"this position":"current "+(divMkt==="ALL"?"portfolio":(divMkt==="CN"?"HK":divMkt)+" holdings")}, both in SGD.{costSGD==null?" Cost basis unavailable (position exited) — yield not shown.":""}
+                Net = cash credited per DBS statements (the only figure statements record) · Gross = derived as net ÷ (1−WHT): US 30%, JP 20.315%, EU 15%, SG/HK 0% — validated exact vs Apple&apos;s declared rate · For SG/HK there is no WHT, so gross = net is correct · SGD at current FX · YoC (yield on cost) = year&apos;s net dividends ÷ current cost basis of {selT?"this position":"current "+(divMkt==="ALL"?"portfolio":(divMkt==="CN"?"HK":divMkt)+" holdings")}, both in SGD. YoC intentionally differs from the Markets tab&apos;s &quot;Fwd div est. on value&quot; — that one projects forward dividends against market value; YoC is actual received against cost.{costSGD==null?" Cost basis unavailable (position exited) — yield not shown.":""}
               </div>
             </div>
           );
@@ -6271,7 +6279,7 @@ function App(){
             <div style={sbox(realizedSGD>=0?C.gold:C.red)}><div style={{fontSize:13,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:18,fontWeight:800,color:realizedSGD>=0?C.gold:C.red}}>{realizedSGD>=0?"+":"-"}{fmtS(Math.abs(realizedSGD))}</div><div style={{fontSize:13,color:C.muted}}>Closed trades</div></div>
             <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Stocks</div><div style={{fontSize:24,fontWeight:800,color:C.purple}}>{holdings.filter(h=>Number(h.shares)>0).length}</div></div>
             <div style={{...sbox(C.gold),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Annual Div</div><div style={{fontSize:17,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGD)}</div><div style={{fontSize:13,color:C.muted}}>{fmt(totalValSGD?totalDivSGD/totalValSGD*100:0)}% yield</div></div>
-            <div style={{...sbox(C.accent),gridColumn:"1 / -1"}}><div style={{fontSize:13,color:C.muted}}>XIRR — Money-Weighted Return (annualized)</div><div style={{fontSize:18,fontWeight:800,color:(xirrSGD??0)>=0?C.green:C.red}}>{xirrSGD==null?"--":fmtPct(xirrSGD)}</div><div style={{fontSize:12,color:C.muted}}>All flows: buys, sells, divs, ROC, transfers-in at value · converted at current FX (same convention as TWR charts)</div></div>
+            <div style={{...sbox(C.accent),gridColumn:"1 / -1"}}><div style={{fontSize:13,color:C.muted}}>XIRR — Money-Weighted Return (annualized)</div><div style={{fontSize:18,fontWeight:800,color:(xirrSGD??0)>=0?C.green:C.red}}>{xirrSGD==null?"--":fmtPct(xirrSGD)}</div><div style={{fontSize:12,color:C.muted}}>From portfolio inception (first transfer-in, Jan 2021 — same start as TWR charts; incoherent pre-log 2019–20 flows excluded) · buys, sells, divs, ROC, transfers-in at value · current FX</div></div>
           </div>
         </div>
         <div style={card}>
@@ -6317,7 +6325,7 @@ function App(){
                   if(mktDivYield<=0)return null;
                   return(
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginTop:5,color:C.muted}}>
-                      <span>💰 Dividend: <b style={{color:C.gold}}>{fmt(mktDivYield,2)}%</b> yield · {divCount} paying stocks</span>
+                      <span>💰 Fwd div est.: <b style={{color:C.gold}}>{fmt(mktDivYield,2)}%</b> on value · {divCount} paying stocks</span>
                       <span style={{color:C.gold,fontWeight:700}}>{fmtS(sgdDiv)}/yr</span>
                     </div>
                   );
@@ -7247,7 +7255,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:11-23:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-08:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
