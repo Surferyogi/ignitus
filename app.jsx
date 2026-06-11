@@ -2497,6 +2497,36 @@ function App(){
   const avgCostSGD=totalShares?totalCostSGD/totalShares:0;
   // Realized P&L = capital gains (SELL) + net dividends received (DIV)
   const realizedSGD=useMemo(()=>trades.filter(t=>t.type==="SELL"||t.type==="DIV").reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0),[trades,fxRates,refreshKey]);
+  // ── XIRR (money-weighted return), v2026:06:10-15:00 ─────────────────────────
+  // Flows converted at CURRENT FX — same convention as the TWR chart engine.
+  // BUY/TRANSFER_IN = outflow price×shares; SELL = inflow gross proceeds;
+  // DIV/ROC = inflow net cash (profit); SCRIP = zero. Terminal inflow = current value.
+  // Bisection on NPV over [-95%, +1000%]; returns null (display "--") if unsolvable.
+  const xirrSGD=useMemo(()=>{
+    const flows=[];
+    trades.forEach(t=>{
+      const d=Date.parse(t.date); if(!isFinite(d)) return;
+      const amt=(Number(t.price)||0)*(Number(t.shares)||0);
+      if(t.type==="BUY"||t.type==="TRANSFER_IN") flows.push({d,cf:-ccyToSGD(amt,t.ccy||t.mkt)});
+      else if(t.type==="SELL") flows.push({d,cf:ccyToSGD(amt,t.ccy||t.mkt)});
+      else if(t.type==="DIV"||t.type==="ROC") flows.push({d,cf:ccyToSGD(Number(t.profit)||0,t.ccy||t.mkt)});
+    });
+    if(flows.length<2||!(totalValSGD>0)) return null;
+    flows.push({d:Date.now(),cf:totalValSGD});
+    flows.sort((a,b)=>a.d-b.d);
+    const t0=flows[0].d, YR=31557600000; // 365.25 days in ms
+    if(!flows.some(f=>f.cf<0)||!flows.some(f=>f.cf>0)) return null;
+    const npv=r=>flows.reduce((s,f)=>s+f.cf/Math.pow(1+r,(f.d-t0)/YR),0);
+    let lo=-0.95,hi=10,fLo=npv(lo),fHi=npv(hi);
+    if(!isFinite(fLo)||!isFinite(fHi)||fLo*fHi>0) return null;
+    for(let i=0;i<200;i++){
+      const mid=(lo+hi)/2,fm=npv(mid);
+      if(!isFinite(fm)) return null;
+      if(Math.abs(fm)<1e-7) return mid*100;
+      if(fLo*fm<0){hi=mid;fHi=fm;} else {lo=mid;fLo=fm;}
+    }
+    return ((lo+hi)/2)*100;
+  },[trades,totalValSGD,fxRates,refreshKey]);
   const hdrHoldings=useMemo(()=>{
     const active=holdings.filter(h=>!h.fullySold);
     return mktFilter==="ALL"?active:active.filter(h=>h.mkt===mktFilter);
@@ -3143,6 +3173,32 @@ function App(){
             </div>
           </div>
         </div>
+        {(()=>{ // ── Concentration Risk: weights vs TOTAL portfolio (SGD), v2026:06:10-15:00 ──
+          const conc=activeHoldings.map(h=>({h,w:wtTotal(h)})).sort((a,b)=>b.w-a.w);
+          if(!conc.length)return null;
+          const top10=conc.slice(0,10);
+          const top10W=top10.reduce((s,x)=>s+x.w,0);
+          const over=conc.filter(x=>x.w>10);
+          return(
+            <div style={card}>
+              <div style={{...row,marginBottom:8}}>
+                <div style={cardT}>Concentration — Top 10 (of total portfolio)</div>
+                <span style={{fontSize:14,fontWeight:800,color:top10W>50?C.gold:C.accent}}>{top10W.toFixed(1)}%</span>
+              </div>
+              {over.length>0&&<div style={{fontSize:13,color:C.gold,marginBottom:8}}>⚠ {over.map(x=>x.h.ticker).join(", ")} above 10% single-position weight</div>}
+              {top10.map(({h,w})=>(
+                <div key={h.ticker} style={{marginBottom:6,cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:2}}>
+                    <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{h.ticker}</span><Chip mkt={h.mkt}/></span>
+                    <span style={{fontWeight:700,color:w>10?C.gold:C.text}}>{w.toFixed(1)}%</span>
+                  </div>
+                  <div style={{height:4,borderRadius:2,background:C.border}}><div style={{width:`${Math.min(w*4,100)}%`,height:"100%",borderRadius:2,background:w>10?C.gold:C.accent}}/></div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         {/* Search input — memoized with stable callbacks so re-renders never cause focus loss */}
         <PortfolioSearchInput
           onSearch={handleSearch}
@@ -4123,6 +4179,37 @@ function App(){
             );
           })}
         </div>
+
+        {(()=>{ // ── FX Exposure & Sensitivity (current mix; ±1% FX move impact), v2026:06:10-15:00 ──
+          // Historical price-vs-FX return attribution intentionally NOT computed: it requires
+          // per-date FX history which is not stored — showing it would mean estimated figures.
+          const byCcy={};
+          holdings.filter(h=>Number(h.shares)>0).forEach(h=>{
+            const ccy=mktToCcy(h.mkt)||"USD";
+            byCcy[ccy]=(byCcy[ccy]||0)+toSGDlive(h.price*h.shares,h.mkt);
+          });
+          const tot=Object.values(byCcy).reduce((s,v)=>s+v,0);
+          if(tot<=0)return null;
+          const rows=Object.entries(byCcy).sort((a,b)=>b[1]-a[1]);
+          return(
+            <div style={card}>
+              <div style={cardT}>FX Exposure (SGD) — sensitivity to ±1% currency move</div>
+              {rows.map(([ccy,v])=>{
+                const pct=(v/tot)*100;
+                return(
+                  <div key={ccy} style={{marginBottom:7}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:2}}>
+                      <span style={{fontWeight:700}}>{ccy}</span>
+                      <span><span style={{fontWeight:800}}>{pct.toFixed(1)}%</span><span style={{color:C.muted}}> · {fmtS(v)}</span></span>
+                    </div>
+                    <div style={{height:4,borderRadius:2,background:C.border,marginBottom:2}}><div style={{width:`${pct}%`,height:"100%",borderRadius:2,background:ccy==="SGD"?C.green:C.accent}}/></div>
+                    <div style={{fontSize:12,color:C.muted}}>{ccy==="SGD"?"No FX risk (base currency)":`±1% ${ccy}/SGD ⇒ ±${fmtS(v*0.01)} portfolio value`}</div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </>
     );
   }
@@ -4221,6 +4308,30 @@ function App(){
             </div>
           )}
         </div>
+
+        {(()=>{ // ── Dividend Income by Year (net of WHT, SGD @ current FX), v2026:06:10-15:00 ──
+          const m={};
+          trades.forEach(t=>{if(t.type!=="DIV")return;const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;m[y]=(m[y]||0)+ccyToSGD(t.profit||0,t.ccy||t.mkt);});
+          const rows=Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0]));
+          if(!rows.length)return null;
+          const mx=Math.max(...rows.map(r=>r[1]));
+          const curY=String(new Date().getFullYear());
+          return(
+            <div style={card}>
+              <div style={cardT}>Dividend Income by Year (net, SGD)</div>
+              {rows.map(([y,v])=>(
+                <div key={y} style={{marginBottom:7}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:3}}>
+                    <span style={{color:C.mutedLight,fontWeight:700}}>{y}{y===curY?" YTD":""}</span>
+                    <span style={{fontWeight:800,color:C.gold}}>{fmtS(v)}</span>
+                  </div>
+                  <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mx>0?(v/mx)*100:0}%`,height:"100%",borderRadius:3,background:C.gold}}/></div>
+                </div>
+              ))}
+              <div style={{fontSize:12,color:C.muted,marginTop:6}}>Net of withholding tax · converted at current FX rates</div>
+            </div>
+          );
+        })()}
 
         {/* Add / Edit Trade Button + Paste Parser Button */}
         <div style={{display:"flex",gap:8,marginBottom:10}}>
@@ -6105,6 +6216,7 @@ function App(){
             <div style={sbox(realizedSGD>=0?C.gold:C.red)}><div style={{fontSize:13,color:C.muted}}>Realized P&amp;L</div><div style={{fontSize:18,fontWeight:800,color:realizedSGD>=0?C.gold:C.red}}>{realizedSGD>=0?"+":"-"}{fmtS(Math.abs(realizedSGD))}</div><div style={{fontSize:13,color:C.muted}}>Closed trades</div></div>
             <div style={{...sbox(C.purple),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Stocks</div><div style={{fontSize:24,fontWeight:800,color:C.purple}}>{holdings.filter(h=>Number(h.shares)>0).length}</div></div>
             <div style={{...sbox(C.gold),textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>Annual Div</div><div style={{fontSize:17,fontWeight:800,color:C.gold}}>{fmtS(totalDivSGD)}</div><div style={{fontSize:13,color:C.muted}}>{fmt(totalValSGD?totalDivSGD/totalValSGD*100:0)}% yield</div></div>
+            <div style={{...sbox(C.accent),gridColumn:"1 / -1"}}><div style={{fontSize:13,color:C.muted}}>XIRR — Money-Weighted Return (annualized)</div><div style={{fontSize:18,fontWeight:800,color:(xirrSGD??0)>=0?C.green:C.red}}>{xirrSGD==null?"--":fmtPct(xirrSGD)}</div><div style={{fontSize:12,color:C.muted}}>All flows: buys, sells, divs, ROC, transfers-in at value · converted at current FX (same convention as TWR charts)</div></div>
           </div>
         </div>
         <div style={card}>
@@ -7080,7 +7192,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-14:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-15:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
@@ -7164,13 +7276,13 @@ function App(){
         {/* When a stock is selected, show detail view IN the scroll container — not as a modal */}
         {/* This reuses the already-working iOS scroll context instead of fighting fixed overlays */}
         {sel&&<ErrBoundary>{renderHoldingDetail()}</ErrBoundary>}
-        {!sel&&tab==="portfolio"&&renderPortfolioView()}
-        {!sel&&tab==="insights" &&renderInsightsView()}
-        {!sel&&tab==="indices"  &&renderIndexView()}
-        {!sel&&tab==="trades"   &&renderTradesView()}
-        {!sel&&tab==="alerts"   &&<AlertsView/>}
-        {!sel&&tab==="summary"  &&<SummaryView/>}
-        {!sel&&tab==="recon"    &&<ReconciliationView/>}
+        {!sel&&tab==="portfolio"&&<ErrBoundary>{renderPortfolioView()}</ErrBoundary>}
+        {!sel&&tab==="insights" &&<ErrBoundary>{renderInsightsView()}</ErrBoundary>}
+        {!sel&&tab==="indices"  &&<ErrBoundary>{renderIndexView()}</ErrBoundary>}
+        {!sel&&tab==="trades"   &&<ErrBoundary>{renderTradesView()}</ErrBoundary>}
+        {!sel&&tab==="alerts"   &&<ErrBoundary><AlertsView/></ErrBoundary>}
+        {!sel&&tab==="summary"  &&<ErrBoundary><SummaryView/></ErrBoundary>}
+        {!sel&&tab==="recon"    &&<ErrBoundary><ReconciliationView/></ErrBoundary>}
       </div>
 
       {/* Floating refresh button — visible when there are pending changes */}
