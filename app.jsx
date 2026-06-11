@@ -547,6 +547,7 @@ function App(){
   const [tradeDateTo,setTradeDateTo]=useState("");
   const [insightTab,setInsightTab]=useState("performers");
   const [divSearch,setDivSearch]=useState(""); // Insights ▸ Div: ticker filter ("" = all)
+  const [divMkt,setDivMkt]=useState("ALL");    // Insights ▸ Div: market filter (first-level)
   const [aiText,setAiText]=useState({});
   const [aiLoad,setAiLoad]=useState({});
   const [showTradeForm,setShowTradeForm]=useState(false);
@@ -3968,51 +3969,74 @@ function App(){
             })}
           </>
         )}
-        {insightTab==="div"&&(()=>{ // ── Dividend Income by Year — ticker filter, local+SGD, yield. v2026:06:11-21:00 ──
-          // Yield = year's NET dividends ÷ CURRENT value (ticker: current position value, local;
-          // ALL: current total portfolio value, SGD). Exactly computable from on-hand data.
-          // Historical yield-at-the-time needs per-date prices, which are not stored — not estimated.
+        {insightTab==="div"&&(()=>{ // ── Dividend Income by Year — market→ticker filter, gross+net, yield-on-cost. v2026:06:11-22:00 ──
+          // GROSS = price×shares as recorded (verified: SGD-mode rows store totals with shares=1, so
+          //         price×shares is correct for all modes; 3 legacy rows lack price/shares → net used, footnoted).
+          // NET   = profit (net of WHT).
+          // YIELD ON COST = year's NET dividends ÷ CURRENT cost basis (avgCost×shares), BOTH in SGD —
+          //         SGD on both sides because some SG-listed tickers pay USD/EUR dividends.
+          //         Exited positions (shares=0) have no cost basis → yield shown as "--".
           const divTrades=trades.filter(t=>t.type==="DIV");
-          const tickers=[...new Set(divTrades.map(t=>t.ticker))].sort();
+          const mktsInDiv=["US","SG","CN","JP","EU","GB","AU"].filter(m=>divTrades.some(t=>t.mkt===m));
+          const mScope=divMkt==="ALL"?divTrades:divTrades.filter(t=>t.mkt===divMkt);
+          const tickers=[...new Set(mScope.map(t=>t.ticker))].sort();
+          const nameOf=tk=>holdings.find(h=>h.ticker===tk)?.name||tickerNames[tk]||"";
           const selT=divSearch&&tickers.includes(divSearch)?divSearch:"";
-          const ft=selT?divTrades.filter(t=>t.ticker===selT):divTrades;
-          const m={};
-          ft.forEach(t=>{const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;if(!m[y])m[y]={loc:0,sgd:0};m[y].loc+=(t.profit||0);m[y].sgd+=ccyToSGD(t.profit||0,t.ccy||t.mkt);});
+          const ft=selT?mScope.filter(t=>t.ticker===selT):mScope;
+          const m={};let noGross=0;
+          ft.forEach(t=>{
+            const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;
+            if(!m[y])m[y]={grossLoc:0,netLoc:0,grossSgd:0,netSgd:0};
+            const hasPx=Number(t.price)>0&&Number(t.shares)>0;
+            const gross=hasPx?Number(t.price)*Number(t.shares):(t.profit||0);
+            if(!hasPx)noGross++;
+            m[y].grossLoc+=gross; m[y].netLoc+=(t.profit||0);
+            m[y].grossSgd+=ccyToSGD(gross,t.ccy||t.mkt); m[y].netSgd+=ccyToSGD(t.profit||0,t.ccy||t.mkt);
+          });
           const rows=Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0]));
           const curY=String(new Date().getFullYear());
+          const scopeH=holdings.filter(h=>Number(h.shares)>0&&(divMkt==="ALL"||h.mkt===divMkt));
           const selH=selT?holdings.find(h=>h.ticker===selT):null;
-          const denomLoc=selH&&Number(selH.shares)>0?selH.price*selH.shares:null;
-          const denomSGD=totalValSGD>0?totalValSGD:null;
+          const costSGD=selT
+            ?(selH&&Number(selH.shares)>0?toSGDlive(selH.avgCost*selH.shares,selH.mkt):null)
+            :(scopeH.length?scopeH.reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0):null);
           const ccyLbl=selT?(ft[0]?.ccy||mktToCcy(ft[0]?.mkt)||""):"";
-          const mx=rows.length?Math.max(...rows.map(([,v])=>v.sgd)):0;
+          const mixedCcy=selT&&ft.some(t=>(t.ccy||mktToCcy(t.mkt))!==ccyLbl);
+          const mx=rows.length?Math.max(...rows.map(([,v])=>v.netSgd)):0;
           const selStyle={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"9px 10px",color:C.text,fontSize:15,outline:"none",marginBottom:10};
           return(
             <div style={card}>
-              <div style={cardT}>Dividend Income by Year (net{selT?", "+ccyLbl+" + SGD":", SGD"})</div>
+              <div style={cardT}>Dividend Income by Year</div>
+              <div style={{display:"flex",gap:5,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
+                {["ALL",...mktsInDiv].map(mk=>(
+                  <button key={mk} style={{...pill(divMkt===mk),whiteSpace:"nowrap",flexShrink:0}} onClick={()=>{setDivMkt(mk);setDivSearch("");}}>{mk==="CN"?"HK":mk}</button>
+                ))}
+              </div>
               <select value={selT} onChange={e=>setDivSearch(e.target.value)} style={selStyle}>
-                <option value="">All stocks ({tickers.length} dividend payers)</option>
-                {tickers.map(tk=><option key={tk} value={tk}>{tk}</option>)}
+                <option value="">All {divMkt==="ALL"?"":(divMkt==="CN"?"HK":divMkt)+" "}stocks ({tickers.length} dividend payers)</option>
+                {tickers.map(tk=><option key={tk} value={tk}>{tk}{nameOf(tk)?" — "+nameOf(tk):""}</option>)}
               </select>
+              {selT&&<div style={{fontSize:14,color:C.mutedLight,fontWeight:700,marginBottom:8}}>{selT}<span style={{color:C.muted,fontWeight:500}}> — {nameOf(selT)||"name not available"}{selH&&Number(selH.shares)>0?"":" · position exited"}</span></div>}
               {!rows.length&&<div style={{color:C.muted,fontSize:14}}>No dividend records for this selection.</div>}
               {rows.map(([y,v])=>{
-                const yld=selT?(denomLoc?(v.loc/denomLoc)*100:null):(denomSGD?(v.sgd/denomSGD)*100:null);
+                const yld=costSGD?(v.netSgd/costSGD)*100:null;
                 return(
-                  <div key={y} style={{marginBottom:8}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:14,marginBottom:3}}>
+                  <div key={y} style={{marginBottom:9}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",fontSize:14,marginBottom:3}}>
                       <span style={{color:C.mutedLight,fontWeight:700}}>{y}{y===curY?" YTD":""}
-                        <span style={{marginLeft:6,fontSize:12,fontWeight:700,color:C.accent,background:C.accent+"15",padding:"1px 6px",borderRadius:4}}>{yld==null?"yield --":"yield "+fmt(yld,2)+"%"}</span>
+                        <span style={{marginLeft:6,fontSize:12,fontWeight:700,color:C.accent,background:C.accent+"15",padding:"1px 6px",borderRadius:4}}>{yld==null?"YoC --":"YoC "+fmt(yld,2)+"%"}</span>
                       </span>
-                      <span style={{textAlign:"right"}}>
-                        {selT&&<span style={{fontWeight:700,color:C.mutedLight,marginRight:8}}>{ccySymbol(ccyLbl)}{fmt(v.loc)}</span>}
-                        <span style={{fontWeight:800,color:C.gold}}>{fmtS(v.sgd)}</span>
+                      <span style={{textAlign:"right",lineHeight:1.5}}>
+                        <span style={{display:"block",fontSize:13,color:C.muted}}>gross {selT&&!mixedCcy?ccySymbol(ccyLbl)+fmt(v.grossLoc):fmtS(v.grossSgd)}</span>
+                        <span style={{display:"block",fontWeight:800,color:C.gold}}>net {selT&&!mixedCcy?ccySymbol(ccyLbl)+fmt(v.netLoc)+" · ":""}{fmtS(v.netSgd)}</span>
                       </span>
                     </div>
-                    <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mx>0?(v.sgd/mx)*100:0}%`,height:"100%",borderRadius:3,background:C.gold}}/></div>
+                    <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mx>0?(v.netSgd/mx)*100:0}%`,height:"100%",borderRadius:3,background:C.gold}}/></div>
                   </div>
                 );
               })}
               <div style={{fontSize:12,color:C.muted,marginTop:6}}>
-                Net of withholding tax · SGD at current FX · Yield = year&apos;s net dividends ÷ {selT?(denomLoc?"current position value":"current position value (position exited — yield not shown)"):"current total portfolio value"}. Historical yield-at-the-time needs per-date prices, which are not stored.
+                Gross = as declared · Net = after withholding tax · SGD at current FX · YoC (yield on cost) = year&apos;s net dividends ÷ current cost basis of {selT?"this position":"current "+(divMkt==="ALL"?"portfolio":(divMkt==="CN"?"HK":divMkt)+" holdings")}, both in SGD.{noGross>0?` ${noGross} record(s) lack gross detail — net used as gross for those.`:""}{costSGD==null?" Cost basis unavailable (position exited) — yield not shown.":""}
               </div>
             </div>
           );
@@ -7220,7 +7244,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:11-21:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:11-22:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
