@@ -3970,9 +3970,12 @@ function App(){
           </>
         )}
         {insightTab==="div"&&(()=>{ // ── Dividend Income by Year — market→ticker filter, gross+net, yield-on-cost. v2026:06:11-22:00 ──
-          // GROSS = price×shares as recorded (verified: SGD-mode rows store totals with shares=1, so
-          //         price×shares is correct for all modes; 3 legacy rows lack price/shares → net used, footnoted).
-          // NET   = profit (net of WHT).
+          // NET   = profit — the cash DBS credited (VERIFIED 2026-06-11: statements/workbook record a
+          //         single net amount only; price×shares ≡ profit in this dataset, so it is NOT gross).
+          // GROSS = derived as net ÷ (1 − WHT) using the app's own DIV_TAX rates (US 30%, JP 20.315%,
+          //         EU 15%, SG/CN/GB 0%). US rate validated EXACT vs AAPL: 120sh × $0.26 × 0.70 = $21.84
+          //         (Feb-2026) and 120sh × $0.27 × 0.70 = $22.68 (May-2026) — both match stored values.
+          //         Where WHT = 0 (SG/HK), gross = net is genuinely true, not a display bug.
           // YIELD ON COST = year's NET dividends ÷ CURRENT cost basis (avgCost×shares), BOTH in SGD —
           //         SGD on both sides because some SG-listed tickers pay USD/EUR dividends.
           //         Exited positions (shares=0) have no cost basis → yield shown as "--".
@@ -3983,15 +3986,15 @@ function App(){
           const nameOf=tk=>holdings.find(h=>h.ticker===tk)?.name||tickerNames[tk]||"";
           const selT=divSearch&&tickers.includes(divSearch)?divSearch:"";
           const ft=selT?mScope.filter(t=>t.ticker===selT):mScope;
-          const m={};let noGross=0;
+          const m={};
           ft.forEach(t=>{
             const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;
             if(!m[y])m[y]={grossLoc:0,netLoc:0,grossSgd:0,netSgd:0};
-            const hasPx=Number(t.price)>0&&Number(t.shares)>0;
-            const gross=hasPx?Number(t.price)*Number(t.shares):(t.profit||0);
-            if(!hasPx)noGross++;
-            m[y].grossLoc+=gross; m[y].netLoc+=(t.profit||0);
-            m[y].grossSgd+=ccyToSGD(gross,t.ccy||t.mkt); m[y].netSgd+=ccyToSGD(t.profit||0,t.ccy||t.mkt);
+            const net=t.profit||0;
+            const wht=getDivTax(t.mkt||'US');
+            const gross=wht>0?net/(1-wht):net;
+            m[y].grossLoc+=gross; m[y].netLoc+=net;
+            m[y].grossSgd+=ccyToSGD(gross,t.ccy||t.mkt); m[y].netSgd+=ccyToSGD(net,t.ccy||t.mkt);
           });
           const rows=Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0]));
           const curY=String(new Date().getFullYear());
@@ -4036,7 +4039,7 @@ function App(){
                 );
               })}
               <div style={{fontSize:12,color:C.muted,marginTop:6}}>
-                Gross = as declared · Net = after withholding tax · SGD at current FX · YoC (yield on cost) = year&apos;s net dividends ÷ current cost basis of {selT?"this position":"current "+(divMkt==="ALL"?"portfolio":(divMkt==="CN"?"HK":divMkt)+" holdings")}, both in SGD.{noGross>0?` ${noGross} record(s) lack gross detail — net used as gross for those.`:""}{costSGD==null?" Cost basis unavailable (position exited) — yield not shown.":""}
+                Net = cash credited per DBS statements (the only figure statements record) · Gross = derived as net ÷ (1−WHT): US 30%, JP 20.315%, EU 15%, SG/HK 0% — validated exact vs Apple&apos;s declared rate · For SG/HK there is no WHT, so gross = net is correct · SGD at current FX · YoC (yield on cost) = year&apos;s net dividends ÷ current cost basis of {selT?"this position":"current "+(divMkt==="ALL"?"portfolio":(divMkt==="CN"?"HK":divMkt)+" holdings")}, both in SGD.{costSGD==null?" Cost basis unavailable (position exited) — yield not shown.":""}
               </div>
             </div>
           );
@@ -7244,7 +7247,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:11-22:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:11-23:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
