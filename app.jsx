@@ -3173,8 +3173,10 @@ function App(){
             </div>
           </div>
         </div>
-        {(()=>{ // ── Concentration Risk: weights vs TOTAL portfolio (SGD), v2026:06:10-15:00 ──
-          const conc=activeHoldings.map(h=>({h,w:wtTotal(h)})).sort((a,b)=>b.w-a.w);
+        {(()=>{ // ── Concentration Risk (SGD) — follows market selector: ALL = vs total portfolio; else vs selected market subtotal. v2026:06:11-19:45 ──
+          const base=mktFilter==="ALL"?activeHoldings:activeHoldings.filter(h=>h.mkt===mktFilter);
+          const baseTot=base.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+          const conc=base.map(h=>({h,w:baseTot>0?(toSGDlive(h.price*h.shares,h.mkt)/baseTot)*100:0})).sort((a,b)=>b.w-a.w);
           if(!conc.length)return null;
           const top10=conc.slice(0,10);
           const top10W=top10.reduce((s,x)=>s+x.w,0);
@@ -3182,7 +3184,7 @@ function App(){
           return(
             <div style={card}>
               <div style={{...row,marginBottom:8}}>
-                <div style={cardT}>Concentration — Top 10 (of total portfolio)</div>
+                <div style={cardT}>Concentration — Top 10 ({mktFilter==="ALL"?"of total portfolio":"of "+(mktFilter==="CN"?"HK":mktFilter)+" holdings"})</div>
                 <span style={{fontSize:14,fontWeight:800,color:top10W>50?C.gold:C.accent}}>{top10W.toFixed(1)}%</span>
               </div>
               {over.length>0&&<div style={{fontSize:13,color:C.gold,marginBottom:8}}>⚠ {over.map(x=>x.h.ticker).join(", ")} above 10% single-position weight</div>}
@@ -3693,7 +3695,7 @@ function App(){
     return(
       <>
         <div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto"}}>
-          {[["performers","Performers"],["buffett","Buffett"],["screen","🎯 Screen"]].map(([id,lbl])=>(
+          {[["performers","Performers"],["buffett","Buffett"],["div","💵 Div"],["screen","🎯 Screen"]].map(([id,lbl])=>(
             <button key={id} style={{...pill(insightTab===id),whiteSpace:"nowrap",flexShrink:0}} onClick={()=>setInsightTab(id)}>{lbl}</button>
           ))}
         </div>
@@ -3965,6 +3967,29 @@ function App(){
             })}
           </>
         )}
+        {insightTab==="div"&&(()=>{ // ── Dividend Income by Year (net of WHT, SGD @ current FX) — moved from Trades, v2026:06:11-19:45 ──
+          const m={};
+          trades.forEach(t=>{if(t.type!=="DIV")return;const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;m[y]=(m[y]||0)+ccyToSGD(t.profit||0,t.ccy||t.mkt);});
+          const rows=Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0]));
+          if(!rows.length)return <div style={{...card,color:C.muted}}>No dividend records.</div>;
+          const mx=Math.max(...rows.map(r=>r[1]));
+          const curY=String(new Date().getFullYear());
+          return(
+            <div style={card}>
+              <div style={cardT}>Dividend Income by Year (net, SGD)</div>
+              {rows.map(([y,v])=>(
+                <div key={y} style={{marginBottom:7}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:3}}>
+                    <span style={{color:C.mutedLight,fontWeight:700}}>{y}{y===curY?" YTD":""}</span>
+                    <span style={{fontWeight:800,color:C.gold}}>{fmtS(v)}</span>
+                  </div>
+                  <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mx>0?(v/mx)*100:0}%`,height:"100%",borderRadius:3,background:C.gold}}/></div>
+                </div>
+              ))}
+              <div style={{fontSize:12,color:C.muted,marginTop:6}}>Net of withholding tax · converted at current FX rates</div>
+            </div>
+          );
+        })()}
         {insightTab==="screen"&&renderScreenView()}
       </>
     );
@@ -4308,30 +4333,6 @@ function App(){
             </div>
           )}
         </div>
-
-        {(()=>{ // ── Dividend Income by Year (net of WHT, SGD @ current FX), v2026:06:10-15:00 ──
-          const m={};
-          trades.forEach(t=>{if(t.type!=="DIV")return;const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;m[y]=(m[y]||0)+ccyToSGD(t.profit||0,t.ccy||t.mkt);});
-          const rows=Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0]));
-          if(!rows.length)return null;
-          const mx=Math.max(...rows.map(r=>r[1]));
-          const curY=String(new Date().getFullYear());
-          return(
-            <div style={card}>
-              <div style={cardT}>Dividend Income by Year (net, SGD)</div>
-              {rows.map(([y,v])=>(
-                <div key={y} style={{marginBottom:7}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:3}}>
-                    <span style={{color:C.mutedLight,fontWeight:700}}>{y}{y===curY?" YTD":""}</span>
-                    <span style={{fontWeight:800,color:C.gold}}>{fmtS(v)}</span>
-                  </div>
-                  <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mx>0?(v/mx)*100:0}%`,height:"100%",borderRadius:3,background:C.gold}}/></div>
-                </div>
-              ))}
-              <div style={{fontSize:12,color:C.muted,marginTop:6}}>Net of withholding tax · converted at current FX rates</div>
-            </div>
-          );
-        })()}
 
         {/* Add / Edit Trade Button + Paste Parser Button */}
         <div style={{display:"flex",gap:8,marginBottom:10}}>
@@ -7192,7 +7193,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:10-15:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:11-19:45</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
@@ -7206,6 +7207,7 @@ function App(){
 }}>···</button>
             </div>
             <div style={{fontSize:33,fontWeight:800,letterSpacing:"-1.5px",lineHeight:1}}>{showValue?fmtS(hdrValSGD):"S$ ••••••"}</div>
+            {mktFilter!=="ALL"&&<div style={{fontSize:17,fontWeight:700,color:C.accent,marginTop:3}}>{showValue?"≈ "+fmtL(hdrHoldings.reduce((s,h)=>s+h.price*h.shares,0),mktFilter):"••••••"}</div>}
             <div style={{fontSize:14,color:C.muted,marginTop:3}}>{hdrHoldings.length} stocks{mktFilter!=="ALL"?<span style={{color:C.accent,fontSize:13,marginLeft:4}}>· {mktFilter==="CN"?"HK":mktFilter}</span>:""}{priceUpdated&&<span style={{color:C.green}}> · prices {priceUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}{fxUpdated&&<span style={{color:C.gold}}> · FX {fxUpdated.toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
           </div>
           <div style={{textAlign:"right"}}>
