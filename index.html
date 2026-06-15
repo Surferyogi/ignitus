@@ -37,10 +37,6 @@
     }
     .login-logo  { font-size: 28px; font-weight: 800; color: #00CFFF; letter-spacing: -1px; margin-bottom: 4px; }
     .login-sub   { font-size: 12px; color: #6B7A99; margin-bottom: 24px; }
-    .login-tabs  { display: flex; gap: 0; margin-bottom: 20px; border: 1px solid #1E3050; border-radius: 8px; overflow: hidden; }
-    .login-tab   { flex: 1; padding: 8px; text-align: center; font-size: 13px; font-weight: 600;
-                   cursor: pointer; background: transparent; color: #6B7A99; border: none; }
-    .login-tab.active { background: #00CFFF22; color: #00CFFF; }
     .login-label { font-size: 11px; color: #6B7A99; margin-bottom: 5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
     .login-input {
       width: 100%; background: #0D1421; border: 1px solid #1E3050;
@@ -71,15 +67,11 @@
     <div class="bar"><div class="fill"></div></div>
   </div>
 
-  <!-- Login / Sign-up gate -->
+  <!-- Login gate -->
   <div id="login-screen">
     <div class="login-box">
       <div class="login-logo">IGNITUS</div>
       <div class="login-sub">Personal Portfolio Tracker</div>
-      <div class="login-tabs">
-        <button class="login-tab active" id="tab-signin"  onclick="switchTab('signin')">Sign In</button>
-        <button class="login-tab"        id="tab-signup"  onclick="switchTab('signup')">First-time Setup</button>
-      </div>
       <div class="login-error" id="login-err"></div>
       <div class="login-label">Email</div>
       <input class="login-input" id="login-email" type="email"    placeholder="your@email.com"  autocomplete="email"/>
@@ -99,24 +91,12 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <script>
-  // ── Login tab UI helpers (global scope for onclick) ─────────────────────────
-  let _currentTab = 'signin';
-  function switchTab(t) {
-    _currentTab = t;
-    document.getElementById('tab-signin').className = 'login-tab' + (t==='signin'?' active':'');
-    document.getElementById('tab-signup').className = 'login-tab' + (t==='signup'?' active':'');
-    document.getElementById('login-btn').textContent = t === 'signin' ? 'Sign In' : 'Create Account';
-    document.getElementById('login-note').textContent = t === 'signin'
-      ? 'Your data is encrypted in transit. Only you can access this portfolio.'
-      : 'Creates your account. Disable email confirmation in Supabase Auth → Settings if needed.';
-    document.getElementById('login-err').className = 'login-error';
-    document.getElementById('login-pwd').autocomplete = t==='signin' ? 'current-password' : 'new-password';
-  }
+  // ── Login UI helper (global scope for onclick) ──────────────────────────────
   function doAuth() {
     if (window._authHandler) window._authHandler(
       document.getElementById('login-email').value.trim(),
       document.getElementById('login-pwd').value,
-      _currentTab
+      'signin'
     );
   }
   </script>
@@ -208,17 +188,15 @@
       }
     }
 
-    // ── Login / Signup handler ────────────────────────────────────────────────
-    async function authUser(email, password, mode) {
+    // ── Login handler (sign-in only) ────────────────────────────────────────────
+    async function authUser(email, password) {
       const errEl  = document.getElementById('login-err');
       const btnEl  = document.getElementById('login-btn');
       errEl.className = 'login-error';
       btnEl.disabled  = true;
-      btnEl.textContent = mode === 'signin' ? 'Signing in…' : 'Creating account…';
+      btnEl.textContent = 'Signing in…';
 
-      const endpoint = mode === 'signin'
-        ? SB_URL + '/auth/v1/token?grant_type=password'
-        : SB_URL + '/auth/v1/signup';
+      const endpoint = SB_URL + '/auth/v1/token?grant_type=password';
 
       try {
         const r = await fetch(endpoint, {
@@ -232,16 +210,7 @@
           errEl.textContent = e;
           errEl.className   = 'login-error visible';
           btnEl.disabled    = false;
-          btnEl.textContent = mode === 'signin' ? 'Sign In' : 'Create Account';
-          return;
-        }
-        // Signup may return a session immediately (if email confirm disabled) or not
-        if (!d.access_token) {
-          errEl.textContent = 'Account created. Please check your email to confirm, then Sign In.';
-          errEl.style.color = '#00CFFF';
-          errEl.className   = 'login-error visible';
-          btnEl.disabled    = false;
-          btnEl.textContent = 'Create Account';
+          btnEl.textContent = 'Sign In';
           return;
         }
         storeSession(d.access_token, d.refresh_token);
@@ -254,7 +223,7 @@
         errEl.textContent = 'Network error: ' + ex.message;
         errEl.className   = 'login-error visible';
         btnEl.disabled    = false;
-        btnEl.textContent = mode === 'signin' ? 'Sign In' : 'Create Account';
+        btnEl.textContent = 'Sign In';
       }
     }
     window._authHandler = authUser; // wired to onclick in global scope
