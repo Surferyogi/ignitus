@@ -3211,6 +3211,86 @@ function App(){
           );
         })()}
 
+        {mktFilter==="ALL"&&(()=>{ // ── Theme/Factor Concentration — correlated-risk clusters. v2026:06:12-10:00 ──
+          // Groups holdings into macro risk factors so correlated exposure is visible as ONE number.
+          // Cluster rules are keyword/ticker based (transparent, no hidden model). A holding lands in
+          // its FIRST matching cluster; unmatched = "Other / Diversified".
+          const CLUSTERS=[
+            {key:"Semiconductors",test:h=>["NVDA","AMD","AMAT","TER","TSM","ASML","AVGO","KLAC","SOXX","COHR","1347.HK"].includes(h.ticker)},
+            {key:"AI / Cloud Software",test:h=>["PLTR","CRWD","PANW","FTNT","NOW","SNPS","CRM","MSFT","NUKZ"].includes(h.ticker)},
+            {key:"Mega-cap Platforms",test:h=>["GOOGL","META","AMZN","AAPL","QQQ","MELI","BKNG"].includes(h.ticker)},
+            {key:"China / HK",test:h=>h.mkt==="CN"},
+            {key:"SG / Banks & REITs",test:h=>h.mkt==="SG"},
+            {key:"Payments & Exchanges",test:h=>["V","MA","SPGI","ICE","CME","MS"].includes(h.ticker)},
+            {key:"Healthcare",test:h=>["UNH","ELV","JNJ","VHT","VEEV"].includes(h.ticker)},
+            {key:"Income (BDC/Credit)",test:h=>["BXSL","PBDC","O9P.SI"].includes(h.ticker)},
+          ];
+          const tot=activeHoldings.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+          if(tot<=0)return null;
+          const buckets={};
+          activeHoldings.forEach(h=>{
+            const cl=CLUSTERS.find(c=>c.test(h));
+            const k=cl?cl.key:"Other / Diversified";
+            (buckets[k]=buckets[k]||{v:0,names:[]});
+            buckets[k].v+=toSGDlive(h.price*h.shares,h.mkt);
+            buckets[k].names.push(h.ticker);
+          });
+          const rows=Object.entries(buckets).map(([k,o])=>({k,pct:(o.v/tot)*100,n:o.names.length})).sort((a,b)=>b.pct-a.pct);
+          const mx=Math.max(...rows.map(r=>r.pct));
+          return(
+            <div style={card}>
+              <div style={cardT}>Theme / Factor Concentration</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Correlated-risk view: positions that tend to move together, shown as one exposure. Cluster rules are keyword-based and transparent.</div>
+              {rows.map(r=>(
+                <div key={r.k} style={{marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:2}}>
+                    <span style={{fontWeight:700,color:r.pct>30?C.gold:C.text}}>{r.k}<span style={{color:C.muted,fontWeight:500}}> · {r.n}</span></span>
+                    <span style={{fontWeight:800,color:r.pct>30?C.gold:C.accent}}>{r.pct.toFixed(1)}%</span>
+                  </div>
+                  <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mx>0?(r.pct/mx)*100:0}%`,height:"100%",borderRadius:3,background:r.pct>30?C.gold:C.accent}}/></div>
+                </div>
+              ))}
+              {rows.filter(r=>r.pct>30&&r.k!=="Other / Diversified").map(r=>(
+                <div key={r.k+"-w"} style={{fontSize:13,color:C.gold,marginTop:6}}>⚠ {r.k} is {r.pct.toFixed(0)}% of the portfolio — a single macro shock to this theme moves a large share of your book at once.</div>
+              ))}
+            </div>
+          );
+        })()}
+
+        {mktFilter==="ALL"&&(()=>{ // ── Trim Radar — gain% × valuation richness ranking. v2026:06:12-10:00 ──
+          // Surfaces take-profit candidates: large unrealized gain AND a rich multiple. NOT advice —
+          // a transparent score so oversized winners on stretched P/Es rise to the top for review.
+          // Score = (gain% / 100) × richness, where richness = PE/25 (capped 4×); PE=0 (unknown) → richness 1.
+          const cands=activeHoldings.map(h=>{
+            const gp=h.avgCost>0?((h.price-h.avgCost)/h.avgCost)*100:0;
+            const pe=Number(h.peRatio)||0;
+            const rich=pe>0?Math.min(pe/25,4):1;
+            const score=(gp/100)*rich;
+            return {h,gp,pe,rich,score};
+          }).filter(x=>x.gp>50).sort((a,b)=>b.score-a.score).slice(0,10);
+          if(!cands.length)return null;
+          return(
+            <div style={card}>
+              <div style={cardT}>Trim Radar — oversized winners on rich multiples</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Ranks positions up &gt;50% by gain × valuation richness (PE÷25). High score = large gain on a stretched multiple — review candidates for trimming to a deliberate weight. Not advice.</div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.muted,fontWeight:700,marginBottom:5,paddingBottom:4,borderBottom:`1px solid ${C.border}`}}>
+                <span>TICKER</span><span style={{display:"flex",gap:14}}><span>GAIN%</span><span>PE</span><span>SCORE</span></span>
+              </div>
+              {cands.map(({h,gp,pe,score})=>(
+                <div key={h.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:6,cursor:"pointer",alignItems:"center"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                  <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{h.ticker}</span><Chip mkt={h.mkt}/></span>
+                  <span style={{display:"flex",gap:14,alignItems:"center"}}>
+                    <span style={{color:C.green,fontWeight:700,width:54,textAlign:"right"}}>+{fmt(gp,0)}%</span>
+                    <span style={{color:pe>50?C.gold:C.muted,width:34,textAlign:"right"}}>{pe>0?fmt(pe,0):"—"}</span>
+                    <span style={{fontWeight:800,color:score>10?C.gold:C.accent,width:40,textAlign:"right"}}>{fmt(score,1)}</span>
+                  </span>
+                </div>
+              ))}
+              <div style={{fontSize:12,color:C.muted,marginTop:6}}>PE shown as &quot;—&quot; means not available (pre-profit or data pending); richness defaults to 1× for those. SGD-agnostic — uses local gain%.</div>
+            </div>
+          );
+        })()}
+
         {/* Search input — memoized with stable callbacks so re-renders never cause focus loss */}
         <PortfolioSearchInput
           onSearch={handleSearch}
@@ -3705,7 +3785,7 @@ function App(){
     return(
       <>
         <div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto"}}>
-          {[["performers","Performers"],["buffett","Buffett"],["div","💵 Div"],["screen","🎯 Screen"]].map(([id,lbl])=>(
+          {[["performers","Performers"],["buffett","Buffett"],["screen","🎯 Screen"]].map(([id,lbl])=>(
             <button key={id} style={{...pill(insightTab===id),whiteSpace:"nowrap",flexShrink:0}} onClick={()=>setInsightTab(id)}>{lbl}</button>
           ))}
         </div>
@@ -3977,82 +4057,151 @@ function App(){
             })}
           </>
         )}
-        {insightTab==="div"&&(()=>{ // ── Dividend Income by Year — market→ticker filter, gross+net, yield-on-cost. v2026:06:11-22:00 ──
-          // NET   = profit — the cash DBS credited (VERIFIED 2026-06-11: statements/workbook record a
-          //         single net amount only; price×shares ≡ profit in this dataset, so it is NOT gross).
-          // GROSS = derived as net ÷ (1 − WHT) using the app's own DIV_TAX rates (US 30%, JP 20.315%,
-          //         EU 15%, SG/CN/GB 0%). US rate validated EXACT vs AAPL: 120sh × $0.26 × 0.70 = $21.84
-          //         (Feb-2026) and 120sh × $0.27 × 0.70 = $22.68 (May-2026) — both match stored values.
-          //         Where WHT = 0 (SG/HK), gross = net is genuinely true, not a display bug.
-          // YIELD ON COST = year's NET dividends ÷ CURRENT cost basis (avgCost×shares), BOTH in SGD —
-          //         SGD on both sides because some SG-listed tickers pay USD/EUR dividends.
-          //         Exited positions (shares=0) have no cost basis → yield shown as "--".
-          const divTrades=trades.filter(t=>t.type==="DIV");
-          const mktsInDiv=["US","SG","CN","JP","EU","GB","AU"].filter(m=>divTrades.some(t=>t.mkt===m));
-          const mScope=divMkt==="ALL"?divTrades:divTrades.filter(t=>t.mkt===divMkt);
-          const tickers=[...new Set(mScope.map(t=>t.ticker))].sort();
-          const nameOf=tk=>holdings.find(h=>h.ticker===tk)?.name||tickerNames[tk]||"";
-          const selT=divSearch&&tickers.includes(divSearch)?divSearch:"";
-          const ft=selT?mScope.filter(t=>t.ticker===selT):mScope;
-          const m={};
-          ft.forEach(t=>{
-            const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;
-            if(!m[y])m[y]={grossLoc:0,netLoc:0,grossSgd:0,netSgd:0};
-            const net=t.profit||0;
-            const wht=getDivTax(t.mkt||'US');
-            const gross=wht>0?net/(1-wht):net;
-            m[y].grossLoc+=gross; m[y].netLoc+=net;
-            m[y].grossSgd+=ccyToSGD(gross,t.ccy||t.mkt); m[y].netSgd+=ccyToSGD(net,t.ccy||t.mkt);
-          });
-          const rows=Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0]));
-          const curY=String(new Date().getFullYear());
-          const scopeH=holdings.filter(h=>Number(h.shares)>0&&(divMkt==="ALL"||h.mkt===divMkt));
-          const selH=selT?holdings.find(h=>h.ticker===selT):null;
-          const costSGD=selT
-            ?(selH&&Number(selH.shares)>0?toSGDlive(selH.avgCost*selH.shares,selH.mkt):null)
-            :(scopeH.length?scopeH.reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0):null);
-          const ccyLbl=selT?(ft[0]?.ccy||mktToCcy(ft[0]?.mkt)||""):"";
-          const mixedCcy=selT&&ft.some(t=>(t.ccy||mktToCcy(t.mkt))!==ccyLbl);
-          const mx=rows.length?Math.max(...rows.map(([,v])=>v.netSgd)):0;
-          const selStyle={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"9px 10px",color:C.text,fontSize:15,outline:"none",marginBottom:10};
-          return(
-            <div style={card}>
-              <div style={cardT}>Dividend Income by Year</div>
-              <div style={{display:"flex",gap:5,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
-                {["ALL",...mktsInDiv].map(mk=>(
-                  <button key={mk} style={{...pill(divMkt===mk),whiteSpace:"nowrap",flexShrink:0}} onClick={()=>{setDivMkt(mk);setDivSearch("");}}>{mk==="CN"?"HK":mk}</button>
-                ))}
-              </div>
-              <select value={selT} onChange={e=>setDivSearch(e.target.value)} style={selStyle}>
-                <option value="">All {divMkt==="ALL"?"":(divMkt==="CN"?"HK":divMkt)+" "}stocks ({tickers.length} dividend payers)</option>
-                {tickers.map(tk=><option key={tk} value={tk}>{tk}{nameOf(tk)?" — "+nameOf(tk):""}</option>)}
-              </select>
-              {selT&&<div style={{fontSize:14,color:C.mutedLight,fontWeight:700,marginBottom:8}}>{selT}<span style={{color:C.muted,fontWeight:500}}> — {nameOf(selT)||"name not available"}{selH&&Number(selH.shares)>0?"":" · position exited"}</span></div>}
-              {!rows.length&&<div style={{color:C.muted,fontSize:14}}>No dividend records for this selection.</div>}
-              {rows.map(([y,v])=>{
-                const yld=costSGD?(v.netSgd/costSGD)*100:null;
-                return(
-                  <div key={y} style={{marginBottom:9}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",fontSize:14,marginBottom:3}}>
-                      <span style={{color:C.mutedLight,fontWeight:700}}>{y}{y===curY?" YTD":""}
-                        <span style={{marginLeft:6,fontSize:12,fontWeight:700,color:C.accent,background:C.accent+"15",padding:"1px 6px",borderRadius:4}}>{yld==null?"YoC --":"YoC "+fmt(yld,2)+"%"}</span>
-                      </span>
-                      <span style={{textAlign:"right",lineHeight:1.5}}>
-                        <span style={{display:"block",fontSize:13,color:C.muted}}>gross {selT&&!mixedCcy?ccySymbol(ccyLbl)+fmt(v.grossLoc):fmtS(v.grossSgd)}</span>
-                        <span style={{display:"block",fontWeight:800,color:C.gold}}>net {selT&&!mixedCcy?ccySymbol(ccyLbl)+fmt(v.netLoc)+" · ":""}{fmtS(v.netSgd)}</span>
-                      </span>
-                    </div>
-                    <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mx>0?(v.netSgd/mx)*100:0}%`,height:"100%",borderRadius:3,background:C.gold}}/></div>
-                  </div>
-                );
-              })}
-              <div style={{fontSize:12,color:C.muted,marginTop:6}}>
-                Net = cash credited per DBS statements (the only figure statements record) · Gross = derived as net ÷ (1−WHT): US 30%, JP 20.315%, EU 15%, SG/HK 0% — validated exact vs Apple&apos;s declared rate · For SG/HK there is no WHT, so gross = net is correct · SGD at current FX · YoC (yield on cost) = year&apos;s net dividends ÷ current cost basis of {selT?"this position":"current "+(divMkt==="ALL"?"portfolio":(divMkt==="CN"?"HK":divMkt)+" holdings")}, both in SGD. YoC intentionally differs from the Markets tab&apos;s &quot;Fwd div est. on value&quot; — that one projects forward dividends against market value; YoC is actual received against cost.{costSGD==null?" Cost basis unavailable (position exited) — yield not shown.":""}
-              </div>
-            </div>
-          );
-        })()}
         {insightTab==="screen"&&renderScreenView()}
+      </>
+    );
+  }
+
+  function renderDividendView(){ // ── CONSOLIDATED DIVIDEND HOME. v2026:06:12-11:30 ──
+    // Single strategic home for dividend strategy. Folds in: portfolio income summary (fwd run-rate,
+    // gross & net, blended yield), per-market breakdown, and the income-by-year history (market→ticker
+    // filter, gross/net, YoC). Contextual bits kept elsewhere by design: per-stock detail row, the
+    // per-market line on Markets, and the div-sort summary on Portfolio.
+    const active=holdings.filter(h=>Number(h.shares)>0);
+    // Forward run-rate (gross/net) from current yields — projection, on market value.
+    const fwdGrossSGD=active.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt),0);
+    const fwdNetSGD=active.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0);
+    const totValSGD=active.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+    const blended=totValSGD>0?fwdGrossSGD/totValSGD*100:0;
+    const payers=active.filter(h=>h.divYield>0).length;
+    // Per-market forward breakdown.
+    const mkts=["US","SG","CN","JP","EU","GB","AU"];
+    const perMkt=mkts.map(mk=>{
+      const hs=active.filter(h=>h.mkt===mk);
+      const g=hs.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt),0);
+      const n=hs.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0);
+      const v=hs.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+      const cnt=hs.filter(h=>h.divYield>0).length;
+      return {mk,g,n,v,yld:v>0?g/v*100:0,cnt};
+    }).filter(x=>x.g>0).sort((a,b)=>b.g-a.g);
+    const mxMkt=perMkt.length?Math.max(...perMkt.map(x=>x.g)):0;
+    // Top payers by forward SGD income.
+    const top=active.filter(h=>h.divYield>0)
+      .map(h=>({h,inc:toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt),net:toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt)}))
+      .sort((a,b)=>b.inc-a.inc).slice(0,10);
+    const mxTop=top.length?Math.max(...top.map(x=>x.inc)):0;
+    // ── Income-by-year history (verbatim logic from prior Div sub-tab) ──
+    const divTrades=trades.filter(t=>t.type==="DIV");
+    const mktsInDiv=mkts.filter(m=>divTrades.some(t=>t.mkt===m));
+    const mScope=divMkt==="ALL"?divTrades:divTrades.filter(t=>t.mkt===divMkt);
+    const tickers=[...new Set(mScope.map(t=>t.ticker))].sort();
+    const nameOf=tk=>holdings.find(h=>h.ticker===tk)?.name||tickerNames[tk]||"";
+    const selT=divSearch&&tickers.includes(divSearch)?divSearch:"";
+    const ft=selT?mScope.filter(t=>t.ticker===selT):mScope;
+    const m={};
+    ft.forEach(t=>{
+      const y=(t.date||"").slice(0,4);if(!/^\d{4}$/.test(y))return;
+      if(!m[y])m[y]={grossLoc:0,netLoc:0,grossSgd:0,netSgd:0};
+      const net=t.profit||0; const wht=getDivTax(t.mkt||'US'); const gross=wht>0?net/(1-wht):net;
+      m[y].grossLoc+=gross; m[y].netLoc+=net;
+      m[y].grossSgd+=ccyToSGD(gross,t.ccy||t.mkt); m[y].netSgd+=ccyToSGD(net,t.ccy||t.mkt);
+    });
+    const yrRows=Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0]));
+    const curY=String(new Date().getFullYear());
+    const scopeH=holdings.filter(h=>Number(h.shares)>0&&(divMkt==="ALL"||h.mkt===divMkt));
+    const selH=selT?holdings.find(h=>h.ticker===selT):null;
+    const costSGD=selT
+      ?(selH&&Number(selH.shares)>0?toSGDlive(selH.avgCost*selH.shares,selH.mkt):null)
+      :(scopeH.length?scopeH.reduce((s,h)=>s+toSGDlive(h.avgCost*h.shares,h.mkt),0):null);
+    const ccyLbl=selT?(ft[0]?.ccy||mktToCcy(ft[0]?.mkt)||""):"";
+    const mixedCcy=selT&&ft.some(t=>(t.ccy||mktToCcy(t.mkt))!==ccyLbl);
+    const mxYr=yrRows.length?Math.max(...yrRows.map(([,v])=>v.netSgd)):0;
+    const selStyle={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"9px 10px",color:C.text,fontSize:15,outline:"none",marginBottom:10};
+    return(
+      <>
+        <div style={card}>
+          <div style={cardT}>Dividend Income — Portfolio Summary</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:6}}>
+            <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:12,color:C.muted}}>Forward run-rate (gross)</div>
+              <div style={{fontSize:18,fontWeight:800,color:C.gold}}>{fmtS(fwdGrossSGD)}<span style={{fontSize:13,color:C.muted}}>/yr</span></div>
+            </div>
+            <div style={{background:C.surface,borderRadius:8,padding:"10px 12px"}}>
+              <div style={{fontSize:12,color:C.muted}}>Forward run-rate (net, after WHT)</div>
+              <div style={{fontSize:18,fontWeight:800,color:C.green}}>{fmtS(fwdNetSGD)}<span style={{fontSize:13,color:C.muted}}>/yr</span></div>
+            </div>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:C.muted}}>
+            <span>Blended yield <b style={{color:C.gold}}>{fmt(blended,2)}%</b> on value</span>
+            <span>{payers} paying stocks</span>
+          </div>
+          <div style={{fontSize:12,color:C.muted,marginTop:6}}>Forward estimate from current yields on market value · net = after market-specific WHT · SGD at current FX. For actual received history, see &quot;by year&quot; below.</div>
+        </div>
+
+        {perMkt.length>0&&(
+          <div style={card}>
+            <div style={cardT}>By Market (forward, SGD)</div>
+            {perMkt.map(x=>(
+              <div key={x.mk} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:2}}>
+                  <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{x.mk==="CN"?"HK":x.mk}</span><Chip mkt={x.mk}/><span style={{fontSize:12,color:C.muted}}>{x.cnt} payers · {fmt(x.yld,2)}%</span></span>
+                  <span><b style={{color:C.gold}}>{fmtS(x.g)}</b><span style={{color:C.green,fontSize:13}}> · {fmtS(x.n)} net</span></span>
+                </div>
+                <div style={{height:4,borderRadius:2,background:C.border}}><div style={{width:`${mxMkt>0?(x.g/mxMkt)*100:0}%`,height:"100%",borderRadius:2,background:C.gold}}/></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {top.length>0&&(
+          <div style={card}>
+            <div style={cardT}>Top Payers (forward SGD income)</div>
+            {top.map(({h,inc,net})=>(
+              <div key={h.ticker} style={{marginBottom:7,cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:2}}>
+                  <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{h.ticker}</span><Chip mkt={h.mkt}/><span style={{fontSize:12,color:C.muted}}>{fmt(h.divYield,2)}%</span></span>
+                  <span><b style={{color:C.gold}}>{fmtS(inc)}</b><span style={{color:C.green,fontSize:13}}> · {fmtS(net)} net</span></span>
+                </div>
+                <div style={{height:4,borderRadius:2,background:C.border}}><div style={{width:`${mxTop>0?(inc/mxTop)*100:0}%`,height:"100%",borderRadius:2,background:C.gold}}/></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={card}>
+          <div style={cardT}>Dividend Income by Year (actual received)</div>
+          <div style={{display:"flex",gap:5,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
+            {["ALL",...mktsInDiv].map(mk=>(
+              <button key={mk} style={{...pill(divMkt===mk),whiteSpace:"nowrap",flexShrink:0}} onClick={()=>{setDivMkt(mk);setDivSearch("");}}>{mk==="CN"?"HK":mk}</button>
+            ))}
+          </div>
+          <select value={selT} onChange={e=>setDivSearch(e.target.value)} style={selStyle}>
+            <option value="">All {divMkt==="ALL"?"":(divMkt==="CN"?"HK":divMkt)+" "}stocks ({tickers.length} dividend payers)</option>
+            {tickers.map(tk=><option key={tk} value={tk}>{tk}{nameOf(tk)?" — "+nameOf(tk):""}</option>)}
+          </select>
+          {selT&&<div style={{fontSize:14,color:C.mutedLight,fontWeight:700,marginBottom:8}}>{selT}<span style={{color:C.muted,fontWeight:500}}> — {nameOf(selT)||"name not available"}{selH&&Number(selH.shares)>0?"":" · position exited"}</span></div>}
+          {!yrRows.length&&<div style={{color:C.muted,fontSize:14}}>No dividend records for this selection.</div>}
+          {yrRows.map(([y,v])=>{
+            const yld=costSGD?(v.netSgd/costSGD)*100:null;
+            return(
+              <div key={y} style={{marginBottom:9}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",fontSize:14,marginBottom:3}}>
+                  <span style={{color:C.mutedLight,fontWeight:700}}>{y}{y===curY?" YTD":""}
+                    <span style={{marginLeft:6,fontSize:12,fontWeight:700,color:C.accent,background:C.accent+"15",padding:"1px 6px",borderRadius:4}}>{yld==null?"YoC --":"YoC "+fmt(yld,2)+"%"}</span>
+                  </span>
+                  <span style={{textAlign:"right",lineHeight:1.5}}>
+                    <span style={{display:"block",fontSize:13,color:C.muted}}>gross {selT&&!mixedCcy?ccySymbol(ccyLbl)+fmt(v.grossLoc):fmtS(v.grossSgd)}</span>
+                    <span style={{display:"block",fontWeight:800,color:C.gold}}>net {selT&&!mixedCcy?ccySymbol(ccyLbl)+fmt(v.netLoc)+" · ":""}{fmtS(v.netSgd)}</span>
+                  </span>
+                </div>
+                <div style={{height:5,borderRadius:3,background:C.border}}><div style={{width:`${mxYr>0?(v.netSgd/mxYr)*100:0}%`,height:"100%",borderRadius:3,background:C.gold}}/></div>
+              </div>
+            );
+          })}
+          <div style={{fontSize:12,color:C.muted,marginTop:6}}>
+            Net = cash credited per DBS statements · Gross = net ÷ (1−WHT): US 30%, JP 20.315%, EU 15%, SG/HK 0% · SGD at current FX · YoC = year&apos;s net dividends ÷ current cost basis of {selT?"this position":"current "+(divMkt==="ALL"?"portfolio":(divMkt==="CN"?"HK":divMkt)+" holdings")}, both in SGD. The summary above is a forward projection on value; this section is actual cash received.{costSGD==null?" Cost basis unavailable (position exited) — yield not shown.":""}
+          </div>
+        </div>
       </>
     );
   }
@@ -7225,6 +7374,7 @@ function App(){
   const TABS=[
     {id:"portfolio",icon:"📊",label:"Portfolio"},
     {id:"insights", icon:"💡",label:"Insights"},
+    {id:"dividends",icon:"💵",label:"Div"},
     {id:"indices",  icon:"🌍",label:"Markets"},
     {id:"trades",   icon:"💱",label:"Trades"},
     {id:"alerts",   icon:"🔔",label:"Alerts"},
@@ -7255,7 +7405,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-08:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-11:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
@@ -7342,6 +7492,7 @@ function App(){
         {sel&&<ErrBoundary>{renderHoldingDetail()}</ErrBoundary>}
         {!sel&&tab==="portfolio"&&<ErrBoundary>{renderPortfolioView()}</ErrBoundary>}
         {!sel&&tab==="insights" &&<ErrBoundary>{renderInsightsView()}</ErrBoundary>}
+        {!sel&&tab==="dividends"&&<ErrBoundary>{renderDividendView()}</ErrBoundary>}
         {!sel&&tab==="indices"  &&<ErrBoundary>{renderIndexView()}</ErrBoundary>}
         {!sel&&tab==="trades"   &&<ErrBoundary>{renderTradesView()}</ErrBoundary>}
         {!sel&&tab==="alerts"   &&<ErrBoundary><AlertsView/></ErrBoundary>}
