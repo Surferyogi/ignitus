@@ -3291,6 +3291,102 @@ function App(){
           );
         })()}
 
+        {(()=>{ // ── Restructuring Radar — capital-efficiency signals, market-aware. v2026:06:12-13:00 ──
+          // Adapts to the selected market: ALL analyses the whole book (scope weights = % of total
+          // portfolio); a single market analyses just that sleeve (scope weights = % of that sleeve).
+          // Three signals, each rendered ONLY when it applies:
+          //   1) ETF↔direct overlap — index ETFs whose constituents you also hold directly (fee drag +
+          //      correlated double-count). Overlap map is hardcoded to ETFs actually held, documented
+          //      constituents only — no guessing.
+          //   2) Oversized winners — >40% gain AND >15% of scope (concentration through success).
+          //   3) Dead-weight stubs — worse than -50% AND <2% of scope (too small to recover; redeploy).
+          // Plus a moat × discount-to-cost ranking so keep/add vs cut candidates surface automatically.
+          const scope=mktFilter==="ALL"?activeHoldings:activeHoldings.filter(h=>h.mkt===mktFilter);
+          if(scope.length<2)return null;
+          const scopeTot=scope.reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+          if(scopeTot<=0)return null;
+          const wt=h=>toSGDlive(h.price*h.shares,h.mkt)/scopeTot*100;
+          const gp=h=>h.avgCost>0?((h.price-h.avgCost)/h.avgCost)*100:0;
+          // Documented ETF→direct-constituent overlap map (only ETFs the user holds).
+          const OVERLAP={
+            "SOXX":["NVDA","AMD","AMAT","TER","AVGO","KLAC","TSM"],
+            "QQQ":["NVDA","AMD","AAPL","MSFT","GOOGL","META","AMZN","AVGO","PLTR"],
+            "3033.HK":["0700.HK","9988.HK","3690.HK","9618.HK"],
+            "3067.HK":["0700.HK","9988.HK","3690.HK","9618.HK"],
+            "3115.HK":["0700.HK","9988.HK","0388.HK","2318.HK","3988.HK"],
+          };
+          const heldSet=new Set(scope.map(h=>h.ticker));
+          const overlaps=scope.filter(h=>OVERLAP[h.ticker]).map(h=>({
+            etf:h, w:wt(h),
+            dup:(OVERLAP[h.ticker]||[]).filter(t=>heldSet.has(t)),
+          })).filter(o=>o.dup.length>0);
+          const winners=scope.filter(h=>gp(h)>40&&wt(h)>15).map(h=>({h,g:gp(h),w:wt(h)})).sort((a,b)=>b.w-a.w);
+          const stubs=scope.filter(h=>gp(h)<-50&&wt(h)<2).map(h=>({h,g:gp(h),w:wt(h)})).sort((a,b)=>a.g-b.g);
+          // Moat scoring for the ranking.
+          const moatScore={"Wide":3,"Narrow":2,"None":1};
+          const ranked=scope.map(h=>({h,g:gp(h),ms:moatScore[h.moat]||1,w:wt(h)}))
+            .map(x=>({...x, keep:(x.ms*2)-(x.g<0?0:x.g/100), cut:(4-x.ms)+(x.g<-30?2:0)}))
+            .sort((a,b)=>b.keep-a.keep);
+          const adds=ranked.filter(x=>x.ms>=2&&x.g<0).slice(0,5);   // quality below cost
+          const cuts=ranked.filter(x=>x.ms===1&&x.g<-30).slice(0,5); // weak + deep loss
+          const lbl=mktFilter==="ALL"?"portfolio":(mktFilter==="CN"?"HK":mktFilter)+" sleeve";
+          const nothing=!overlaps.length&&!winners.length&&!stubs.length&&!adds.length&&!cuts.length;
+          if(nothing)return null;
+          return(
+            <div style={card}>
+              <div style={cardT}>Restructuring Radar — {lbl}</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Capital-efficiency signals for the {lbl}. Weights are % of {mktFilter==="ALL"?"total portfolio":"this sleeve"}. Educational, not advice.</div>
+
+              {overlaps.length>0&&(
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:5}}>⚠ ETF ↔ direct overlap (fee drag + double-count)</div>
+                  {overlaps.map(o=>(
+                    <div key={o.etf.ticker} style={{fontSize:13,marginBottom:5,cursor:"pointer"}} onClick={()=>{setSel(o.etf);setDetailPeriod("6m");}}>
+                      <span style={{fontWeight:700}}>{o.etf.ticker}</span> <span style={{color:C.muted}}>({o.w.toFixed(1)}%)</span> overlaps your direct holdings: <span style={{color:C.mutedLight}}>{o.dup.join(", ")}</span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:12,color:C.muted}}>Consolidating into the direct names removes fees and concentrates conviction without losing exposure.</div>
+                </div>
+              )}
+
+              {winners.length>0&&(
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.green,marginBottom:5}}>▲ Oversized winners (concentration via success)</div>
+                  {winners.map(({h,g,w})=>(
+                    <div key={h.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4,cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                      <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{h.ticker}</span><Chip mkt={h.mkt}/></span>
+                      <span><span style={{color:C.green,fontWeight:700}}>+{fmt(g,0)}%</span> · <b style={{color:C.gold}}>{w.toFixed(1)}%</b> of {mktFilter==="ALL"?"port":"sleeve"}</span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:12,color:C.muted}}>Trimming to a deliberate weight locks gains (no SG capital-gains tax) and funds redeployment.</div>
+                </div>
+              )}
+
+              {stubs.length>0&&(
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.red,marginBottom:5}}>✕ Dead-weight stubs (too small to recover)</div>
+                  {stubs.map(({h,g,w})=>(
+                    <div key={h.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4,cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                      <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{h.ticker}</span><Chip mkt={h.mkt}/></span>
+                      <span><span style={{color:C.red,fontWeight:700}}>{fmt(g,0)}%</span> · {w.toFixed(1)}%</span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:12,color:C.muted}}>A tiny deep-loss position rarely moves the needle on recovery — cut and redeploy into conviction names.</div>
+                </div>
+              )}
+
+              {(adds.length>0||cuts.length>0)&&(
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:5}}>Moat × discount ranking</div>
+                  {adds.length>0&&<div style={{fontSize:12,color:C.green,marginBottom:3}}>Quality below cost (add candidates): <span style={{color:C.mutedLight}}>{adds.map(x=>x.h.ticker+" ("+x.h.moat+", "+fmt(x.g,0)+"%)").join(" · ")}</span></div>}
+                  {cuts.length>0&&<div style={{fontSize:12,color:C.red}}>Weak + deep loss (cut candidates): <span style={{color:C.mutedLight}}>{cuts.map(x=>x.h.ticker+" ("+x.h.moat+", "+fmt(x.g,0)+"%)").join(" · ")}</span></div>}
+                  <div style={{fontSize:12,color:C.muted,marginTop:6}}>Ranking uses your stored moat rating × discount-to-cost. Moat is your own classification — review before acting.</div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Search input — memoized with stable callbacks so re-renders never cause focus loss */}
         <PortfolioSearchInput
           onSearch={handleSearch}
@@ -7405,7 +7501,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-11:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-13:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
