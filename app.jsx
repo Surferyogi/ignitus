@@ -537,6 +537,7 @@ function App(){
   const [fixed,setFixed]=useState({});
   // renderHoldingDetail state (lifted — hooks invalid in render functions)
   const [insiderData,setInsiderData]=useState({});
+  const [fcfData,setFcfData]=useState({}); // v57: Cash Quality (FCF yield, ROIC proxy, EV/FCF) — US only, session-only
   const [showAllBuy,setShowAllBuy]=useState(false);
   const [showAllSell,setShowAllSell]=useState(false);
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
@@ -2637,6 +2638,9 @@ function App(){
         ?"Intrinsic: "+m.symbol+iv+" Upside: "+up+"%"
         :"Intrinsic: N/A — not yet loaded. Skip valuation comparison. Focus on business quality, moat durability, and long-term thesis.",
       "Moat: "+h.moat+" PE: "+(h.peRatio>0?h.peRatio:"N/A (pre-profit or data pending)")+" Div: "+h.divYield+"%",
+      (h.mkt==="US"&&fcfData[h.ticker]&&fcfData[h.ticker].available
+        ?"Cash quality: FCF yield "+(fcfData[h.ticker].fcfYield!=null?fcfData[h.ticker].fcfYield+"%":"N/A")+", ROIC(ROI,TTM) "+(fcfData[h.ticker].roic!=null?fcfData[h.ticker].roic+"%":"N/A")+", EV/FCF "+(fcfData[h.ticker].evToFcf!=null?fcfData[h.ticker].evToFcf+"x":"N/A")
+        :"Cash quality: FCF/ROIC not available"),
       "Buffett Score: "+bs.score+"/100 Action: "+bs.action,
       "Benchmark: "+m.index+" YTD "+m.idxYtd+"%",
       up!==null
@@ -6629,9 +6633,40 @@ function App(){
       }
     }
 
+    // v57: Cash Quality — FCF yield, ROIC proxy, EV/FCF (US holdings only, session-only).
+    // Mirrors fetchInsiderTrades: lazy-load, guarded, never persisted to DB.
+    // Sourced from edge fn action "fetch_fcf" (Finnhub stock/metric — no new secret/key).
+    async function fetchFcfData(ticker,mkt){
+      if(!ticker||mkt!=="US") return;
+      if(fcfData[ticker]&&!fcfData[ticker].error&&!fcfData[ticker].loading) return;
+      setFcfData(prev=>({...prev,[ticker]:{loading:true}}));
+      try{
+        const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"fetch_fcf",ticker,mkt}),
+        });
+        const d=await res.json();
+        setFcfData(prev=>({...prev,[ticker]:{
+          loading:false,
+          available:d.available||false,
+          fcfYield:d.fcfYield??null,
+          roic:d.roic??null,
+          evToFcf:d.evToFcf??null,
+          fcfAbsM:d.fcfAbsM??null,
+          capexCagr5Y:d.capexCagr5Y??null,
+          error:d.error||null,
+        }}));
+      }catch(e){
+        setFcfData(prev=>({...prev,[ticker]:{loading:false,available:false,error:e.message}}));
+      }
+    }
+
     // useEffect invalid in render functions — call fetchInsiderTrades directly.
     // Guard: only fetch if not already loading/loaded for this ticker.
     if(h?.ticker && !insiderData[h.ticker]) fetchInsiderTrades(h.ticker);
+    // v57: lazy-load FCF/ROIC for US holdings only (guarded inside fetchFcfData too)
+    if(h?.ticker && h?.mkt==="US" && !fcfData[h.ticker]) fetchFcfData(h.ticker,h.mkt);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
@@ -7245,6 +7280,59 @@ function App(){
             );
           })()}
 
+          {/* v57: Cash Quality — FCF Yield · ROIC · EV/FCF (US holdings only) */}
+          {h.mkt==="US"&&(()=>{
+            const fc=fcfData[h.ticker];
+            if(!fc) return null;
+            if(fc.loading) return(
+              <div style={{...card,background:C.green+"0A",border:`1px solid ${C.green}30`}}>
+                <div style={{fontSize:14,color:C.green,textAlign:"center",padding:"10px 0"}}>↻ Loading cash-quality metrics…</div>
+              </div>
+            );
+            if(!fc.available) return(
+              <div style={{...card,background:C.surface,border:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}><span style={{fontSize:16}}>💵</span><div style={cardT}>Cash Quality — FCF &amp; ROIC</div></div>
+                <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"6px 0"}}>Not available for {h.ticker}{fc.error?(" — "+fc.error):""}</div>
+              </div>
+            );
+            const fcfY=fc.fcfYield, roic=fc.roic, evf=fc.evToFcf, absM=fc.fcfAbsM;
+            const yCol=fcfY==null?C.muted:fcfY>=5?C.green:fcfY>=2?C.gold:C.red;
+            const rCol=roic==null?C.muted:roic>=15?C.green:roic>=8?C.gold:C.red;
+            const eCol=evf==null?C.muted:evf<=20?C.green:evf<=35?C.gold:C.red;
+            const absSGD=absM!=null?toSGDlive(absM*1e6,h.mkt):null; // absM is USD millions → SGD
+            return(
+              <div style={{...card,background:C.green+"08",border:`1px solid ${C.green}30`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:16}}>💵</span><div style={cardT}>Cash Quality — FCF &amp; ROIC</div></div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+                  <div style={{background:C.surface,borderRadius:8,padding:"9px 10px"}}>
+                    <div style={{fontSize:12,color:C.muted,marginBottom:2}}>FCF Yield</div>
+                    <div style={{fontSize:18,fontWeight:800,color:yCol}}>{fcfY!=null?fmt(fcfY,2)+"%":"—"}</div>
+                    <div style={{fontSize:11,color:C.muted}}>FCF ÷ price</div>
+                  </div>
+                  <div style={{background:C.surface,borderRadius:8,padding:"9px 10px"}}>
+                    <div style={{fontSize:12,color:C.muted,marginBottom:2}}>ROIC <span style={{fontSize:10,opacity:0.7}}>(ROI,TTM)</span></div>
+                    <div style={{fontSize:18,fontWeight:800,color:rCol}}>{roic!=null?fmt(roic,1)+"%":"—"}</div>
+                    <div style={{fontSize:11,color:C.muted}}>return on capital</div>
+                  </div>
+                  <div style={{background:C.surface,borderRadius:8,padding:"9px 10px"}}>
+                    <div style={{fontSize:12,color:C.muted,marginBottom:2}}>EV / FCF</div>
+                    <div style={{fontSize:18,fontWeight:800,color:eCol}}>{evf!=null?fmt(evf,1)+"×":"—"}</div>
+                    <div style={{fontSize:11,color:C.muted}}>lower = cheaper</div>
+                  </div>
+                </div>
+                {absSGD!=null&&(
+                  <div style={{fontSize:13,color:C.muted}}>Approx. annual free cash flow: <b style={{color:C.green}}>{fmtS(absSGD)}</b> <span style={{opacity:0.7}}>(~US${fmt(absM,0)}M)</span></div>
+                )}
+                {fc.capexCagr5Y!=null&&(
+                  <div style={{fontSize:13,color:C.muted,marginTop:3}}>5-yr capex CAGR: <b style={{color:C.text}}>{fmt(fc.capexCagr5Y,1)}%</b></div>
+                )}
+                <div style={{fontSize:11,color:C.muted,marginTop:8,paddingTop:6,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
+                  Source: Finnhub TTM ratios. FCF Yield = 100 ÷ price-to-FCF. ROIC shown is Finnhub&apos;s ROI (TTM) used as a proxy — not textbook NOPAT÷invested-capital. EV/FCF = current enterprise value ÷ TTM FCF. Absolute FCF is approximate (market cap ÷ P/FCF). US holdings only.
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}30`}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:18}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
             {(()=>{
@@ -7501,7 +7589,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-13:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-14:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
