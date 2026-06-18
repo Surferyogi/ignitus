@@ -1045,7 +1045,7 @@ function App(){
         body:JSON.stringify({
           action:'alerts',
           holdings:activeHoldings.map(h=>({
-            ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price
+            ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price,moat:h.moat
           }))
         }),
       });
@@ -5883,9 +5883,13 @@ function App(){
       low:   {col:C.accent,bg:C.accent+"14",icon:"🔵",label:"LOW"},
     };
     const TYPE_META={
-      INSIDER_BUY:  {icon:"🏦",label:"Insider Buying",   col:C.green},
-      SHORT_SQUEEZE:{icon:"🌀",label:"Short Squeeze Risk",col:C.gold},
-      VOLUME_SPIKE: {icon:"📈",label:"Volume Spike",      col:C.accent},
+      INSIDER_BUY:  {icon:"🏦",label:"Insider Buying",    col:C.green},
+      EARNINGS_SOON:{icon:"📅",label:"Earnings Soon",     col:C.accent},
+      RATING_DOWN:  {icon:"📉",label:"Downgrade Drift",   col:C.red},
+      RATING_UP:    {icon:"📈",label:"Upgrade Drift",     col:C.green},
+      DIV_CUT:      {icon:"✂️",label:"Dividend Cut",       col:C.red},
+      DIV_RAISE:    {icon:"💰",label:"Dividend Raise",    col:C.green},
+      NEAR_52W_LOW: {icon:"🔻",label:"Near 52-Week Low",  col:C.gold},
     };
     const highCount=alertData.filter(a=>a.severity==="high").length;
     const hasSenate=senateData.length>0;
@@ -6113,33 +6117,51 @@ function App(){
                       {a.value>0&&<span style={{marginLeft:8,color:C.gold,fontWeight:700}}>~${fmt(a.value,0)} total</span>}
                     </div>
                   )}
-                  {a.type==="SHORT_SQUEEZE"&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:4}}>
+                  {a.type==="EARNINGS_SOON"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Short Float</div>
-                        <div style={{fontSize:15,fontWeight:800,color:C.red}}>{fmt(a.shortPct,1)}%</div>
+                        <div style={{fontSize:12,color:C.muted}}>Days Until</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.accent}}>{a.daysUntil}d</div>
                       </div>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Days to Cover</div>
-                        <div style={{fontSize:15,fontWeight:800,color:C.gold}}>{fmt(a.shortRatio,1)}</div>
-                      </div>
-                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Off 52w Low</div>
-                        <div style={{fontSize:15,fontWeight:800,color:C.green}}>+{fmt(a.pctFrom52wLow,0)}%</div>
+                        <div style={{fontSize:12,color:C.muted}}>Est EPS</div>
+                        <div style={{fontSize:15,fontWeight:800}}>{a.epsEst!=null?`$${fmt(a.epsEst,2)}`:"\u2014"}</div>
                       </div>
                     </div>
                   )}
-                  {a.type==="VOLUME_SPIKE"&&(
+                  {(a.type==="RATING_DOWN"||a.type==="RATING_UP")&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Volume Multiple</div>
-                        <div style={{fontSize:15,fontWeight:800,color:C.accent}}>{fmt(a.volMultiple,1)}×</div>
+                        <div style={{fontSize:12,color:C.muted}}>Buy-side %</div>
+                        <div style={{fontSize:15,fontWeight:800,color:a.type==="RATING_UP"?C.green:C.red}}>{a.buyPctPrev}% → {a.buyPctNow}%</div>
                       </div>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Price Move</div>
-                        <div style={{fontSize:15,fontWeight:800,color:a.chg1d>=0?C.green:C.red}}>
-                          {a.chg1d>=0?"+":""}{fmt(a.chg1d,1)}%
-                        </div>
+                        <div style={{fontSize:12,color:C.muted}}>Consensus Score</div>
+                        <div style={{fontSize:15,fontWeight:800}}>{fmt(a.scorePrev,2)} → {fmt(a.scoreNow,2)}</div>
+                      </div>
+                    </div>
+                  )}
+                  {(a.type==="DIV_CUT"||a.type==="DIV_RAISE")&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Payout (YoY)</div>
+                        <div style={{fontSize:15,fontWeight:800}}>{fmt(a.divOld,4)} → {fmt(a.divNew,4)}</div>
+                      </div>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Change</div>
+                        <div style={{fontSize:15,fontWeight:800,color:a.type==="DIV_RAISE"?C.green:C.red}}>{a.pctChg>=0?"+":""}{fmt(a.pctChg,1)}%</div>
+                      </div>
+                    </div>
+                  )}
+                  {a.type==="NEAR_52W_LOW"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Above 52w Low</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.gold}}>+{fmt(a.pctAboveLow,1)}%</div>
+                      </div>
+                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:12,color:C.muted}}>Moat</div>
+                        <div style={{fontSize:15,fontWeight:800}}>{a.moat||"\u2014"}</div>
                       </div>
                     </div>
                   )}
@@ -7664,7 +7686,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-15:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-16:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
