@@ -5939,6 +5939,81 @@ function App(){
           )}
         </div>
 
+        {/* ── v2026:06:18-15:00 · Phase 1: VALUATION WATCH ──────────────────────────────
+            In-app, instant (no scan). Uses the SAME effective IV as the rest of the app:
+            valuations[t].valuations.average (US multi-source) → h.intrinsic (session IV).
+            Low-noise: only fires outside a fair-value band. ETFs and IV-less names skipped. */}
+        {(()=>{
+          const ADD_T=20, ADD_DEEP=40, TRIM_T=-25, TRIM_EXTREME=-50; // upside% thresholds (tunable)
+          const MLBL={analyst:'analyst',graham:'Graham',dcf_eps:'DCF',reit_yield:'REIT yield',ai_search:'AI',web_consensus:'web',etf_yield:'ETF yield'};
+          const cands=[]; let noIV=0;
+          activeHoldings.filter(h=>!h.isEtf&&Number(h.shares)>0).forEach(h=>{
+            const compIV=valuations[h.ticker]?.valuations?.average||0;
+            const effIV=compIV>0?compIV:(h.intrinsic||0);
+            if(!(effIV>0)||!(h.price>0)){noIV++;return;}
+            const upside=((effIV-h.price)/h.price)*100;
+            const src=compIV>0?'multi-source':(MLBL[h.intrinsicMethod]||'est');
+            if(upside>=ADD_T)       cands.push({h,effIV,upside,kind:'ADD', sev:upside>=ADD_DEEP?'high':'medium',src});
+            else if(upside<=TRIM_T) cands.push({h,effIV,upside,kind:'TRIM',sev:upside<=TRIM_EXTREME?'high':'medium',src});
+          });
+          const adds=cands.filter(c=>c.kind==='ADD').sort((a,b)=>b.upside-a.upside).slice(0,8);
+          const trims=cands.filter(c=>c.kind==='TRIM').sort((a,b)=>a.upside-b.upside).slice(0,8);
+          // Plain row renderer (NOT a nested component — matches codebase discipline to avoid remounts)
+          const vrow=(c)=>{
+            const col=c.kind==='ADD'?C.green:C.red;
+            return(
+              <div key={c.h.ticker} onClick={()=>{setSel(c.h);setDetailPeriod("6m");}}
+                style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                  <span style={{fontWeight:800,fontSize:15}}>{c.h.ticker}</span>
+                  <Chip mkt={c.h.mkt}/>
+                  {c.sev==='high'&&<span style={{fontSize:10,fontWeight:700,color:col,background:col+"22",borderRadius:3,padding:"1px 5px"}}>{c.kind==='ADD'?'DEEP':'EXTREME'}</span>}
+                  <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110}}>{c.h.name}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:12,color:C.muted}}>{fmtL(c.h.price,c.h.mkt)} → {fmtL(c.effIV,c.h.mkt)}</div>
+                    <div style={{fontSize:11,color:C.muted}}>IV: {c.src}</div>
+                  </div>
+                  <span style={{fontWeight:800,fontSize:15,color:col,width:54,textAlign:"right"}}>{c.upside>=0?"+":""}{fmt(c.upside,0)}%</span>
+                </div>
+              </div>
+            );
+          };
+          if(adds.length===0&&trims.length===0&&noIV===0) return null;
+          return(
+            <div style={{...card,background:C.purple+"08",border:`1px solid ${C.purple}30`,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                <div style={{fontSize:15,fontWeight:800,color:C.purple,letterSpacing:"0.06em"}}>💎 VALUATION WATCH</div>
+                <span style={{fontSize:11,color:C.green,fontWeight:700,background:C.green+"15",borderRadius:8,padding:"2px 7px",flexShrink:0}}>● LIVE · no scan</span>
+              </div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+                Price vs your intrinsic value (same IV used across the app). Add candidates ≥ +{ADD_T}% upside · trim candidates ≤ {TRIM_T}% (above IV). Updates instantly with live prices — no scan needed. Complements the Buffett ranking in Insights.
+              </div>
+              {adds.length>0&&(
+                <div style={{marginBottom:trims.length>0?12:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.green,marginBottom:2}}>▼ Below intrinsic — add candidates ({adds.length})</div>
+                  {adds.map(vrow)}
+                </div>
+              )}
+              {trims.length>0&&(
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.red,marginBottom:2}}>▲ Above intrinsic — trim candidates ({trims.length})</div>
+                  {trims.map(vrow)}
+                </div>
+              )}
+              {adds.length===0&&trims.length===0&&(
+                <div style={{fontSize:13,color:C.muted,padding:"4px 0"}}>All valued holdings sit within the fair-value band ({TRIM_T}% to +{ADD_T}% of intrinsic).</div>
+              )}
+              {noIV>0&&(
+                <div style={{fontSize:11,color:C.muted,marginTop:8,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
+                  {noIV} holding{noIV>1?"s":""} skipped — no intrinsic value loaded. Load via 🌐 Web Search IV or 🤖 AI in Insights ▸ Buffett.
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Not yet scanned state */}
         {!alertLastRun&&!alertLoading&&(
           <div style={{...card,textAlign:"center",padding:"32px 16px"}}>
@@ -7589,7 +7664,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-14:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-15:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
