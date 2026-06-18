@@ -5913,7 +5913,7 @@ function App(){
                 🔔 MARKET INTELLIGENCE
               </div>
               <div style={{fontSize:14,color:C.muted,lineHeight:1.5}}>
-                Insider buys · Short squeeze risk · Volume anomalies · Senate signals
+                Insider buys · Earnings soon · Rating shifts · Dividend changes · 52-week lows · Senate signals
               </div>
               {alertLastRun&&(
                 <div style={{fontSize:13,color:C.muted,marginTop:4}}>
@@ -6024,8 +6024,8 @@ function App(){
             <div style={{fontSize:34,marginBottom:8}}>🔍</div>
             <div style={{fontSize:17,fontWeight:700,marginBottom:6}}>No scan run yet</div>
             <div style={{fontSize:14,color:C.muted,marginBottom:16}}>
-              Tap "Scan Now" to check your {holdings.length} holdings for insider activity,
-              short squeeze risk, and unusual volume across all markets.
+              Tap "Scan Now" to check your {holdings.length} holdings for insider buying,
+              upcoming earnings, analyst rating shifts, dividend changes, and 52-week lows.
             </div>
             <div style={{fontSize:13,color:C.muted}}>
               ⏱ Scan takes ~30-60s for {holdings.length} stocks
@@ -6040,10 +6040,10 @@ function App(){
               ↻ Scanning {holdings.filter(h=>h.mkt==="US").length} US stocks via Finnhub...
             </div>
             <div style={{fontSize:13,color:C.muted,marginBottom:4}}>
-              Checking insider filings · short interest · volume anomalies
+              Checking insider filings · earnings calendar · analyst ratings
             </div>
             <div style={{fontSize:13,color:C.muted}}>
-              Also checking {holdings.filter(h=>h.mkt!=="US").length} non-US stocks via Yahoo Finance
+              Plus dividend changes & 52-week lows across all markets via Yahoo Finance
             </div>
           </div>
         )}
@@ -6054,8 +6054,8 @@ function App(){
             <div style={{fontSize:30,marginBottom:6}}>✅</div>
             <div style={{fontSize:16,fontWeight:700,color:C.green,marginBottom:4}}>All Clear</div>
             <div style={{fontSize:14,color:C.muted}}>
-              No unusual insider activity, short squeeze risk, or volume spikes detected
-              in your portfolio at this time.
+              No insider buying, upcoming earnings, rating shifts, dividend changes, or
+              52-week lows flagged in your portfolio at this time.
             </div>
           </div>
         )}
@@ -7686,7 +7686,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-16:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-16:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
