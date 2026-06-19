@@ -537,7 +537,6 @@ function App(){
   const [fixed,setFixed]=useState({});
   // renderHoldingDetail state (lifted — hooks invalid in render functions)
   const [insiderData,setInsiderData]=useState({});
-  const [fcfData,setFcfData]=useState({}); // v57: Cash Quality (FCF yield, ROIC proxy, EV/FCF) — US only, session-only
   const [showAllBuy,setShowAllBuy]=useState(false);
   const [showAllSell,setShowAllSell]=useState(false);
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
@@ -547,6 +546,10 @@ function App(){
   const [tradeDateFrom,setTradeDateFrom]=useState(""); // date range filter level 2
   const [tradeDateTo,setTradeDateTo]=useState("");
   const [insightTab,setInsightTab]=useState("performers");
+  const [projTarget,setProjTarget]=useState("");   // Project tab: target net value (SGD)
+  const [projDate,setProjDate]=useState("");        // Project tab: target date (YYYY-MM-DD)
+  const [projContrib,setProjContrib]=useState("");   // Project tab: monthly contribution (SGD)
+  const [projReinvest,setProjReinvest]=useState(true);// Project tab: reinvest dividends
   const [divSearch,setDivSearch]=useState(""); // Insights ▸ Div: ticker filter ("" = all)
   const [divMkt,setDivMkt]=useState("ALL");    // Insights ▸ Div: market filter (first-level)
   const [aiText,setAiText]=useState({});
@@ -1045,7 +1048,7 @@ function App(){
         body:JSON.stringify({
           action:'alerts',
           holdings:activeHoldings.map(h=>({
-            ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price,moat:h.moat
+            ticker:h.ticker,mkt:h.mkt,name:h.name,price:h.price
           }))
         }),
       });
@@ -2638,9 +2641,6 @@ function App(){
         ?"Intrinsic: "+m.symbol+iv+" Upside: "+up+"%"
         :"Intrinsic: N/A — not yet loaded. Skip valuation comparison. Focus on business quality, moat durability, and long-term thesis.",
       "Moat: "+h.moat+" PE: "+(h.peRatio>0?h.peRatio:"N/A (pre-profit or data pending)")+" Div: "+h.divYield+"%",
-      (h.mkt==="US"&&fcfData[h.ticker]&&fcfData[h.ticker].available
-        ?"Cash quality: FCF yield "+(fcfData[h.ticker].fcfYield!=null?fcfData[h.ticker].fcfYield+"%":"N/A")+", ROIC(ROI,TTM) "+(fcfData[h.ticker].roic!=null?fcfData[h.ticker].roic+"%":"N/A")+", EV/FCF "+(fcfData[h.ticker].evToFcf!=null?fcfData[h.ticker].evToFcf+"x":"N/A")
-        :"Cash quality: FCF/ROIC not available"),
       "Buffett Score: "+bs.score+"/100 Action: "+bs.action,
       "Benchmark: "+m.index+" YTD "+m.idxYtd+"%",
       up!==null
@@ -4306,6 +4306,145 @@ function App(){
     );
   }
 
+  function renderProjectView(){ // ── PORTFOLIO PROJECTION & GOAL MODELLING. v2026:06:12-14:30 ──
+    // HONESTY CONTRACT: this is a SCENARIO tool, not a forecast. It compounds the CURRENT portfolio
+    // value forward under explicit, user-visible assumptions. It never claims to predict returns.
+    // Starting values are real (current SGD value, current blended dividend yield from holdings).
+    // Growth rates are STATED ASSUMPTIONS shown on screen. Goal solver reports REQUIRED CAGR, framed
+    // as "you would need X%/yr" — not a promise.
+    const V0=totalValSGD;
+    const active=holdings.filter(h=>Number(h.shares)>0);
+    const grossDiv=active.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares,h.mkt),0);
+    const netDiv=active.reduce((s,h)=>s+toSGDlive((h.divYield/100)*h.price*h.shares*(1-getDivTax(h.mkt)),h.mkt),0);
+    const startYield=V0>0?grossDiv/V0*100:0;       // real, current
+    const startNetYield=V0>0?netDiv/V0*100:0;
+    const monthly=Math.max(0,Number(projContrib)||0);
+    const reinvest=projReinvest;
+    // Three scenarios: price-growth assumptions (capital appreciation, excl. dividends).
+    const SCEN=[
+      {key:"Conservative",g:4, color:C.muted,  note:"4%/yr price growth — below long-run equity averages; assumes muted markets / valuation compression."},
+      {key:"Base",        g:7, color:C.accent, note:"7%/yr price growth — roughly long-run global equity average (nominal)."},
+      {key:"Aggressive",  g:10,color:C.green,  note:"10%/yr price growth — above-average; assumes AI/tech tailwinds persist. Higher risk of shortfall."},
+    ];
+    // Project each scenario 5 years. Dividend income grows with capital; if reinvest, net divs add to capital.
+    const YEARS=5;
+    const project=(g)=>{
+      const rows=[]; let cap=V0;
+      for(let y=1;y<=YEARS;y++){
+        const divThisYr=cap*(startYield/100);
+        const netDivThisYr=cap*(startNetYield/100);
+        const contribYr=monthly*12;
+        cap = cap*(1+g/100) + contribYr + (reinvest?netDivThisYr:0);
+        rows.push({y,cap,divThisYr,netDivThisYr,monthlyNet:netDivThisYr/12});
+      }
+      return rows;
+    };
+    const proj=SCEN.map(s=>({...s,rows:project(s.g)}));
+    // Goal solver.
+    const target=Number(projTarget)||0;
+    const tDate=projDate?new Date(projDate):null;
+    const now=new Date();
+    const yrsToTarget=tDate?(tDate-now)/(365.25*86400000):0;
+    let reqCAGR=null, projMonthlyIncome=null, feasNote="";
+    if(target>0&&yrsToTarget>0.05&&V0>0){
+      // Solve required CAGR including contributions & dividend reinvest at BASE net yield.
+      // FV = V0*(1+r)^t + contribFV + divReinvest — solve r by bisection on total annual return.
+      const annContrib=monthly*12;
+      const fvAt=r=>{
+        let cap=V0;
+        const steps=Math.max(1,Math.round(yrsToTarget));
+        const frac=yrsToTarget/steps;
+        for(let i=0;i<steps;i++){
+          const nd=cap*(startNetYield/100);
+          cap=cap*Math.pow(1+r,frac)+annContrib*frac+(reinvest?nd*frac:0);
+        }
+        return cap;
+      };
+      let lo=-0.5,hi=1.0,flo=fvAt(lo)-target,fhi=fvAt(hi)-target;
+      if(flo*fhi<=0){
+        for(let i=0;i<100;i++){const mid=(lo+hi)/2,fm=fvAt(mid)-target;if(Math.abs(fm)<1)break;if(flo*fm<0){hi=mid;fhi=fm;}else{lo=mid;flo=fm;}}
+        reqCAGR=((lo+hi)/2)*100;
+      } else {
+        feasNote=fvAt(hi)<target?"Target may be unreachable even at 100%/yr in the time given — extend the date or raise contributions.":"Target already met or requires negative return.";
+      }
+      // Monthly dividend income at target value (net), assuming yield held constant.
+      projMonthlyIncome=target*(startNetYield/100)/12;
+    }
+    const card2={...card};
+    const inp={width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"10px 11px",color:C.text,fontSize:15,outline:"none",fontFamily:"inherit"};
+    return(
+      <>
+        <div style={card}>
+          <div style={cardT}>Portfolio Projection — 5-Year Scenarios</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Starts from your current value {fmtS(V0)} and current blended yield {fmt(startYield,2)}% (gross) / {fmt(startNetYield,2)}% (net). Growth rates below are <b>assumptions you can see</b>, not predictions. This is a scenario model.</div>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:14,marginBottom:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={reinvest} onChange={e=>setProjReinvest(e.target.checked)}/>
+            Reinvest net dividends back into capital
+          </label>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Optional: monthly contribution (SGD)</div>
+            <input type="number" inputMode="decimal" style={inp} placeholder="0" defaultValue={projContrib} onBlur={e=>setProjContrib(e.target.value)}/>
+          </div>
+          {proj.map(s=>(
+            <div key={s.key} style={{marginBottom:12,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}}>
+                <span style={{fontWeight:800,color:s.color}}>{s.key}</span>
+                <span style={{fontSize:18,fontWeight:800,color:s.color}}>{fmtS(s.rows[YEARS-1].cap)}</span>
+              </div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{s.note} {reinvest?"Net dividends reinvested.":"Dividends taken as income."}</div>
+              <div style={{display:"flex",gap:4,marginBottom:4}}>
+                {s.rows.map(r=>(
+                  <div key={r.y} style={{flex:1,textAlign:"center"}}>
+                    <div style={{fontSize:11,color:C.muted}}>Y{r.y}</div>
+                    <div style={{height:Math.max(4,(r.cap/proj[2].rows[YEARS-1].cap)*48),background:s.color,borderRadius:2,marginTop:2}}/>
+                    <div style={{fontSize:10,color:C.mutedLight,marginTop:2}}>{(r.cap/1000).toFixed(0)}k</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:12,color:C.muted}}>Yr5 dividend income ≈ {fmtS(s.rows[YEARS-1].netDivThisYr)}/yr net · {fmtS(s.rows[YEARS-1].monthlyNet)}/mo</div>
+            </div>
+          ))}
+          <div style={{fontSize:12,color:C.muted}}>Range Yr5: {fmtS(proj[0].rows[YEARS-1].cap)} (conservative) → {fmtS(proj[2].rows[YEARS-1].cap)} (aggressive). Dividend yield held at today's rate; real yields drift. Not advice.</div>
+        </div>
+
+        <div style={card}>
+          <div style={cardT}>Goal Solver — reach a target value</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Target net value (SGD)</div>
+              <input type="number" inputMode="decimal" style={inp} placeholder="3000000" defaultValue={projTarget} onBlur={e=>setProjTarget(e.target.value)}/>
+            </div>
+            <div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Target date</div>
+              <input type="date" style={inp} defaultValue={projDate} onBlur={e=>setProjDate(e.target.value)}/>
+            </div>
+          </div>
+          {target>0&&yrsToTarget>0.05?(
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div style={{background:C.surface,borderRadius:8,padding:"11px 12px"}}>
+                  <div style={{fontSize:12,color:C.muted}}>Required return (CAGR)</div>
+                  <div style={{fontSize:20,fontWeight:800,color:reqCAGR==null?C.red:(reqCAGR>12?C.gold:C.green)}}>{reqCAGR==null?"—":fmt(reqCAGR,1)+"%/yr"}</div>
+                  <div style={{fontSize:11,color:C.muted}}>over {fmt(yrsToTarget,1)} yrs{monthly>0?", incl. "+fmtS(monthly)+"/mo":""}{reinvest?", divs reinvested":""}</div>
+                </div>
+                <div style={{background:C.surface,borderRadius:8,padding:"11px 12px"}}>
+                  <div style={{fontSize:12,color:C.muted}}>Monthly dividend income at target</div>
+                  <div style={{fontSize:20,fontWeight:800,color:C.gold}}>{projMonthlyIncome==null?"—":fmtS(projMonthlyIncome)}</div>
+                  <div style={{fontSize:11,color:C.muted}}>net, at today's {fmt(startNetYield,2)}% yield</div>
+                </div>
+              </div>
+              {reqCAGR!=null&&<div style={{fontSize:13,color:reqCAGR>12?C.gold:C.muted,marginTop:8}}>{reqCAGR>15?"⚠ A required return above ~15%/yr is very demanding and historically rare to sustain — consider extending the date or raising contributions.":reqCAGR>10?"This sits at the aggressive end of historical equity returns — achievable but not assured.":"This is within the range of long-run equity returns, though never guaranteed."}</div>}
+              {feasNote&&<div style={{fontSize:13,color:C.red,marginTop:8}}>{feasNote}</div>}
+              <div style={{fontSize:12,color:C.muted,marginTop:8}}>&quot;Required CAGR&quot; is what you would <i>need</i> to earn — not a prediction you will. Dividend income assumes today&apos;s net yield holds on the target value. Educational, not advice.</div>
+            </div>
+          ):(
+            <div style={{fontSize:13,color:C.muted}}>Enter a target value and a future date to see the required annual return and the monthly dividend income that target would generate at today&apos;s yield.</div>
+          )}
+        </div>
+      </>
+    );
+  }
+
   function renderIndexView(){
     const mktsInPort=[...new Set(holdings.map(h=>h.mkt))];
     const IDX_KEY={US:"US_SP500",SG:"SG_STI",JP:"JP_NIKKEI",CN:"CN_HSI",EU:"EU_CAC",GB:"GB_FTSE",AU:"AU_ASX"};
@@ -5883,13 +6022,9 @@ function App(){
       low:   {col:C.accent,bg:C.accent+"14",icon:"🔵",label:"LOW"},
     };
     const TYPE_META={
-      INSIDER_BUY:  {icon:"🏦",label:"Insider Buying",    col:C.green},
-      EARNINGS_SOON:{icon:"📅",label:"Earnings Soon",     col:C.accent},
-      RATING_DOWN:  {icon:"📉",label:"Downgrade Drift",   col:C.red},
-      RATING_UP:    {icon:"📈",label:"Upgrade Drift",     col:C.green},
-      DIV_CUT:      {icon:"✂️",label:"Dividend Cut",       col:C.red},
-      DIV_RAISE:    {icon:"💰",label:"Dividend Raise",    col:C.green},
-      NEAR_52W_LOW: {icon:"🔻",label:"Near 52-Week Low",  col:C.gold},
+      INSIDER_BUY:  {icon:"🏦",label:"Insider Buying",   col:C.green},
+      SHORT_SQUEEZE:{icon:"🌀",label:"Short Squeeze Risk",col:C.gold},
+      VOLUME_SPIKE: {icon:"📈",label:"Volume Spike",      col:C.accent},
     };
     const highCount=alertData.filter(a=>a.severity==="high").length;
     const hasSenate=senateData.length>0;
@@ -5913,7 +6048,7 @@ function App(){
                 🔔 MARKET INTELLIGENCE
               </div>
               <div style={{fontSize:14,color:C.muted,lineHeight:1.5}}>
-                Insider buys · Earnings soon · Rating shifts · Dividend changes · 52-week lows · Senate signals
+                Insider buys · Short squeeze risk · Volume anomalies · Senate signals
               </div>
               {alertLastRun&&(
                 <div style={{fontSize:13,color:C.muted,marginTop:4}}>
@@ -5943,89 +6078,14 @@ function App(){
           )}
         </div>
 
-        {/* ── v2026:06:18-15:00 · Phase 1: VALUATION WATCH ──────────────────────────────
-            In-app, instant (no scan). Uses the SAME effective IV as the rest of the app:
-            valuations[t].valuations.average (US multi-source) → h.intrinsic (session IV).
-            Low-noise: only fires outside a fair-value band. ETFs and IV-less names skipped. */}
-        {(()=>{
-          const ADD_T=20, ADD_DEEP=40, TRIM_T=-25, TRIM_EXTREME=-50; // upside% thresholds (tunable)
-          const MLBL={analyst:'analyst',graham:'Graham',dcf_eps:'DCF',reit_yield:'REIT yield',ai_search:'AI',web_consensus:'web',etf_yield:'ETF yield'};
-          const cands=[]; let noIV=0;
-          activeHoldings.filter(h=>!h.isEtf&&Number(h.shares)>0).forEach(h=>{
-            const compIV=valuations[h.ticker]?.valuations?.average||0;
-            const effIV=compIV>0?compIV:(h.intrinsic||0);
-            if(!(effIV>0)||!(h.price>0)){noIV++;return;}
-            const upside=((effIV-h.price)/h.price)*100;
-            const src=compIV>0?'multi-source':(MLBL[h.intrinsicMethod]||'est');
-            if(upside>=ADD_T)       cands.push({h,effIV,upside,kind:'ADD', sev:upside>=ADD_DEEP?'high':'medium',src});
-            else if(upside<=TRIM_T) cands.push({h,effIV,upside,kind:'TRIM',sev:upside<=TRIM_EXTREME?'high':'medium',src});
-          });
-          const adds=cands.filter(c=>c.kind==='ADD').sort((a,b)=>b.upside-a.upside).slice(0,8);
-          const trims=cands.filter(c=>c.kind==='TRIM').sort((a,b)=>a.upside-b.upside).slice(0,8);
-          // Plain row renderer (NOT a nested component — matches codebase discipline to avoid remounts)
-          const vrow=(c)=>{
-            const col=c.kind==='ADD'?C.green:C.red;
-            return(
-              <div key={c.h.ticker} onClick={()=>{setSel(c.h);setDetailPeriod("6m");}}
-                style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
-                  <span style={{fontWeight:800,fontSize:15}}>{c.h.ticker}</span>
-                  <Chip mkt={c.h.mkt}/>
-                  {c.sev==='high'&&<span style={{fontSize:10,fontWeight:700,color:col,background:col+"22",borderRadius:3,padding:"1px 5px"}}>{c.kind==='ADD'?'DEEP':'EXTREME'}</span>}
-                  <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:110}}>{c.h.name}</span>
-                </div>
-                <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:12,color:C.muted}}>{fmtL(c.h.price,c.h.mkt)} → {fmtL(c.effIV,c.h.mkt)}</div>
-                    <div style={{fontSize:11,color:C.muted}}>IV: {c.src}</div>
-                  </div>
-                  <span style={{fontWeight:800,fontSize:15,color:col,width:54,textAlign:"right"}}>{c.upside>=0?"+":""}{fmt(c.upside,0)}%</span>
-                </div>
-              </div>
-            );
-          };
-          if(adds.length===0&&trims.length===0&&noIV===0) return null;
-          return(
-            <div style={{...card,background:C.purple+"08",border:`1px solid ${C.purple}30`,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                <div style={{fontSize:15,fontWeight:800,color:C.purple,letterSpacing:"0.06em"}}>💎 VALUATION WATCH</div>
-                <span style={{fontSize:11,color:C.green,fontWeight:700,background:C.green+"15",borderRadius:8,padding:"2px 7px",flexShrink:0}}>● LIVE · no scan</span>
-              </div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>
-                Price vs your intrinsic value (same IV used across the app). Add candidates ≥ +{ADD_T}% upside · trim candidates ≤ {TRIM_T}% (above IV). Updates instantly with live prices — no scan needed. Complements the Buffett ranking in Insights.
-              </div>
-              {adds.length>0&&(
-                <div style={{marginBottom:trims.length>0?12:0}}>
-                  <div style={{fontSize:13,fontWeight:700,color:C.green,marginBottom:2}}>▼ Below intrinsic — add candidates ({adds.length})</div>
-                  {adds.map(vrow)}
-                </div>
-              )}
-              {trims.length>0&&(
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:C.red,marginBottom:2}}>▲ Above intrinsic — trim candidates ({trims.length})</div>
-                  {trims.map(vrow)}
-                </div>
-              )}
-              {adds.length===0&&trims.length===0&&(
-                <div style={{fontSize:13,color:C.muted,padding:"4px 0"}}>All valued holdings sit within the fair-value band ({TRIM_T}% to +{ADD_T}% of intrinsic).</div>
-              )}
-              {noIV>0&&(
-                <div style={{fontSize:11,color:C.muted,marginTop:8,paddingTop:6,borderTop:`1px solid ${C.border}`}}>
-                  {noIV} holding{noIV>1?"s":""} skipped — no intrinsic value loaded. Load via 🌐 Web Search IV or 🤖 AI in Insights ▸ Buffett.
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
         {/* Not yet scanned state */}
         {!alertLastRun&&!alertLoading&&(
           <div style={{...card,textAlign:"center",padding:"32px 16px"}}>
             <div style={{fontSize:34,marginBottom:8}}>🔍</div>
             <div style={{fontSize:17,fontWeight:700,marginBottom:6}}>No scan run yet</div>
             <div style={{fontSize:14,color:C.muted,marginBottom:16}}>
-              Tap "Scan Now" to check your {holdings.length} holdings for insider buying,
-              upcoming earnings, analyst rating shifts, dividend changes, and 52-week lows.
+              Tap "Scan Now" to check your {holdings.length} holdings for insider activity,
+              short squeeze risk, and unusual volume across all markets.
             </div>
             <div style={{fontSize:13,color:C.muted}}>
               ⏱ Scan takes ~30-60s for {holdings.length} stocks
@@ -6040,10 +6100,10 @@ function App(){
               ↻ Scanning {holdings.filter(h=>h.mkt==="US").length} US stocks via Finnhub...
             </div>
             <div style={{fontSize:13,color:C.muted,marginBottom:4}}>
-              Checking insider filings · earnings calendar · analyst ratings
+              Checking insider filings · short interest · volume anomalies
             </div>
             <div style={{fontSize:13,color:C.muted}}>
-              Plus dividend changes & 52-week lows across all markets via Yahoo Finance
+              Also checking {holdings.filter(h=>h.mkt!=="US").length} non-US stocks via Yahoo Finance
             </div>
           </div>
         )}
@@ -6054,8 +6114,8 @@ function App(){
             <div style={{fontSize:30,marginBottom:6}}>✅</div>
             <div style={{fontSize:16,fontWeight:700,color:C.green,marginBottom:4}}>All Clear</div>
             <div style={{fontSize:14,color:C.muted}}>
-              No insider buying, upcoming earnings, rating shifts, dividend changes, or
-              52-week lows flagged in your portfolio at this time.
+              No unusual insider activity, short squeeze risk, or volume spikes detected
+              in your portfolio at this time.
             </div>
           </div>
         )}
@@ -6117,51 +6177,33 @@ function App(){
                       {a.value>0&&<span style={{marginLeft:8,color:C.gold,fontWeight:700}}>~${fmt(a.value,0)} total</span>}
                     </div>
                   )}
-                  {a.type==="EARNINGS_SOON"&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
+                  {a.type==="SHORT_SQUEEZE"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:4}}>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Days Until</div>
-                        <div style={{fontSize:15,fontWeight:800,color:C.accent}}>{a.daysUntil}d</div>
+                        <div style={{fontSize:12,color:C.muted}}>Short Float</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.red}}>{fmt(a.shortPct,1)}%</div>
                       </div>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Est EPS</div>
-                        <div style={{fontSize:15,fontWeight:800}}>{a.epsEst!=null?`$${fmt(a.epsEst,2)}`:"\u2014"}</div>
-                      </div>
-                    </div>
-                  )}
-                  {(a.type==="RATING_DOWN"||a.type==="RATING_UP")&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
-                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Buy-side %</div>
-                        <div style={{fontSize:15,fontWeight:800,color:a.type==="RATING_UP"?C.green:C.red}}>{a.buyPctPrev}% → {a.buyPctNow}%</div>
+                        <div style={{fontSize:12,color:C.muted}}>Days to Cover</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.gold}}>{fmt(a.shortRatio,1)}</div>
                       </div>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Consensus Score</div>
-                        <div style={{fontSize:15,fontWeight:800}}>{fmt(a.scorePrev,2)} → {fmt(a.scoreNow,2)}</div>
+                        <div style={{fontSize:12,color:C.muted}}>Off 52w Low</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.green}}>+{fmt(a.pctFrom52wLow,0)}%</div>
                       </div>
                     </div>
                   )}
-                  {(a.type==="DIV_CUT"||a.type==="DIV_RAISE")&&(
+                  {a.type==="VOLUME_SPIKE"&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Payout (YoY)</div>
-                        <div style={{fontSize:15,fontWeight:800}}>{fmt(a.divOld,4)} → {fmt(a.divNew,4)}</div>
+                        <div style={{fontSize:12,color:C.muted}}>Volume Multiple</div>
+                        <div style={{fontSize:15,fontWeight:800,color:C.accent}}>{fmt(a.volMultiple,1)}×</div>
                       </div>
                       <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Change</div>
-                        <div style={{fontSize:15,fontWeight:800,color:a.type==="DIV_RAISE"?C.green:C.red}}>{a.pctChg>=0?"+":""}{fmt(a.pctChg,1)}%</div>
-                      </div>
-                    </div>
-                  )}
-                  {a.type==="NEAR_52W_LOW"&&(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:4}}>
-                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Above 52w Low</div>
-                        <div style={{fontSize:15,fontWeight:800,color:C.gold}}>+{fmt(a.pctAboveLow,1)}%</div>
-                      </div>
-                      <div style={{background:C.surface,borderRadius:5,padding:"4px 8px",textAlign:"center"}}>
-                        <div style={{fontSize:12,color:C.muted}}>Moat</div>
-                        <div style={{fontSize:15,fontWeight:800}}>{a.moat||"\u2014"}</div>
+                        <div style={{fontSize:12,color:C.muted}}>Price Move</div>
+                        <div style={{fontSize:15,fontWeight:800,color:a.chg1d>=0?C.green:C.red}}>
+                          {a.chg1d>=0?"+":""}{fmt(a.chg1d,1)}%
+                        </div>
                       </div>
                     </div>
                   )}
@@ -6730,40 +6772,9 @@ function App(){
       }
     }
 
-    // v57: Cash Quality — FCF yield, ROIC proxy, EV/FCF (US holdings only, session-only).
-    // Mirrors fetchInsiderTrades: lazy-load, guarded, never persisted to DB.
-    // Sourced from edge fn action "fetch_fcf" (Finnhub stock/metric — no new secret/key).
-    async function fetchFcfData(ticker,mkt){
-      if(!ticker||mkt!=="US") return;
-      if(fcfData[ticker]&&!fcfData[ticker].error&&!fcfData[ticker].loading) return;
-      setFcfData(prev=>({...prev,[ticker]:{loading:true}}));
-      try{
-        const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({action:"fetch_fcf",ticker,mkt}),
-        });
-        const d=await res.json();
-        setFcfData(prev=>({...prev,[ticker]:{
-          loading:false,
-          available:d.available||false,
-          fcfYield:d.fcfYield??null,
-          roic:d.roic??null,
-          evToFcf:d.evToFcf??null,
-          fcfAbsM:d.fcfAbsM??null,
-          capexCagr5Y:d.capexCagr5Y??null,
-          error:d.error||null,
-        }}));
-      }catch(e){
-        setFcfData(prev=>({...prev,[ticker]:{loading:false,available:false,error:e.message}}));
-      }
-    }
-
     // useEffect invalid in render functions — call fetchInsiderTrades directly.
     // Guard: only fetch if not already loading/loaded for this ticker.
     if(h?.ticker && !insiderData[h.ticker]) fetchInsiderTrades(h.ticker);
-    // v57: lazy-load FCF/ROIC for US holdings only (guarded inside fetchFcfData too)
-    if(h?.ticker && h?.mkt==="US" && !fcfData[h.ticker]) fetchFcfData(h.ticker,h.mkt);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
@@ -6967,6 +6978,26 @@ function App(){
               </div>
             )}
             <div style={{height:4,borderRadius:2,background:C.border}}><div style={{width:`${Math.min(w*3,100)}%`,height:"100%",borderRadius:2,background:C.accent}}/></div>
+            {(()=>{ // ── Dividends RECEIVED for this holding (actual, net per statements). v2026:06:12-14:30 ──
+              const divs=trades.filter(t=>t.ticker===h.ticker&&t.type==="DIV");
+              if(!divs.length)return null;
+              const totRecv=divs.reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0);
+              const cutoff=new Date(); cutoff.setFullYear(cutoff.getFullYear()-1);
+              const cutISO=cutoff.toISOString().slice(0,10);
+              const ttm=divs.filter(t=>(t.date||"")>=cutISO).reduce((s,t)=>s+ccyToSGD(t.profit||0,t.ccy||t.mkt),0);
+              const yoc=h.avgCost>0&&h.shares>0?ttm/toSGDlive(h.avgCost*h.shares,h.mkt)*100:null;
+              return(
+                <div style={{background:C.surface,borderRadius:7,padding:"7px 10px",marginTop:8}}>
+                  <div style={{fontSize:13,color:C.gold,fontWeight:700,marginBottom:4}}>DIVIDENDS RECEIVED (actual, net)</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:14}}>
+                    <div><div style={{fontSize:12,color:C.muted}}>Total received</div><div style={{fontWeight:700,color:C.gold}}>{fmtS(totRecv)}</div></div>
+                    <div><div style={{fontSize:12,color:C.muted}}>Last 12 mo</div><div style={{fontWeight:700}}>{fmtS(ttm)}</div></div>
+                    <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.muted}}>YoC (TTM)</div><div style={{fontWeight:700,color:C.accent}}>{yoc==null?"—":fmt(yoc,2)+"%"}</div></div>
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:4}}>{divs.length} payments since {divs.map(t=>t.date).sort()[0]} · net of WHT · SGD at current FX</div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Buffett score */}
@@ -7377,59 +7408,6 @@ function App(){
             );
           })()}
 
-          {/* v57: Cash Quality — FCF Yield · ROIC · EV/FCF (US holdings only) */}
-          {h.mkt==="US"&&(()=>{
-            const fc=fcfData[h.ticker];
-            if(!fc) return null;
-            if(fc.loading) return(
-              <div style={{...card,background:C.green+"0A",border:`1px solid ${C.green}30`}}>
-                <div style={{fontSize:14,color:C.green,textAlign:"center",padding:"10px 0"}}>↻ Loading cash-quality metrics…</div>
-              </div>
-            );
-            if(!fc.available) return(
-              <div style={{...card,background:C.surface,border:`1px solid ${C.border}`}}>
-                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}><span style={{fontSize:16}}>💵</span><div style={cardT}>Cash Quality — FCF &amp; ROIC</div></div>
-                <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"6px 0"}}>Not available for {h.ticker}{fc.error?(" — "+fc.error):""}</div>
-              </div>
-            );
-            const fcfY=fc.fcfYield, roic=fc.roic, evf=fc.evToFcf, absM=fc.fcfAbsM;
-            const yCol=fcfY==null?C.muted:fcfY>=5?C.green:fcfY>=2?C.gold:C.red;
-            const rCol=roic==null?C.muted:roic>=15?C.green:roic>=8?C.gold:C.red;
-            const eCol=evf==null?C.muted:evf<=20?C.green:evf<=35?C.gold:C.red;
-            const absSGD=absM!=null?toSGDlive(absM*1e6,h.mkt):null; // absM is USD millions → SGD
-            return(
-              <div style={{...card,background:C.green+"08",border:`1px solid ${C.green}30`}}>
-                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:16}}>💵</span><div style={cardT}>Cash Quality — FCF &amp; ROIC</div></div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
-                  <div style={{background:C.surface,borderRadius:8,padding:"9px 10px"}}>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:2}}>FCF Yield</div>
-                    <div style={{fontSize:18,fontWeight:800,color:yCol}}>{fcfY!=null?fmt(fcfY,2)+"%":"—"}</div>
-                    <div style={{fontSize:11,color:C.muted}}>FCF ÷ price</div>
-                  </div>
-                  <div style={{background:C.surface,borderRadius:8,padding:"9px 10px"}}>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:2}}>ROIC <span style={{fontSize:10,opacity:0.7}}>(ROI,TTM)</span></div>
-                    <div style={{fontSize:18,fontWeight:800,color:rCol}}>{roic!=null?fmt(roic,1)+"%":"—"}</div>
-                    <div style={{fontSize:11,color:C.muted}}>return on capital</div>
-                  </div>
-                  <div style={{background:C.surface,borderRadius:8,padding:"9px 10px"}}>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:2}}>EV / FCF</div>
-                    <div style={{fontSize:18,fontWeight:800,color:eCol}}>{evf!=null?fmt(evf,1)+"×":"—"}</div>
-                    <div style={{fontSize:11,color:C.muted}}>lower = cheaper</div>
-                  </div>
-                </div>
-                {absSGD!=null&&(
-                  <div style={{fontSize:13,color:C.muted}}>Approx. annual free cash flow: <b style={{color:C.green}}>{fmtS(absSGD)}</b> <span style={{opacity:0.7}}>(~US${fmt(absM,0)}M)</span></div>
-                )}
-                {fc.capexCagr5Y!=null&&(
-                  <div style={{fontSize:13,color:C.muted,marginTop:3}}>5-yr capex CAGR: <b style={{color:C.text}}>{fmt(fc.capexCagr5Y,1)}%</b></div>
-                )}
-                <div style={{fontSize:11,color:C.muted,marginTop:8,paddingTop:6,borderTop:`1px solid ${C.border}`,lineHeight:1.5}}>
-                  Source: Finnhub TTM ratios. FCF Yield = 100 ÷ price-to-FCF. ROIC shown is Finnhub&apos;s ROI (TTM) used as a proxy — not textbook NOPAT÷invested-capital. EV/FCF = current enterprise value ÷ TTM FCF. Absolute FCF is approximate (market cap ÷ P/FCF). US holdings only.
-                </div>
-              </div>
-            );
-          })()}
-
           <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}30`}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:18}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
             {(()=>{
@@ -7656,6 +7634,7 @@ function App(){
     {id:"portfolio",icon:"📊",label:"Portfolio"},
     {id:"insights", icon:"💡",label:"Insights"},
     {id:"dividends",icon:"💵",label:"Div"},
+    {id:"project",  icon:"🎯",label:"Project"},
     {id:"indices",  icon:"🌍",label:"Markets"},
     {id:"trades",   icon:"💱",label:"Trades"},
     {id:"alerts",   icon:"🔔",label:"Alerts"},
@@ -7686,7 +7665,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:18-16:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-14:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
@@ -7774,6 +7753,7 @@ function App(){
         {!sel&&tab==="portfolio"&&<ErrBoundary>{renderPortfolioView()}</ErrBoundary>}
         {!sel&&tab==="insights" &&<ErrBoundary>{renderInsightsView()}</ErrBoundary>}
         {!sel&&tab==="dividends"&&<ErrBoundary>{renderDividendView()}</ErrBoundary>}
+        {!sel&&tab==="project"  &&<ErrBoundary>{renderProjectView()}</ErrBoundary>}
         {!sel&&tab==="indices"  &&<ErrBoundary>{renderIndexView()}</ErrBoundary>}
         {!sel&&tab==="trades"   &&<ErrBoundary>{renderTradesView()}</ErrBoundary>}
         {!sel&&tab==="alerts"   &&<ErrBoundary><AlertsView/></ErrBoundary>}
