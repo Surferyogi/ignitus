@@ -287,6 +287,8 @@
             heldSince: r.held_since || null, isEtf: r.is_etf || false,
             intrinsicMethod: r.intrinsic_method || null,
             intrinsicUpdatedAt: r.intrinsic_updated_at || null,
+            gearingPct: (r.gearing_pct===null||r.gearing_pct===undefined)?null:Number(r.gearing_pct),
+            gearingAsof: r.gearing_asof || null,
           }));
           const t = (trades || []).map(r => ({
             id: r.id, ticker: r.ticker, type: r.type, date: r.date,
