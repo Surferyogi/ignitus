@@ -4195,6 +4195,8 @@ function App(){
     const mktsInDiv=mkts.filter(m=>divTrades.some(t=>t.mkt===m));
     const mScope=divMkt==="ALL"?divTrades:divTrades.filter(t=>t.mkt===divMkt);
     const tickers=[...new Set(mScope.map(t=>t.ticker))].sort();
+    const isHeld=tk=>{const hh=holdings.find(h=>h.ticker===tk);return hh&&Number(hh.shares)>0;};
+    const exitedCount=tickers.filter(tk=>!isHeld(tk)).length;
     const nameOf=tk=>holdings.find(h=>h.ticker===tk)?.name||tickerNames[tk]||"";
     const selT=divSearch&&tickers.includes(divSearch)?divSearch:"";
     const ft=selT?mScope.filter(t=>t.ticker===selT):mScope;
@@ -4241,6 +4243,7 @@ function App(){
         {perMkt.length>0&&(
           <div style={card}>
             <div style={cardT}>By Market (forward, SGD)</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Projected forward income from stocks you <b>currently hold</b>. Excludes sold positions.</div>
             {perMkt.map(x=>(
               <div key={x.mk} style={{marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:2}}>
@@ -4256,6 +4259,7 @@ function App(){
         {top.length>0&&(
           <div style={card}>
             <div style={cardT}>Top Payers (forward SGD income)</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Ranked by projected forward income — <b>current holdings only</b>.</div>
             {top.map(({h,inc,net})=>(
               <div key={h.ticker} style={{marginBottom:7,cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
                 <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:2}}>
@@ -4270,14 +4274,15 @@ function App(){
 
         <div style={card}>
           <div style={cardT}>Dividend Income by Year (actual received)</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Actual cash received, <b>all-time</b> — includes stocks since sold (marked &quot;exited&quot;). This is why the list here is broader than the forward sections above, which show only current holdings.</div>
           <div style={{display:"flex",gap:5,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
             {["ALL",...mktsInDiv].map(mk=>(
               <button key={mk} style={{...pill(divMkt===mk),whiteSpace:"nowrap",flexShrink:0}} onClick={()=>{setDivMkt(mk);setDivSearch("");}}>{mk==="CN"?"HK":mk}</button>
             ))}
           </div>
           <select value={selT} onChange={e=>setDivSearch(e.target.value)} style={selStyle}>
-            <option value="">All {divMkt==="ALL"?"":(divMkt==="CN"?"HK":divMkt)+" "}stocks ({tickers.length} dividend payers)</option>
-            {tickers.map(tk=><option key={tk} value={tk}>{tk}{nameOf(tk)?" — "+nameOf(tk):""}</option>)}
+            <option value="">All {divMkt==="ALL"?"":(divMkt==="CN"?"HK":divMkt)+" "}stocks ({tickers.length} all-time payers{exitedCount>0?", "+exitedCount+" exited":""})</option>
+            {tickers.map(tk=><option key={tk} value={tk}>{tk}{nameOf(tk)?" — "+nameOf(tk):""}{isHeld(tk)?"":" (exited)"}</option>)}
           </select>
           {selT&&<div style={{fontSize:14,color:C.mutedLight,fontWeight:700,marginBottom:8}}>{selT}<span style={{color:C.muted,fontWeight:500}}> — {nameOf(selT)||"name not available"}{selH&&Number(selH.shares)>0?"":" · position exited"}</span></div>}
           {!yrRows.length&&<div style={{color:C.muted,fontSize:14}}>No dividend records for this selection.</div>}
@@ -7699,7 +7704,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:12-16:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:19-15:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
