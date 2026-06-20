@@ -6658,6 +6658,14 @@ function App(){
       EU: {net:[0,0,0,16702,0,13908],cum:[0,0,0,16702,16702,30610],div:[0,0,0,0,219,0]},
       JP: {net:[0,0,0,20008,6845,476],cum:[0,0,0,20008,26852,27328],div:[0,0,0,0,443,126]},
     };
+    const RET_BY_MKT={
+      ALL:[6.7,-29.3,30.5,27.9,31.0,-0.5],
+      US:[15.9,-33.7,45.2,29.6,31.7,null],
+      SG:[18.8,-3.3,5.2,19.2,38.2,null],
+      HK:[-40.9,-26.2,-18.6,33.3,47.8,null],
+      EU:[null,null,null,-0.5,23.5,null],
+      JP:[null,null,null,3.4,12.3,null],
+    };
     const PM_MKTS=["ALL","US","SG","HK","EU","JP"];
     const [pmMkt,setPmMkt]=useState("ALL");
     const pm=PM[pmMkt];
@@ -6698,17 +6706,36 @@ function App(){
         <div style={card}>
           <div style={cardT}>Annual Returns — Historical Snapshot</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.5}}>
-            Computed 21-Jun-2026 · equity basis, total return (price + dividends) · year-end values from DBS Dec statements · period-accurate FX. Fixed snapshot — does not auto-update.
+            Computed 21-Jun-2026 · equity basis, total return (price + dividends) · Modified Dietz · per-market year-end values reconstructed from audited holdings × year-end closing prices (split-adjusted, Yahoo), reconciled to DBS Dec statements within ±1.5% · period-accurate FX. Fixed snapshot — does not auto-update.
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
             <div style={sbox(C.accent)}><div style={{fontSize:13,color:C.muted}}>Time-Weighted (TWR)</div><div style={{fontSize:18,fontWeight:800,color:C.accent}}>+10.7%<span style={{fontSize:12,color:C.muted}}>/yr</span></div><div style={{fontSize:12,color:C.muted}}>Strategy performance · +65% cumulative (Feb-21→Dec-25)</div></div>
             <div style={sbox(C.gold)}><div style={{fontSize:13,color:C.muted}}>Money-Weighted (XIRR)</div><div style={{fontSize:18,fontWeight:800,color:C.gold}}>+12.4%<span style={{fontSize:12,color:C.muted}}>/yr</span></div><div style={{fontSize:12,color:C.muted}}>Actual $ experience since inception</div></div>
           </div>
-          {[["2021*",6.7],["2022",-29.3],["2023",30.5],["2024",27.9],["2025",31.0],["2026†",-0.5]].map(([yr,r])=>{
-            const pos=r>=0,w=Math.min(100,Math.abs(r)/35*100);
+          <div style={{fontSize:13,fontWeight:700,color:C.text,margin:"4px 0 8px"}}>Annual return by market <span style={{color:C.muted,fontWeight:600}}>· TWR &amp; XIRR above are portfolio-wide (lifetime)</span></div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+            {PM_MKTS.map(m=>{
+              const on=pmMkt===m;
+              return(
+                <button key={"arb"+m} onClick={()=>setPmMkt(m)} style={{padding:"6px 13px",borderRadius:10,cursor:"pointer",fontSize:13,fontWeight:700,background:on?C.accent:C.surface,color:on?"#000":C.muted,border:`1px solid ${on?C.accent:C.border}`}}>
+                  {m==="ALL"?"ALL":m}
+                </button>
+              );
+            })}
+          </div>
+          {(RET_BY_MKT[pmMkt]||RET_BY_MKT.ALL).map((r,i)=>{
+            const lbl=yrLbl[i];
+            if(r==null) return(
+              <div key={"arr"+i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                <div style={{width:46,fontSize:14,fontWeight:700,color:C.text}}>{lbl}</div>
+                <div style={{flex:1,height:14,background:C.border,borderRadius:7,opacity:0.35}}/>
+                <div style={{width:64,textAlign:"right",fontSize:13,fontWeight:700,color:C.muted}}>—</div>
+              </div>
+            );
+            const pos=r>=0,w=Math.min(100,Math.abs(r)/50*100);
             return(
-              <div key={yr} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
-                <div style={{width:46,fontSize:14,fontWeight:700,color:C.text}}>{yr}</div>
+              <div key={"arr"+i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                <div style={{width:46,fontSize:14,fontWeight:700,color:C.text}}>{lbl}</div>
                 <div style={{flex:1,height:14,background:C.border,borderRadius:7,overflow:"hidden"}}>
                   <div style={{height:"100%",width:`${w}%`,background:pos?C.green:C.red,borderRadius:7}}/>
                 </div>
@@ -6717,7 +6744,7 @@ function App(){
             );
           })}
           <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.5}}>
-            * 2021 is the establishment year (built from ~zero via the Jan transfer-in); † 2026 covers 4 months only — neither is a clean full-year figure, so compare 2022–2025 for like-with-like. Source: DBS Dec year-end statements (equity market value, both portfolios) + stmt_transactions/trades flows; FX = Yahoo monthly, period-matched. This is a fixed snapshot and differs from the live XIRR above, which uses current FX.
+            * 2021 = establishment year (built from ~zero via the Jan transfer-in); † 2026 = 4 months only. Per-market returns cover full years 2021–2025; per-market 2026 (YTD) is omitted as too flow-sensitive to state reliably. EU &amp; JP began mid-2024, so their 2024 is a partial stub. Per-market figures are value-weighted and aggregate to roughly the ALL (portfolio) figure. Method: audited holdings × year-end closing prices (split-adjusted, Yahoo) → per-market year-end value (reconciled to DBS Dec statements within ±1.5%), reconciled flows/dividends, Modified Dietz. ALL row = portfolio Modified Dietz (monthly). Fixed snapshot; differs from the live XIRR above (current FX).
           </div>
         </div>
         <div style={card}>
@@ -7824,7 +7851,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-16:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-18:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
