@@ -6647,6 +6647,26 @@ function App(){
   }
 
   function SummaryView(){
+    // ── Per-market capital snapshot (computed 21-Jun-2026; flows/divs reconciled to audited records; period-accurate FX) ──
+    // Returns stay portfolio-level (see Annual Returns card); per-market market values aren't reliably sourceable.
+    const PM_YEARS=["2021","2022","2023","2024","2025","2026"];
+    const PM={
+      ALL:{net:[965865,425464,108687,63931,146998,-54578],cum:[965865,1391329,1500016,1563947,1710946,1656368],div:[4640,17671,27839,27907,30997,13940],mv:[1019320,1066637,1488958,1949351,2692842,2611946]},
+      US: {net:[808242,159556,76649,31110,138873,-87151],cum:[808242,967799,1044448,1075558,1214432,1127281],div:[4019,7620,7970,8937,9036,3717]},
+      SG: {net:[2805,257334,32038,-3889,-1793,18189],cum:[2805,260138,292176,288287,286494,304683],div:[51,9153,19058,17960,20115,9812]},
+      HK: {net:[154818,8574,0,0,3073,0],cum:[154818,163392,163392,163392,166466,166466],div:[570,898,811,1010,1184,285]},
+      EU: {net:[0,0,0,16702,0,13908],cum:[0,0,0,16702,16702,30610],div:[0,0,0,0,219,0]},
+      JP: {net:[0,0,0,20008,6845,476],cum:[0,0,0,20008,26852,27328],div:[0,0,0,0,443,126]},
+    };
+    const PM_MKTS=["ALL","US","SG","HK","EU","JP"];
+    const [pmMkt,setPmMkt]=useState("ALL");
+    const pm=PM[pmMkt];
+    const fmtK=v=>(v<0?"-":"")+"S$"+(Math.abs(v)>=1e6?(Math.abs(v)/1e6).toFixed(2)+"M":(Math.abs(v)/1e3).toFixed(0)+"k");
+    const yrLbl=PM_YEARS.map((y,i)=>i===0?y+"*":i===PM_YEARS.length-1?y+"\u2020":y);
+    // chart-scale maxima
+    const netMax=Math.max(1,...PM_MKTS.flatMap(m=>PM[m].net.map(Math.abs)));
+    const cumMax=Math.max(1,...PM_MKTS.flatMap(m=>PM[m].cum),...PM.ALL.mv);
+    const divMax=Math.max(1,...PM_MKTS.flatMap(m=>PM[m].div));
     return(
       <>
         {/* Export button */}
@@ -6698,6 +6718,81 @@ function App(){
           })}
           <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.5}}>
             * 2021 is the establishment year (built from ~zero via the Jan transfer-in); † 2026 covers 4 months only — neither is a clean full-year figure, so compare 2022–2025 for like-with-like. Source: DBS Dec year-end statements (equity market value, both portfolios) + stmt_transactions/trades flows; FX = Yahoo monthly, period-matched. This is a fixed snapshot and differs from the live XIRR above, which uses current FX.
+          </div>
+        </div>
+        <div style={card}>
+          <div style={cardT}>Capital by Market — Historical Snapshot</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+            Computed 21-Jun-2026 · flows &amp; dividends reconciled to audited records · period-accurate FX · market = listing exchange (USD/EUR-listed SG REITs stay in SG). Fixed snapshot.
+          </div>
+          {/* market selector */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+            {PM_MKTS.map(m=>{
+              const on=pmMkt===m;
+              return(
+                <button key={m} onClick={()=>setPmMkt(m)} style={{padding:"6px 13px",borderRadius:10,cursor:"pointer",fontSize:13,fontWeight:700,background:on?C.accent:C.surface,color:on?"#000":C.muted,border:`1px solid ${on?C.accent:C.border}`}}>
+                  {m==="ALL"?"ALL":m}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Annual net capital flow */}
+          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:8}}>Annual net capital flow <span style={{color:C.muted,fontWeight:600}}>· buys + transfers − sells</span></div>
+          {pm.net.map((v,i)=>{
+            const pos=v>=0,w=Math.min(100,Math.abs(v)/netMax*100);
+            return(
+              <div key={"n"+i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <div style={{width:46,fontSize:13,fontWeight:700,color:C.text}}>{yrLbl[i]}</div>
+                <div style={{flex:1,height:13,background:C.border,borderRadius:7,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${w}%`,background:pos?C.green:C.red,borderRadius:7}}/>
+                </div>
+                <div style={{width:74,textAlign:"right",fontSize:13,fontWeight:800,color:pos?C.green:C.red}}>{pos?"+":"−"}{fmtK(Math.abs(v)).replace("S$","S$")}</div>
+              </div>
+            );
+          })}
+
+          {/* Cumulative capital deployed (+ MV overlay for ALL) */}
+          <div style={{fontSize:13,fontWeight:700,color:C.text,margin:"16px 0 8px"}}>Cumulative capital deployed{pmMkt==="ALL"?<span style={{color:C.muted,fontWeight:600}}> · vs portfolio market value</span>:<span style={{color:C.muted,fontWeight:600}}> · {pmMkt}</span>}</div>
+          {pm.cum.map((v,i)=>{
+            const w=Math.min(100,v/cumMax*100);
+            const mvv=pmMkt==="ALL"?PM.ALL.mv[i]:null;
+            const mvw=mvv!=null?Math.min(100,mvv/cumMax*100):0;
+            return(
+              <div key={"c"+i} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
+                  <span style={{color:C.text,fontWeight:700}}>{PM_YEARS[i]}</span>
+                  <span style={{color:C.gold,fontWeight:700}}>{fmtK(v)} deployed{mvv!=null?<span style={{color:C.green}}> · {fmtK(mvv)} value</span>:null}</span>
+                </div>
+                {mvv!=null&&(
+                  <div style={{height:9,background:C.border,borderRadius:5,overflow:"hidden",marginBottom:3}}>
+                    <div style={{height:"100%",width:`${mvw}%`,background:C.green,borderRadius:5}}/>
+                  </div>
+                )}
+                <div style={{height:9,background:C.border,borderRadius:5,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${w}%`,background:C.gold,borderRadius:5}}/>
+                </div>
+              </div>
+            );
+          })}
+          {pmMkt!=="ALL"&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>Market-value overlay available at portfolio level (ALL) only.</div>}
+
+          {/* Dividends received */}
+          <div style={{fontSize:13,fontWeight:700,color:C.text,margin:"16px 0 8px"}}>Dividends received <span style={{color:C.muted,fontWeight:600}}>· cash + return-of-capital (SGD)</span></div>
+          {pm.div.map((v,i)=>{
+            const w=Math.min(100,v/divMax*100);
+            return(
+              <div key={"d"+i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <div style={{width:46,fontSize:13,fontWeight:700,color:C.text}}>{PM_YEARS[i]}</div>
+                <div style={{flex:1,height:13,background:C.border,borderRadius:7,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${w}%`,background:C.gold,borderRadius:7}}/>
+                </div>
+                <div style={{width:74,textAlign:"right",fontSize:13,fontWeight:800,color:C.gold}}>{fmtK(v)}</div>
+              </div>
+            );
+          })}
+          <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.5}}>
+            * 2021 inception year; † 2026 is 4 months (Jan–Apr). Per-market figures sum exactly to portfolio totals. Returns are portfolio-level only (see Annual Returns card) — per-market year-end <i>market</i> values aren’t reliably available. Source: stmt_transactions/trades (audited) + DBS Dec statements; FX = Yahoo monthly, period-matched.
           </div>
         </div>
         <div style={card}>
@@ -7729,7 +7824,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-13:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-16:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
