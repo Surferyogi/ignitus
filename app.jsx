@@ -6676,6 +6676,31 @@ function App(){
           </div>
         </div>
         <div style={card}>
+          <div style={cardT}>Annual Returns — Historical Snapshot</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.5}}>
+            Computed 21-Jun-2026 · equity basis, total return (price + dividends) · year-end values from DBS Dec statements · period-accurate FX. Fixed snapshot — does not auto-update.
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            <div style={sbox(C.accent)}><div style={{fontSize:13,color:C.muted}}>Time-Weighted (TWR)</div><div style={{fontSize:18,fontWeight:800,color:C.accent}}>+10.7%<span style={{fontSize:12,color:C.muted}}>/yr</span></div><div style={{fontSize:12,color:C.muted}}>Strategy performance · +65% cumulative (Feb-21→Dec-25)</div></div>
+            <div style={sbox(C.gold)}><div style={{fontSize:13,color:C.muted}}>Money-Weighted (XIRR)</div><div style={{fontSize:18,fontWeight:800,color:C.gold}}>+12.4%<span style={{fontSize:12,color:C.muted}}>/yr</span></div><div style={{fontSize:12,color:C.muted}}>Actual $ experience since inception</div></div>
+          </div>
+          {[["2021*",6.7],["2022",-29.3],["2023",30.5],["2024",27.9],["2025",31.0],["2026†",-0.5]].map(([yr,r])=>{
+            const pos=r>=0,w=Math.min(100,Math.abs(r)/35*100);
+            return(
+              <div key={yr} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                <div style={{width:46,fontSize:14,fontWeight:700,color:C.text}}>{yr}</div>
+                <div style={{flex:1,height:14,background:C.border,borderRadius:7,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${w}%`,background:pos?C.green:C.red,borderRadius:7}}/>
+                </div>
+                <div style={{width:64,textAlign:"right",fontSize:14,fontWeight:800,color:pos?C.green:C.red}}>{pos?"+":""}{r.toFixed(1)}%</div>
+              </div>
+            );
+          })}
+          <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.5}}>
+            * 2021 is the establishment year (built from ~zero via the Jan transfer-in); † 2026 covers 4 months only — neither is a clean full-year figure, so compare 2022–2025 for like-with-like. Source: DBS Dec year-end statements (equity market value, both portfolios) + stmt_transactions/trades flows; FX = Yahoo monthly, period-matched. This is a fixed snapshot and differs from the live XIRR above, which uses current FX.
+          </div>
+        </div>
+        <div style={card}>
           <div style={cardT}>Market Exposure — All Countries</div>
           {[...new Set(holdings.map(h=>h.mkt))].map((mktKey,i)=>{
             const m=MKT[mktKey]||MKT.US;
@@ -7704,7 +7729,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:19-15:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-13:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
