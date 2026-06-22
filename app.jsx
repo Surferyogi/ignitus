@@ -3342,8 +3342,9 @@ function App(){
           })).filter(o=>o.dup.length>0);
           const winners=scope.filter(h=>gp(h)>40&&wt(h)>15).map(h=>({h,g:gp(h),w:wt(h)})).sort((a,b)=>b.w-a.w);
           const stubsAll=scope.filter(h=>gp(h)<-50&&wt(h)<2).map(h=>({h,g:gp(h),w:wt(h),locked:lotInfo(h).locked})).sort((a,b)=>a.g-b.g);
-          const stubs=stubsAll.filter(x=>!x.locked);        // sellable deep-loss stubs
-          const lockedStubs=stubsAll.filter(x=>x.locked);   // locked — below 1 board lot, can't be cut
+          const stubs=stubsAll.filter(x=>!x.locked);        // sellable deep-loss stubs (locked listed separately)
+          // Comprehensive locked list: EVERY scope holding below 1 board lot, regardless of gain/weight.
+          const lockedPos=scope.filter(h=>lotInfo(h).locked).map(h=>({h,g:gp(h),w:wt(h),li:lotInfo(h)})).sort((a,b)=>a.g-b.g);
           // Moat scoring for the ranking.
           const moatScore={"Wide":3,"Narrow":2,"None":1};
           const ranked=scope.map(h=>({h,g:gp(h),ms:moatScore[h.moat]||1,w:wt(h)}))
@@ -3352,7 +3353,7 @@ function App(){
           const adds=ranked.filter(x=>x.ms>=2&&x.g<0).slice(0,5);   // quality below cost
           const cuts=ranked.filter(x=>x.ms===1&&x.g<-30&&!lotInfo(x.h).locked).slice(0,5); // weak + deep loss (locked excluded — can't sell)
           const lbl=mktFilter==="ALL"?"portfolio":(mktFilter==="CN"?"HK":mktFilter)+" sleeve";
-          const nothing=!overlaps.length&&!winners.length&&!stubs.length&&!lockedStubs.length&&!adds.length&&!cuts.length;
+          const nothing=!overlaps.length&&!winners.length&&!stubs.length&&!lockedPos.length&&!adds.length&&!cuts.length;
           if(nothing)return null;
           return(
             <div style={card}>
@@ -3397,19 +3398,16 @@ function App(){
                 </div>
               )}
 
-              {lockedStubs.length>0&&(
+              {lockedPos.length>0&&(
                 <div style={{marginBottom:12}}>
-                  <div style={{fontSize:13,fontWeight:700,color:C.mutedLight,marginBottom:5}}>🔒 Locked stubs (below 1 board lot — can't be sold)</div>
-                  {lockedStubs.map(({h,g,w})=>{
-                    const li=lotInfo(h);
-                    return(
-                      <div key={h.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4,cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
-                        <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{h.ticker}</span><Chip mkt={h.mkt}/><span style={{fontSize:11}}>🔒</span></span>
-                        <span><span style={{color:C.red,fontWeight:700}}>{fmt(g,0)}%</span> · {w.toFixed(1)}% · {h.shares}/{li.lot} lot</span>
-                      </div>
-                    );
-                  })}
-                  <div style={{fontSize:12,color:C.muted}}>Below one HKEX board lot, so these can't be sold on-exchange — they're <b>not</b> cut candidates. They stay until topped up to a full board lot or transferred out.</div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.mutedLight,marginBottom:5}}>🔒 Locked positions (below 1 board lot — can't be sold)</div>
+                  {lockedPos.map(({h,g,w,li})=>(
+                    <div key={h.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4,cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                      <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700}}>{h.ticker}</span><Chip mkt={h.mkt}/><span style={{fontSize:11}}>🔒</span></span>
+                      <span><span style={{color:g>=0?C.green:C.red,fontWeight:700}}>{g>=0?"+":""}{fmt(g,0)}%</span> · {w.toFixed(1)}% · {h.shares}/{li.lot} lot <span style={{color:C.muted}}>(+{li.lot-h.shares} to unlock)</span></span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:12,color:C.muted}}>Each holding is below one board lot, so it can't be sold on-exchange — <b>not</b> a cut candidate. Top up to a full lot to regain the ability to sell, or transfer out.</div>
                 </div>
               )}
 
@@ -7887,7 +7885,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-20:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-21:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
