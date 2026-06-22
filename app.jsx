@@ -75,7 +75,20 @@ const scoreH=h=>{
   const dv=Math.min(10,Math.round(h.divYield*1.5+2));
   return{iv:ivScore,mt,dv,all:Math.round(ivScore*0.4+mt*0.35+dv*0.25)};
 };
+// ── HK board-lot sellability (HKEX trades only in whole board lots) ──────────
+// Lots verified vs DBS (1772=200, 9618=50, 2177=200) + majors at standard lots.
+// HK tickers omitted below hold clean lot-multiples (sellable); add a lot only if a
+// remainder ever appears. Non-HK markets (US=1sh, SGX/JP units) not gated here.
+const HK_LOT={'1772.HK':200,'9618.HK':50,'2177.HK':200,'3690.HK':100,'9988.HK':100,'0700.HK':100,'0388.HK':100,'2318.HK':500,'3988.HK':1000};
+const lotInfo=h=>{
+  const lot=HK_LOT[h&&h.ticker];const sh=Number(h&&h.shares)||0;
+  if(!lot||sh<=0)return{lot:null,fullLots:null,sellable:sh,stranded:0,locked:false,partial:false};
+  const fullLots=Math.floor(sh/lot),sellable=fullLots*lot,stranded=sh-sellable;
+  return{lot,fullLots,sellable,stranded,locked:fullLots===0,partial:fullLots>0&&stranded>0};
+};
 const getRec=h=>{
+  const _li=lotInfo(h);
+  if(_li.locked)return{lbl:"🔒 LOCKED",col:C.mutedLight};
   const iv=h.intrinsic||0;
   if(iv<=0)return{lbl:"—",col:C.muted}; // no IV → neutral dash, never SELL on phantom $0
   const up=((iv-h.price)/h.price)*100;
@@ -120,6 +133,9 @@ const buffettScore=h=>{
     action="CONSIDER SELLING";col=C.red;
     reason=h.moat==="Wide"?"Extreme overvaluation — >50% above intrinsic value":"Overvalued + narrow moat";
   }
+  const _li=lotInfo(h);
+  if(_li.locked)return{score:total,action:"🔒 LOCKED",col:C.mutedLight,reason:"Holding "+h.shares+" sh is below the "+_li.lot+"-share board lot — can't be sold on-exchange. "+(total>=50?"Topping up to "+_li.lot+" (1 lot) would restore the ability to sell.":"Stuck in the portfolio until topped up to 1 lot ("+_li.lot+") or transferred out.")};
+  if(_li.partial)reason+=" · ⚠ "+_li.stranded+"-share odd lot: only "+_li.sellable+" of "+h.shares+" are sellable in whole board lots.";
   return{score:total,action,reason,col};
 };
 
@@ -3499,6 +3515,7 @@ function App(){
                     <span style={{fontWeight:800,fontSize:17}}>{h.ticker}</span>
                     <Chip mkt={h.mkt}/>
                     <Tag col={sCol}>{h.sector}</Tag>
+                    {lotInfo(h).locked&&<span title="Below 1 board lot — can't be sold on-exchange" style={{fontSize:12,fontWeight:800,color:C.mutedLight,background:C.mutedLight+"18",border:`1px solid ${C.mutedLight}40`,borderRadius:4,padding:"0 5px"}}>🔒 LOCKED</span>}
                   </div>
                   <div style={{fontSize:14,color:C.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>{h.name}</div>
                   <div style={{fontSize:14,color:C.mutedLight,marginTop:3}}>
@@ -6935,7 +6952,7 @@ function App(){
         <div style={{display:"flex",alignItems:"center",marginBottom:12,position:"sticky",top:0,background:C.bg,zIndex:10,paddingTop:12,paddingBottom:10,marginLeft:0,marginRight:0,paddingLeft:18,paddingRight:18}}>
           <button onClick={()=>setSel(null)} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.text,fontSize:20,cursor:"pointer",padding:"10px 16px",lineHeight:1,borderRadius:12,fontWeight:700,marginRight:12}}>←</button>
           <div style={{flex:1}}>
-            <div style={{fontWeight:800,fontSize:18,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/></div>
+            <div style={{fontWeight:800,fontSize:18,display:"flex",alignItems:"center",gap:7}}>{h.ticker}<Chip mkt={h.mkt}/>{lotInfo(h).locked&&<span title="Below 1 board lot — can't be sold on-exchange" style={{fontSize:14}}>🔒</span>}</div>
             <div style={{fontSize:13,color:C.muted}}>{h.name}</div>
           </div>
           <div style={{display:"flex",gap:6}}>
@@ -7606,6 +7623,7 @@ function App(){
                 :bs.action==="ADD GRADUALLY"?"a gradual accumulation candidate"
                 :bs.action==="HOLD"?"worth holding at current levels"
                 :bs.action==="WATCH"?"worth monitoring — await a better entry"
+                :bs.action==="🔒 LOCKED"?"locked — below one board lot, so it can't be sold on-exchange"
                 :"under scrutiny — reassess position sizing";
               const divText=h.divYield>0?`pays a ${h.divYield.toFixed(1)}% dividend yield, providing income while you wait`:"pays no dividend, so returns depend entirely on price appreciation";
               const perfText=gainPctAI>=0?`currently up ${fmt(gainPctAI,1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`:`currently down ${fmt(Math.abs(gainPctAI),1)}% from your average cost of ${fmtL(h.avgCost,h.mkt)}`;
@@ -7851,7 +7869,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-18:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-19:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
