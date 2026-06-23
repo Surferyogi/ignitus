@@ -2438,6 +2438,7 @@ function App(){
     GBP:{symbol:"£",  r:fxRates.GBP||1.68},
     AUD:{symbol:"A$", r:fxRates.AUD||0.81},
     CNY:{symbol:"¥",  r:fxRates.CNY||0.175},
+    RMB:{symbol:"¥",  r:fxRates.CNY||0.175},
     TWD:{symbol:"NT$",r:fxRates.TWD||0.039},
   }),[fxRates]);
   const ccySymbol=ccy=>(CCY[ccy]?.symbol||"$");
@@ -2557,6 +2558,41 @@ function App(){
     }
     return ((lo+hi)/2)*100;
   },[trades,totalValSGD,fxRates,refreshKey]);
+  // ── Per-market XIRR (live, SGD) — v2026:06:23. Same engine/method as xirrSGD, bucketed by the
+  // holding's mkt (HK tab → mkt 'CN'); ALL ≡ xirrSGD. Global-inception cutoff excludes pre-log
+  // 2019–20 orphans. Short-history markets (EU/JP) are indicative; null → "n/a".
+  const xirrByMkt=useMemo(()=>{
+    const PM2MKT={ALL:"ALL",US:"US",SG:"SG",HK:"CN",EU:"EU",JP:"JP"};
+    const tiDs=trades.filter(t=>t.type==="TRANSFER_IN").map(t=>Date.parse(t.date)).filter(isFinite);
+    const inception=tiDs.length?Math.min(...tiDs):-Infinity;
+    const mktOf=t=>{const h=holdings.find(hh=>hh.ticker===t.ticker);return h?h.mkt:t.mkt;};
+    const YR=31557600000;
+    const solve=mk=>{
+      const flows=[];
+      trades.forEach(t=>{
+        if(mk!=="ALL"&&mktOf(t)!==mk) return;
+        const d=Date.parse(t.date); if(!isFinite(d)||d<inception) return;
+        const amt=(Number(t.price)||0)*(Number(t.shares)||0);
+        if(t.type==="BUY"||t.type==="TRANSFER_IN") flows.push({d,cf:-ccyToSGD(amt,t.ccy||t.mkt)});
+        else if(t.type==="SELL") flows.push({d,cf:ccyToSGD(amt,t.ccy||t.mkt)});
+        else if(t.type==="DIV"||t.type==="ROC") flows.push({d,cf:ccyToSGD(Number(t.profit)||0,t.ccy||t.mkt)});
+      });
+      const term=mk==="ALL"?totalValSGD:holdings.filter(h=>h.mkt===mk).reduce((s,h)=>s+toSGDlive(h.price*h.shares,h.mkt),0);
+      if(flows.length<2||!(term>0)) return null;
+      flows.push({d:Date.now(),cf:term});
+      flows.sort((a,b)=>a.d-b.d);
+      const t0=flows[0].d;
+      if(!flows.some(f=>f.cf<0)||!flows.some(f=>f.cf>0)) return null;
+      const npv=r=>flows.reduce((s,f)=>s+f.cf/Math.pow(1+r,(f.d-t0)/YR),0);
+      let lo=-0.95,hi=10,fLo=npv(lo),fHi=npv(hi);
+      if(!isFinite(fLo)||!isFinite(fHi)||fLo*fHi>0) return null;
+      for(let i=0;i<200;i++){const mid=(lo+hi)/2,fm=npv(mid);if(!isFinite(fm))return null;if(Math.abs(fm)<1e-7)return mid*100;if(fLo*fm<0){hi=mid;fHi=fm;}else{lo=mid;fLo=fm;}}
+      return ((lo+hi)/2)*100;
+    };
+    const out={};
+    ["ALL","US","SG","HK","EU","JP"].forEach(pm=>{out[pm]=solve(PM2MKT[pm]);});
+    return out;
+  },[trades,holdings,totalValSGD,fxRates,refreshKey]);
   const hdrHoldings=useMemo(()=>{
     const active=holdings.filter(h=>!h.fullySold);
     return mktFilter==="ALL"?active:active.filter(h=>h.mkt===mktFilter);
@@ -6702,6 +6738,15 @@ function App(){
     const PM_MKTS=["ALL","US","SG","HK","EU","JP"];
     const [pmMkt,setPmMkt]=useState("ALL");
     const pm=PM[pmMkt];
+    // Per-market TWR (frozen snapshot) = geometric chain of the audited annual bars 2021–2025,
+    // annualized over the market's span (~4.92y Feb-21→Dec-25; EU/JP entered mid-24). Same method
+    // as the portfolio headline (ALL chain → +65% / +10.7%/yr). 2026 stub excluded via slice(0,5).
+    const TWR_YRS={ALL:4.92,US:4.92,SG:4.92,HK:4.92,EU:1.5,JP:1.5};
+    const twrCum=(RET_BY_MKT[pmMkt]||RET_BY_MKT.ALL).slice(0,5).reduce((c,r)=>r==null?c:c*(1+r/100),1);
+    const twrCumPct=(twrCum-1)*100;
+    const twrAnn=(Math.pow(twrCum,1/(TWR_YRS[pmMkt]||4.92))-1)*100;
+    const twrSpan=(pmMkt==="EU"||pmMkt==="JP")?"mid-24→Dec-25":"Feb-21→Dec-25";
+    const xmk=xirrByMkt[pmMkt]; // live per-market money-weighted return (SGD)
     const fmtK=v=>(v<0?"-":"")+"S$"+(Math.abs(v)>=1e6?(Math.abs(v)/1e6).toFixed(2)+"M":(Math.abs(v)/1e3).toFixed(0)+"k");
     const yrLbl=PM_YEARS.map((y,i)=>i===0?y+"*":i===PM_YEARS.length-1?y+"\u2020":y);
     // chart-scale maxima
@@ -6739,13 +6784,13 @@ function App(){
         <div style={card}>
           <div style={cardT}>Annual Returns — Historical Snapshot</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.5}}>
-            Computed 21-Jun-2026 · equity basis, total return (price + dividends) · Modified Dietz · per-market year-end values reconstructed from audited holdings × year-end closing prices (split-adjusted, Yahoo), reconciled to DBS Dec statements within ±1.5% · period-accurate FX. Fixed snapshot — does not auto-update.
+            Computed 21-Jun-2026 · equity basis, total return (price + dividends) · Modified Dietz · per-market year-end values reconstructed from audited holdings × year-end closing prices (split-adjusted, Yahoo), reconciled to DBS Dec statements within ±1.5% · period-accurate FX. TWR &amp; the annual bars are a fixed snapshot (Feb-21→Dec-25, does not auto-update); the XIRR card is live (money-weighted, current FX).
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-            <div style={sbox(C.accent)}><div style={{fontSize:13,color:C.muted}}>Time-Weighted (TWR)</div><div style={{fontSize:18,fontWeight:800,color:C.accent}}>+10.7%<span style={{fontSize:12,color:C.muted}}>/yr</span></div><div style={{fontSize:12,color:C.muted}}>Strategy performance · +65% cumulative (Feb-21→Dec-25)</div></div>
-            <div style={sbox(C.gold)}><div style={{fontSize:13,color:C.muted}}>Money-Weighted (XIRR)</div><div style={{fontSize:18,fontWeight:800,color:C.gold}}>+12.4%<span style={{fontSize:12,color:C.muted}}>/yr</span></div><div style={{fontSize:12,color:C.muted}}>Actual $ experience since inception</div></div>
+            <div style={sbox(C.accent)}><div style={{fontSize:13,color:C.muted}}>Time-Weighted (TWR){pmMkt!=="ALL"&&<span style={{fontSize:11,color:C.muted}}> · {pmMkt}</span>}</div><div style={{fontSize:18,fontWeight:800,color:twrAnn>=0?C.accent:C.red}}>{fmtPct(twrAnn)}<span style={{fontSize:12,color:C.muted}}>/yr</span></div><div style={{fontSize:12,color:C.muted}}>Chained annual bars · {twrCumPct>=0?"+":""}{twrCumPct.toFixed(0)}% cumulative ({twrSpan})</div></div>
+            <div style={sbox(C.gold)}><div style={{fontSize:13,color:C.muted}}>Money-Weighted (XIRR){pmMkt!=="ALL"&&<span style={{fontSize:11,color:C.muted}}> · {pmMkt}</span>}</div><div style={{fontSize:18,fontWeight:800,color:xmk==null?C.muted:xmk>=0?C.gold:C.red}}>{xmk==null?"n/a":fmtPct(xmk)}{xmk!=null&&<span style={{fontSize:12,color:C.muted}}>/yr</span>}</div><div style={{fontSize:12,color:C.muted}}>{xmk==null?"insufficient flow history":"Actual $ experience · live · SGD · current FX"+((pmMkt==="EU"||pmMkt==="JP")?" · short history":"")}</div></div>
           </div>
-          <div style={{fontSize:13,fontWeight:700,color:C.text,margin:"4px 0 8px"}}>Annual return by market <span style={{color:C.muted,fontWeight:600}}>· TWR &amp; XIRR above are portfolio-wide (lifetime)</span></div>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,margin:"4px 0 8px"}}>Annual return by market <span style={{color:C.muted,fontWeight:600}}>· TWR &amp; XIRR cards above follow this selector</span></div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
             {PM_MKTS.map(m=>{
               const on=pmMkt===m;
@@ -7885,7 +7930,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:23-00:25</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:23-01:42</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
