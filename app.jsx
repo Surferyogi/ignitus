@@ -3287,7 +3287,7 @@ function App(){
             const rich=pe>0?Math.min(pe/25,4):1;
             const score=(gp/100)*rich;
             return {h,gp,pe,rich,score};
-          }).filter(x=>x.gp>50).sort((a,b)=>b.score-a.score).slice(0,10);
+          }).filter(x=>x.gp>50&&!lotInfo(x.h).locked).sort((a,b)=>b.score-a.score).slice(0,10);
           if(!cands.length)return null;
           return(
             <div style={card}>
@@ -3962,13 +3962,13 @@ function App(){
                 const lg=(h.price-h.avgCost)*h.shares;
                 const pos=lg>=0;
                 const eIV2=(valuations[h.ticker]?.valuations?.average)||h.intrinsic||0;
-                const up=eIV2>0?((eIV2-h.price)/h.price)*100:0;
+                const up=eIV2>0?((eIV2-h.price)/h.price)*100:0; const lk=lotInfo(h).locked;
                 return(
-                  <div key={h.ticker} style={{marginBottom:10,paddingBottom:10,borderBottom:i<9?`1px solid ${C.border}`:"none",cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                  <div key={h.ticker} style={{marginBottom:10,paddingBottom:10,borderBottom:i<9?`1px solid ${C.border}`:"none",cursor:"pointer",opacity:lk?0.5:1}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <div style={{fontSize:18,fontWeight:800,color:C.red,width:26,textAlign:"center",flexShrink:0}}>{i+1}</div>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700,fontSize:16}}>{h.ticker}</span><Chip mkt={h.mkt}/></div>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontWeight:700,fontSize:16}}>{h.ticker}</span><Chip mkt={h.mkt}/>{lk&&<span title="Below 1 board lot — can't be sold on-exchange" style={{fontSize:10,fontWeight:800,color:C.mutedLight,background:C.mutedLight+"18",border:`1px solid ${C.mutedLight}40`,borderRadius:4,padding:"0 5px"}}>🔒 LOCKED</span>}</div>
                         <div style={{fontSize:14,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name}</div>
                       </div>
 
@@ -7885,7 +7885,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:21-21:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:23-00:25</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
