@@ -6220,10 +6220,10 @@ function App(){
           return(
             <div style={{...card,border:`1px solid ${C.gold}33`,marginBottom:12}}>
               <div style={{...row,marginBottom:6}}>
-                <div style={{fontSize:14,fontWeight:800,color:C.gold,letterSpacing:"0.06em"}}>\u26a0 PORTFOLIO RED-FLAG REVIEW</div>
+                <div style={{fontSize:14,fontWeight:800,color:C.gold,letterSpacing:"0.06em"}}>⚠ PORTFOLIO RED-FLAG REVIEW</div>
                 <div style={{fontSize:12,color:C.muted}}>{flagged.length} flagged{highN?` \u00b7 ${highN} high`:""}</div>
               </div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:11,lineHeight:1.45}}>Screening from your stored fundamentals \u2014 moat \u00b7 drawdown \u00b7 valuation \u00b7 distress yield \u00b7 concentration. Tap a name for detail. Not advice; does not read earnings/news.</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:11,lineHeight:1.45}}>Screening from your stored fundamentals — moat · drawdown · valuation · distress yield · concentration. Tap a name for detail. Not advice; does not read earnings/news.</div>
               {flagged.map(({h,fls})=>{
                 const ts=flagTopSev(fls);
                 return(
@@ -6232,7 +6232,7 @@ function App(){
                       <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:800,fontSize:14}}>{h.ticker}</span><Chip mkt={h.mkt}/></span>
                       <span style={{fontSize:11,fontWeight:800,color:sc[ts]}}>{tag(ts)}</span>
                     </div>
-                    {fls.map((fl,i)=>(<div key={i} style={{fontSize:12,color:C.muted,lineHeight:1.45}}>\u00b7 {fl.label}</div>))}
+                    {fls.map((fl,i)=>(<div key={i} style={{fontSize:12,color:C.muted,lineHeight:1.45}}>· {fl.label}</div>))}
                   </div>
                 );
               })}
@@ -7127,7 +7127,7 @@ function App(){
             const tag=v=>v==="high"?"\ud83d\udd34 HIGH":v==="medium"?"\ud83d\udfe1 MED":"\ud83d\udd35 LOW";
             return(
               <div style={{background:C.surface,borderRadius:10,padding:"11px 12px",marginBottom:10,border:`1px solid ${C.gold}33`}}>
-                <div style={{fontSize:12,fontWeight:800,color:C.gold,letterSpacing:"0.06em",marginBottom:8}}>\u26a0 RED-FLAG RADAR</div>
+                <div style={{fontSize:12,fontWeight:800,color:C.gold,letterSpacing:"0.06em",marginBottom:8}}>⚠ RED-FLAG RADAR</div>
                 {fls.map((fl,i)=>(
                   <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:5}}>
                     <span style={{color:sc[fl.sev],fontSize:11,fontWeight:800,flexShrink:0,marginTop:1,width:58}}>{tag(fl.sev)}</span>
@@ -8047,7 +8047,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:29-08:46</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:29-08:55</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
