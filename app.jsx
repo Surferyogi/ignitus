@@ -3203,41 +3203,13 @@ function App(){
 
   // Render function (not a component) — avoids React treating it as a new component type on each App render,
   // which would unmount+remount the subtree and destroy any focused input inside.
-  function renderPortfolioView(){
-    const activeM=MKT[mktFilter];
+  // ── De-risk Radar (Risk tab) — relocated risk suite: Concentration · Theme/Factor · Trim · Restructuring. v2026:06:29-05:27 ──
+  function renderRiskView(){
     return(
       <>
-        <div style={{marginBottom:12}}>
-          <div style={cardT}>Select Market</div>
-          <MktSelector mktFilter={mktFilter} setMktFilter={setMktFilter} holdings={holdings}/>
-        </div>
-        <div style={card}>
-          <div style={{...row,marginBottom:10}}>
-            <div style={cardT}>{mktFilter==="ALL"?"All vs S&P 500":`${mktFilter} vs ${activeM?.index}`}</div>
-            <div style={{display:"flex",gap:3}}>
-              {PERIODS.map(p=><button key={p} style={smPill(chartPeriod===p)} onClick={()=>setChartPeriod(p)}>{PLBL[p]}</button>)}
-            </div>
-          </div>
-          <PerfChart mktFilter={mktFilter} period={chartPeriod} holdings={holdings} perfChartData={perfChartData} perfChartLoading={perfChartLoading} fetchPerfChartData={fetchPerfChartData}/>
-
-        </div>
-        <div style={card}>
-          <div style={cardT}>Allocation (SGD)</div>
-          <div style={{display:"flex",gap:12,alignItems:"center"}}>
-            <DonutChart data={groupBy==="sector"?sectorData:countryData}/>
-            <div style={{flex:1}}>
-              <div style={{display:"flex",gap:5,marginBottom:8}}>
-                <button style={pill(groupBy==="sector")} onClick={()=>setGroupBy("sector")}>Sector</button>
-                <button style={pill(groupBy==="country")} onClick={()=>setGroupBy("country")}>Country</button>
-              </div>
-              {(groupBy==="sector"?sectorData:countryData).slice(0,8).map(d=>(
-                <div key={d.label} style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:6,height:6,borderRadius:3,background:d.color}}/><span style={{fontSize:13,color:C.mutedLight}}>{d.label}</span></div>
-                  <span style={{fontSize:13,fontWeight:700}}>{filteredTotalSGD>0?((d.value/filteredTotalSGD)*100).toFixed(1):0}%</span>
-                </div>
-              ))}
-            </div>
-          </div>
+        <div style={{...card,background:C.accent+"0A",border:`1px solid ${C.accentDim}30`,marginBottom:10}}>
+          <div style={cardT}>🛡️ De-risk Radar</div>
+          <div style={{fontSize:12,color:C.muted}}>Concentration, correlated-theme exposure, trim &amp; restructuring signals — consolidated in one place. Theme &amp; Trim show the whole book; Concentration &amp; Restructuring follow the market filter chosen on Portfolio (defaults to ALL).</div>
         </div>
         {(()=>{ // ── Concentration Risk (SGD) — follows market selector: ALL = vs total portfolio; else vs selected market subtotal. v2026:06:11-19:45 ──
           const base=mktFilter==="ALL"?activeHoldings:activeHoldings.filter(h=>h.mkt===mktFilter);
@@ -3458,6 +3430,47 @@ function App(){
             </div>
           );
         })()}
+      </>
+    );
+  }
+
+  function renderPortfolioView(){
+    const activeM=MKT[mktFilter];
+    return(
+      <>
+        <div style={{marginBottom:12}}>
+          <div style={cardT}>Select Market</div>
+          <MktSelector mktFilter={mktFilter} setMktFilter={setMktFilter} holdings={holdings}/>
+        </div>
+        <div style={card}>
+          <div style={{...row,marginBottom:10}}>
+            <div style={cardT}>{mktFilter==="ALL"?"All vs S&P 500":`${mktFilter} vs ${activeM?.index}`}</div>
+            <div style={{display:"flex",gap:3}}>
+              {PERIODS.map(p=><button key={p} style={smPill(chartPeriod===p)} onClick={()=>setChartPeriod(p)}>{PLBL[p]}</button>)}
+            </div>
+          </div>
+          <PerfChart mktFilter={mktFilter} period={chartPeriod} holdings={holdings} perfChartData={perfChartData} perfChartLoading={perfChartLoading} fetchPerfChartData={fetchPerfChartData}/>
+
+        </div>
+        <div style={card}>
+          <div style={cardT}>Allocation (SGD)</div>
+          <div style={{display:"flex",gap:12,alignItems:"center"}}>
+            <DonutChart data={groupBy==="sector"?sectorData:countryData}/>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",gap:5,marginBottom:8}}>
+                <button style={pill(groupBy==="sector")} onClick={()=>setGroupBy("sector")}>Sector</button>
+                <button style={pill(groupBy==="country")} onClick={()=>setGroupBy("country")}>Country</button>
+              </div>
+              {(groupBy==="sector"?sectorData:countryData).slice(0,8).map(d=>(
+                <div key={d.label} style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:6,height:6,borderRadius:3,background:d.color}}/><span style={{fontSize:13,color:C.mutedLight}}>{d.label}</span></div>
+                  <span style={{fontSize:13,fontWeight:700}}>{filteredTotalSGD>0?((d.value/filteredTotalSGD)*100).toFixed(1):0}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        {/* ── Risk suite relocated → renderRiskView() (Risk tab). v2026:06:29-05:27 ── */}
 
         {/* Search input — memoized with stable callbacks so re-renders never cause focus loss */}
         <PortfolioSearchInput
@@ -7897,6 +7910,7 @@ function App(){
 
   const TABS=[
     {id:"portfolio",icon:"📊",label:"Portfolio"},
+    {id:"risk",     icon:"🛡️",label:"Risk"},
     {id:"insights", icon:"💡",label:"Insights"},
     {id:"dividends",icon:"💵",label:"Div"},
     {id:"project",  icon:"🎯",label:"Project"},
@@ -8016,6 +8030,7 @@ function App(){
         {/* This reuses the already-working iOS scroll context instead of fighting fixed overlays */}
         {sel&&<ErrBoundary>{renderHoldingDetail()}</ErrBoundary>}
         {!sel&&tab==="portfolio"&&<ErrBoundary>{renderPortfolioView()}</ErrBoundary>}
+        {!sel&&tab==="risk"     &&<ErrBoundary>{renderRiskView()}</ErrBoundary>}
         {!sel&&tab==="insights" &&<ErrBoundary>{renderInsightsView()}</ErrBoundary>}
         {!sel&&tab==="dividends"&&<ErrBoundary>{renderDividendView()}</ErrBoundary>}
         {!sel&&tab==="project"  &&<ErrBoundary>{renderProjectView()}</ErrBoundary>}
