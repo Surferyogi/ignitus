@@ -1918,6 +1918,7 @@ function App(){
   const [screenAILoad,setScreenAILoad]=useState(false);      // array of alert objects
   const [alertLoading,setAlertLoading]=useState(false);
   const [alertLastRun,setAlertLastRun]=useState(null); // Date of last scan
+  const [alertSubTab,setAlertSubTab]=useState("stocks"); // Alert sub-tab: stocks | senate. v2026:06:29-08:46
 
   const [perfChartData,setPerfChartData]=useState({});
   const [perfChartLoading,setPerfChartLoading]=useState({});
@@ -3198,6 +3199,42 @@ function App(){
   const modal={position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",zIndex:9999};
   const mCard={background:C.card,borderRadius:"20px 20px 0 0",padding:"16px 20px 60px",width:"100%",maxWidth:430,margin:"0 auto",flex:1,minHeight:0,overflowY:"scroll",WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain",boxSizing:"border-box"};
   const sbox=col=>({background:C.surface,borderRadius:10,padding:"10px 12px",border:`1px solid ${col?col+"35":C.border}`});
+  // ── Red-flag radar engine: per-holding screening (moat · drawdown · valuation · distress yield · concentration · ETF overlap).
+  //    Reuses the Risk-tab radar thresholds for consistency. QUANTITATIVE screen only — does NOT read earnings/news, and
+  //    deliberately ignores revenueGrowth (DB values proven unreliable). Surfaced on the stock card + Alerts tab. v2026:06:29-07:53 ──
+  const ETF_OVERLAP_FLAGS={
+    "SOXX":["NVDA","AMD","AMAT","TER","AVGO","KLAC","TSM"],
+    "QQQ":["NVDA","AMD","AAPL","MSFT","GOOGL","META","AMZN","AVGO","PLTR"],
+    "3033.HK":["0700.HK","9988.HK","3690.HK","9618.HK"],
+    "3067.HK":["0700.HK","9988.HK","3690.HK","9618.HK"],
+    "3115.HK":["0700.HK","9988.HK","0388.HK","2318.HK","3988.HK"],
+  };
+  function holdingFlags(h){
+    const out=[];
+    if(!h||!(h.avgCost>0))return out;
+    const gp=((h.price-h.avgCost)/h.avgCost)*100;
+    const pe=Number(h.peRatio)||0, dy=Number(h.divYield)||0, w=wtTotal(h)||0, locked=lotInfo(h).locked;
+    if(gp<=-50)      out.push({sev:"high",  code:"DRAWDOWN",      label:`Down ${fmt(gp,0)}% from cost — deep loss; thesis / value-trap review`});
+    else if(gp<=-30) out.push({sev:"medium",code:"DRAWDOWN",      label:`Down ${fmt(gp,0)}% from cost — review thesis`});
+    if(dy>=15)       out.push({sev:"high",  code:"DISTRESS_YIELD",label:`Yield ${fmt(dy,1)}% — likely distressed / unsustainable payout`});
+    if(pe>=50&&gp>50)out.push({sev:pe>=80?"high":"medium",code:"RICH_WINNER",label:`+${fmt(gp,0)}% on PE ${fmt(pe,0)} — oversized winner on a rich multiple (trim candidate)`});
+    else if(pe>=80)  out.push({sev:"medium",code:"RICH_PE",       label:`PE ${fmt(pe,0)} — stretched multiple`});
+    if((h.moat==="None"||h.moat==="Narrow")&&gp<-30&&!locked)
+                     out.push({sev:"high",  code:"WEAK_MOAT_LOSS",label:`${h.moat} moat + ${fmt(gp,0)}% — weak moat, deep loss (cut candidate)`});
+    if(h.moat==="None"&&!h.isEtf)
+                     out.push({sev:"low",   code:"NO_MOAT",       label:`No economic moat (your rating)`});
+    if(w>15)         out.push({sev:"medium",code:"OVERSIZED",     label:`${fmt(w,1)}% of portfolio — concentration risk`});
+    if(gp<-50&&w<2&&!locked)
+                     out.push({sev:"medium",code:"STUB",          label:`Tiny deep-loss stub (${fmt(w,1)}%) — redeploy candidate`});
+    if(ETF_OVERLAP_FLAGS[h.ticker]){
+      const dup=ETF_OVERLAP_FLAGS[h.ticker].filter(t=>activeHoldings.some(x=>x.ticker===t));
+      if(dup.length) out.push({sev:"low",   code:"ETF_OVERLAP",   label:`Overlaps direct holdings: ${dup.join(", ")}`});
+    }
+    if(locked)       out.push({sev:"low",   code:"LOCKED",        label:`Below 1 board lot — can't sell on-exchange`});
+    return out;
+  }
+  const flagSevRank={high:3,medium:2,low:1};
+  const flagTopSev=fl=>fl.reduce((m,x)=>Math.max(m,flagSevRank[x.sev]||0),0);
   const PERIODS=["30d","6m","1y","5y","all"];
   const PLBL={"30d":"30D","6m":"6M","1y":"1Y","5y":"5Y","all":"All"};
 
@@ -6165,6 +6202,44 @@ function App(){
           )}
         </div>
 
+        {/* ── Portfolio Red-Flag Review — per-holding screening (moat·drawdown·valuation·yield·concentration). v2026:06:29-07:53 ── */}
+        {/* Alert sub-tabs: Stocks Alert / Senate. v2026:06:29-08:46 */}
+        <div style={{display:"flex",gap:6,marginBottom:12}}>
+          {[["stocks","📊 Stocks Alert"],["senate","🏛 Senate"]].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setAlertSubTab(id)} style={{flex:1,padding:"9px 10px",borderRadius:9,fontSize:14,fontWeight:alertSubTab===id?800:600,cursor:"pointer",background:alertSubTab===id?C.green+"18":C.surface,color:alertSubTab===id?C.green:C.muted,border:`1px solid ${alertSubTab===id?C.green+"66":C.border}`}}>{lbl}</button>
+          ))}
+        </div>
+        {alertSubTab==="stocks"&&(<>
+        {(()=>{
+          const flagged=activeHoldings.map(h=>({h,fls:holdingFlags(h)})).filter(x=>x.fls.length>0)
+            .sort((a,b)=>flagTopSev(b.fls)-flagTopSev(a.fls)||b.fls.length-a.fls.length);
+          if(!flagged.length)return null;
+          const highN=flagged.filter(x=>flagTopSev(x.fls)===3).length;
+          const sc={3:C.red,2:C.gold,1:C.accent};
+          const tag=t=>t===3?"\ud83d\udd34 HIGH":t===2?"\ud83d\udfe1 MED":"\ud83d\udd35 LOW";
+          return(
+            <div style={{...card,border:`1px solid ${C.gold}33`,marginBottom:12}}>
+              <div style={{...row,marginBottom:6}}>
+                <div style={{fontSize:14,fontWeight:800,color:C.gold,letterSpacing:"0.06em"}}>\u26a0 PORTFOLIO RED-FLAG REVIEW</div>
+                <div style={{fontSize:12,color:C.muted}}>{flagged.length} flagged{highN?` \u00b7 ${highN} high`:""}</div>
+              </div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:11,lineHeight:1.45}}>Screening from your stored fundamentals \u2014 moat \u00b7 drawdown \u00b7 valuation \u00b7 distress yield \u00b7 concentration. Tap a name for detail. Not advice; does not read earnings/news.</div>
+              {flagged.map(({h,fls})=>{
+                const ts=flagTopSev(fls);
+                return(
+                  <div key={h.ticker} style={{marginBottom:10,cursor:"pointer",paddingBottom:9,borderBottom:`1px solid ${C.border}`}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                      <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:800,fontSize:14}}>{h.ticker}</span><Chip mkt={h.mkt}/></span>
+                      <span style={{fontSize:11,fontWeight:800,color:sc[ts]}}>{tag(ts)}</span>
+                    </div>
+                    {fls.map((fl,i)=>(<div key={i} style={{fontSize:12,color:C.muted,lineHeight:1.45}}>\u00b7 {fl.label}</div>))}
+                  </div>
+                );
+              })}
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>Recomputed live from current holdings each time you open this tab. For the qualitative moat/cash/P&amp;L read from news &amp; filings, run a research review.</div>
+            </div>
+          );
+        })()}
         {/* Not yet scanned state */}
         {!alertLastRun&&!alertLoading&&(
           <div style={{...card,textAlign:"center",padding:"32px 16px"}}>
@@ -6213,7 +6288,7 @@ function App(){
             <div style={{fontSize:14,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>
               {alertData.length} Alert{alertData.length!==1?"s":" "} Detected
             </div>
-            {alertData.map((a,i)=>{
+            {[...alertData].sort((x,y)=>(({high:0,medium:1,low:2})[x.severity]??9)-(({high:0,medium:1,low:2})[y.severity]??9)).map((a,i)=>{
               const sev=SEV_META[a.severity]||SEV_META.low;
               const typ=TYPE_META[a.type]||{icon:"⚡",label:a.type,col:C.accent};
               const h=holdings.find(hh=>hh.ticker===a.ticker);
@@ -6302,6 +6377,9 @@ function App(){
         )}
 
         {/* Senate Signal section — always shown if data exists */}
+        </>)}
+
+        {alertSubTab==="senate"&&(<>
         {hasSenate&&(
           <div style={card}>
             <div style={{...cardT,display:"flex",alignItems:"center",gap:6}}>
@@ -6377,6 +6455,14 @@ function App(){
             })}
           </div>
         )}
+        {!hasSenate&&(
+          <div style={{...card,textAlign:"center",padding:"28px 16px"}}>
+            <div style={{fontSize:30,marginBottom:8}}>🏛</div>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No Senate data yet</div>
+            <div style={{fontSize:14,color:C.muted}}>Tap Scan Now above to pull the latest Congress disclosures.</div>
+          </div>
+        )}
+        </>)}
       </>
     );
   }
@@ -7035,6 +7121,23 @@ function App(){
           </div>
         </div>
         <div style={{padding:"0 18px"}}>
+          {(()=>{
+            const fls=holdingFlags(h); if(!fls.length)return null;
+            const sc={high:C.red,medium:C.gold,low:C.accent};
+            const tag=v=>v==="high"?"\ud83d\udd34 HIGH":v==="medium"?"\ud83d\udfe1 MED":"\ud83d\udd35 LOW";
+            return(
+              <div style={{background:C.surface,borderRadius:10,padding:"11px 12px",marginBottom:10,border:`1px solid ${C.gold}33`}}>
+                <div style={{fontSize:12,fontWeight:800,color:C.gold,letterSpacing:"0.06em",marginBottom:8}}>\u26a0 RED-FLAG RADAR</div>
+                {fls.map((fl,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:5}}>
+                    <span style={{color:sc[fl.sev],fontSize:11,fontWeight:800,flexShrink:0,marginTop:1,width:58}}>{tag(fl.sev)}</span>
+                    <span style={{fontSize:13,color:C.mutedLight,lineHeight:1.4}}>{fl.label}</span>
+                  </div>
+                ))}
+                <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.4}}>Quantitative screen from your stored data — flags candidates for review. Does not read earnings/news; not advice.</div>
+              </div>
+            );
+          })()}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
             <div style={{background:C.surface,borderRadius:9,padding:"10px 10px"}}>
               <div style={{fontSize:13,color:C.muted,marginBottom:2}}>Avg Cost</div>
@@ -7944,7 +8047,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:23-01:42</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:29-08:46</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
