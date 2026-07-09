@@ -2881,7 +2881,16 @@ function App(){
         }
       }
       const hasProfitField=(type==="SELL"||type==="DIV");
-      const newTrade={id:Date.now(),ticker:tU,type,date,price:p,shares:s,mkt,ccy,
+      // ── PROVISIONAL ROW CONVENTION (v2026:07:09-08:45) ──────────────────────
+      // Manually-entered / paste-parsed trades are PROVISIONAL placeholders only.
+      // The DBS statement -> Ignitus_DBS_Extraction_Spec.xlsx workbook is the sole
+      // source of record. Every id >= 7e12 is purged and replaced by the
+      // workbook-derived row during the monthly reconciliation cycle.
+      //   ids  < 6e12  = protected pre-DBS archive (never touched)
+      //   ids >= 6e12  = workbook-derived (permanent record)
+      //   ids >= 7e12  = provisional, app-created (purged monthly)
+      const PROVISIONAL_ID_BASE=7000000000000;
+      const newTrade={id:PROVISIONAL_ID_BASE+Date.now(),ticker:tU,type,date,price:p,shares:s,mkt,ccy,
         profit:hasProfitField?profit:undefined,
         divMode:type==="DIV"?tradeForm.divMode:undefined};
       newTrades=[newTrade,...trades];
@@ -8047,7 +8056,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:06:29-08:55</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:09-08:45</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
