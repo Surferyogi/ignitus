@@ -2796,6 +2796,9 @@ function App(){
   }
   function submitTrade(forceSubmit=false){
     const {ticker,type,date,price,shares,mkt,ccy}=tradeForm;
+    // DIV entry disabled (v2026:07:13-21:20): dividends are statement-derived,
+    // loaded only via the monthly workbook cycle. Form supports BUY/SELL only.
+    if(type==="DIV"){window.alert("Dividend rows are loaded from the monthly DBS workbook only.");return;}
     if(!ticker||!price||!shares||!date)return;
     const p=parseFloat(price),s=parseInt(shares),tU=ticker.toUpperCase().trim();
     if(isNaN(p)||isNaN(s)||s<=0||p<=0)return;
@@ -3113,6 +3116,8 @@ function App(){
   }
 
   function startEditTrade(t){
+    // DIV rows are workbook-only (v2026:07:13-21:20) — no in-app DIV editing.
+    if(t.type==="DIV"){window.alert("Dividend rows are statement-derived and updated only via the monthly workbook reload.");return;}
     // Workbook-truth guard (v2026:07:13-11:00): ids < 7e12 are statement-derived
     // (archive < 6e12, workbook 6e12–7e12). Edits drift from the workbook and are
     // overwritten at the next monthly reload.
@@ -5126,7 +5131,7 @@ function App(){
               <div>
                 <div style={lbl}>Trade Type</div>
                 <div style={{display:"flex",gap:4}}>
-                  {[["BUY",C.green],["SELL",C.red],["DIV",C.gold]].map(([t,col])=>(
+                  {/* DIV entry removed (v2026:07:13-21:20) — dividends load only via monthly workbook */[["BUY",C.green],["SELL",C.red]].map(([t,col])=>(
                     <button key={t} onClick={()=>setTradeForm(f=>({...f,type:t}))} style={{flex:1,padding:"7px",borderRadius:7,border:`1px solid ${tradeForm.type===t?col:C.border}`,background:tradeForm.type===t?col+"22":"transparent",color:tradeForm.type===t?col:C.muted,fontSize:14,fontWeight:700,cursor:"pointer"}}>{t}</button>
                   ))}
                 </div>
@@ -8061,7 +8066,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:13-11:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:13-21:20</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
