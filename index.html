@@ -311,7 +311,7 @@
             id: h.id, ticker: h.ticker, name: h.name, mkt: h.mkt,
             sector: h.sector || '', ms_style: h.msStyle || '',
             shares: h.shares, avg_cost: h.avgCost, price: h.price,
-            intrinsic: h.intrinsic || 0, moat: h.moat || 'None',
+            intrinsic: h.intrinsic ?? null, moat: h.moat || 'None',
             div_yield: h.divYield || 0, pe_ratio: h.peRatio || 0,
             revenue_growth: h.revenueGrowth || 0,
             senate_buys: h.senateBuys || 0, senate_sells: h.senateSells || 0,
