@@ -2389,19 +2389,12 @@ function App(){
     return()=>clearTimeout(timer);
   },[holdings]);
 
-  useEffect(()=>{
-    if(!window.portfolioDB)return;
-    // Save trades to DB whenever they change (debounced 600ms)
-    const timer=setTimeout(async()=>{
-      try{
-        await window.portfolioDB.updateTrades(trades);
-        console.log('[DB] trades saved:',trades.length);
-      }catch(e){
-        console.error('DB save trades failed:',e);
-      }
-    },600);
-    return()=>clearTimeout(timer);
-  },[trades]);
+  // ── Blanket trades autosave REMOVED (v2026:07:13-11:00) ────────────────────
+  // The old useEffect upserted the ENTIRE trades array on every state change.
+  // Risk: a stale browser session open across the monthly workbook rebuild would
+  // re-upsert purged provisional rows (id >= 7e12) and overwrite freshly rebuilt
+  // workbook rows with pre-rebuild values. Each write path now persists only the
+  // specific row it changed (see saveTrade submit, deleteTrade, mkt-fix, backfill).
 
   // Trigger holding-detail fetches when selected stock or period changes
   // (replaces the useEffect that was inside renderHoldingDetail — invalid there)
@@ -2897,12 +2890,17 @@ function App(){
     }
 
     setTrades(newTrades);
+    // ── Explicit single-row DB save (v2026:07:13-11:00) ──
+    // Replaces the removed blanket autosave. Persists ONLY the row created or
+    // edited by this submit — never the full array.
+    const savedRow=editTradeId!=null?newTrades.find(t=>t.id===editTradeId):newTrades[0];
+    if(window.portfolioDB&&savedRow){window.portfolioDB.updateTrades([savedRow]).catch(e=>console.error('DB trade save:',e));}
     // DIV trades do NOT affect share count or avg cost — skip holdings rebuild.
     // BUY: blend new shares incrementally with stored DBS avgCost.
     // SELL: rebuildHoldingsFromTrades handles net share reduction.
     if(type==="DIV"){
-      // Only persist the trades; holdings are unchanged
-      if(window.portfolioDB){window.portfolioDB.updateTrades([newTrades[0]]).catch(e=>console.error('DB DIV save:',e));saveHoldings(rebuiltH,'[trade-buy]');}
+      // Holdings untouched by DIV — no holdings save. (Old code referenced
+      // rebuiltH before its declaration here: TDZ ReferenceError, now fixed.)
       setShowTradeForm(false);
       setDupeWarning(null);
       setTradeForm({ticker:"",type:"BUY",date:new Date().toISOString().slice(0,10),price:"",shares:"",mkt:"US",ccy:"USD",divMode:"gross"});
@@ -3094,6 +3092,9 @@ function App(){
 
   function deleteTrade(id){
     const del=trades.find(t=>t.id===id);
+    // Workbook-truth guard (v2026:07:13-11:00): deleting a statement-derived row
+    // creates drift from the workbook until the next monthly reload.
+    if(del&&del.id<7000000000000&&!window.confirm("Statement-derived row (workbook/archive).\nDeleting it creates drift from the workbook until the next monthly reload.\n\nDelete anyway?"))return;
     const newTrades=trades.filter(t=>t.id!==id);
     setTrades(newTrades);
     const rebuiltH2=rebuildHoldingsFromTrades(newTrades, holdings);
@@ -3112,6 +3113,10 @@ function App(){
   }
 
   function startEditTrade(t){
+    // Workbook-truth guard (v2026:07:13-11:00): ids < 7e12 are statement-derived
+    // (archive < 6e12, workbook 6e12–7e12). Edits drift from the workbook and are
+    // overwritten at the next monthly reload.
+    if(t.id<7000000000000&&!window.confirm("Statement-derived row (workbook/archive).\nEdits will be overwritten at the next monthly workbook reload.\n\nEdit anyway?"))return;
     setTradeForm({ticker:t.ticker,type:t.type,date:t.date,price:String(t.price),shares:String(t.shares),mkt:t.mkt||"US",ccy:t.ccy||"USD"});
     setEditTradeId(t.id);
     setShowTradeForm(true);
@@ -8056,7 +8061,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:09-08:45</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:13-11:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
