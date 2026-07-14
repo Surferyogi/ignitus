@@ -1053,9 +1053,26 @@ function App(){
     setScreenLoading(false);
   }
 
+  async function fetchEarningsResults(){
+    // ── Earnings beat/miss scoreboard (v2026:07:13-23:10) ──
+    // smart-api v59 action earnings_results → Finnhub earnings surprises.
+    // US non-ETF holdings only (provider coverage). Fire-and-forget alongside alerts.
+    const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
+    try{
+      const usT=activeHoldings.filter(h=>h.mkt==='US'&&!h.isEtf).map(h=>h.ticker);
+      if(!usT.length)return;
+      const res=await fetch(EDGE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'earnings_results',tickers:usT})});
+      if(!res.ok){console.warn('[earnings] fetch failed:',res.status);return;}
+      const d=await res.json();
+      setEarnResults(d.results||{});
+      console.log(`[earnings] ${Object.keys(d.results||{}).length} reported quarters loaded`);
+    }catch(e){console.warn('[earnings] error:',e.message);}
+  }
+
   async function fetchAlerts(){
     if(alertLoading) return;
     setAlertLoading(true);
+    fetchEarningsResults(); // parallel, non-blocking — separate Finnhub pacing inside the edge fn
     const EDGE_URL='https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api';
     try{
       const res=await fetch(EDGE_URL,{
@@ -1887,6 +1904,7 @@ function App(){
   }
 
   const [alertData,setAlertData]=useState([]);
+  const [earnResults,setEarnResults]=useState({}); // {TICKER:{period,actual,estimate,surprisePct,status}} — smart-api v59 earnings_results (v2026:07:13-23:10)
 
   const [screenData,setScreenData]=useState({});     // {TICKER: {rsi, mom1m, revenueGrowth, ...}}
   const [screenLoading,setScreenLoading]=useState(false);
@@ -6191,7 +6209,7 @@ function App(){
                 🔔 MARKET INTELLIGENCE
               </div>
               <div style={{fontSize:14,color:C.muted,lineHeight:1.5}}>
-                Insider buys · Short squeeze risk · Volume anomalies · Senate signals
+                Earnings beats/misses · Insider buys · Dividend changes · Senate signals
               </div>
               {alertLastRun&&(
                 <div style={{fontSize:13,color:C.muted,marginTop:4}}>
@@ -6229,6 +6247,46 @@ function App(){
           ))}
         </div>
         {alertSubTab==="stocks"&&(<>
+        {(()=>{ // ── EARNINGS SCOREBOARD (v2026:07:13-23:10) — beat/miss per US holding, smart-api v59 ──
+          const keys=Object.keys(earnResults);
+          if(!keys.length)return null;
+          const cutoff=Date.now()-120*24*3600*1000;
+          const rows=keys.map(t=>({t,...earnResults[t]}))
+            .filter(r=>r.period&&new Date(r.period).getTime()>cutoff&&r.actual!=null&&r.estimate!=null)
+            .sort((a,b)=>(b.period||"").localeCompare(a.period||"")||(a.status==="miss"?-1:b.status==="miss"?1:0));
+          if(!rows.length)return null;
+          const beats=rows.filter(r=>r.status==="beat").length;
+          const misses=rows.filter(r=>r.status==="miss").length;
+          const stCol={beat:C.green,miss:C.red,inline:C.gold};
+          const stLbl={beat:"BEAT",miss:"MISS",inline:"IN-LINE"};
+          return(
+            <div style={{...card,border:`1px solid ${C.accent}33`,marginBottom:12}}>
+              <div style={{...row,marginBottom:6}}>
+                <div style={{fontSize:14,fontWeight:800,color:C.accent,letterSpacing:"0.06em"}}>📊 EARNINGS SCOREBOARD</div>
+                <div style={{fontSize:12,color:C.muted}}>{beats} beat{misses?` · ${misses} miss`:""} of {rows.length}</div>
+              </div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:11,lineHeight:1.45}}>Most recent reported quarter vs consensus EPS — US holdings, last 120 days. Non-US names not covered by the provider. Refreshed by Scan Now.</div>
+              {rows.map(r=>{
+                const h=activeHoldings.find(x=>x.ticker===r.t);
+                const col=stCol[r.status]||C.muted;
+                const sp=r.surprisePct!=null?` ${r.surprisePct>0?"+":""}${Number(r.surprisePct).toFixed(1)}%`:"";
+                return(
+                  <div key={r.t} style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:8,marginBottom:8,borderBottom:`1px solid ${C.border}`,cursor:h?"pointer":"default"}} onClick={()=>{if(h){setSel(h);setDetailPeriod("6m");}}}>
+                    <span style={{display:"flex",alignItems:"center",gap:7}}>
+                      <span style={{fontWeight:800,fontSize:14}}>{r.t}</span>
+                      <span style={{fontSize:11,color:C.muted}}>Q end {r.period}</span>
+                    </span>
+                    <span style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:12,color:C.muted}}>EPS {Number(r.actual).toFixed(2)} vs {Number(r.estimate).toFixed(2)}</span>
+                      <span style={{fontSize:11,fontWeight:800,color:col,background:col+"18",padding:"2px 8px",borderRadius:6,whiteSpace:"nowrap"}}>{stLbl[r.status]||r.status}{sp}</span>
+                    </span>
+                  </div>
+                );
+              })}
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>Upcoming report dates appear as Earnings-Soon alerts below. Tap a name for detail.</div>
+            </div>
+          );
+        })()}
         {(()=>{
           const flagged=activeHoldings.map(h=>({h,fls:holdingFlags(h)})).filter(x=>x.fls.length>0)
             .sort((a,b)=>flagTopSev(b.fls)-flagTopSev(a.fls)||b.fls.length-a.fls.length);
@@ -8066,7 +8124,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:13-21:20</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:13-23:10</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
