@@ -1499,9 +1499,13 @@ function App(){
       const reitValues     = d.reitValues     || {}; // REIT yield model
       const grahamValues   = d.grahamValues   || {}; // Option C — Graham Number
       const dcfValues      = d.dcfValues      || {}; // Option C — DCF (EPS)
+      const compositeMap   = d.composite      || {}; // v62 — multi-method median (server IV engine)
+      if(Array.isArray(d.routingWarnings)&&d.routingWarnings.length) console.warn('[compute_intrinsic] routing warnings:',d.routingWarnings);
+      if(d.grahamExcluded&&Object.keys(d.grahamExcluded).length) console.log(`[compute_intrinsic] Graham excluded from median (P/B>6): ${Object.entries(d.grahamExcluded).map(([t,pb])=>t+'@'+pb).join(', ')}`);
       const total = Object.keys(analystTargets).length + Object.keys(reitValues).length
-                  + Object.keys(grahamValues).length   + Object.keys(dcfValues).length;
-      console.log(`[compute_intrinsic] analyst=${Object.keys(analystTargets).length} reit=${Object.keys(reitValues).length} graham=${Object.keys(grahamValues).length} dcf=${Object.keys(dcfValues).length}`);
+                  + Object.keys(grahamValues).length   + Object.keys(dcfValues).length
+                  + Object.keys(compositeMap).length;
+      console.log(`[compute_intrinsic] composite=${Object.keys(compositeMap).length} analyst=${Object.keys(analystTargets).length} reit=${Object.keys(reitValues).length} graham=${Object.keys(grahamValues).length} dcf=${Object.keys(dcfValues).length}`);
       if(total===0) return;
       const now=new Date().toISOString();
       setHoldings(prev=>{
@@ -1529,6 +1533,21 @@ function App(){
           const analyst = analystTargets[h.ticker];
           const graham  = grahamValues[h.ticker];
           const dcf     = dcfValues[h.ticker];
+          const comp    = compositeMap[h.ticker];
+          // ── v62 PRIORITY: composite median (multi-method server engine) first ──
+          // FRESHNESS GUARD (rule 3): a deliberate recent AI refresh (web_consensus /
+          // ai_search, <7 days old) wins over everything this pass — return h untouched.
+          // 'analyst' is deliberately NOT protected here: it is auto-set by this same
+          // chain on every load, so protecting it would permanently block the composite.
+          // Older AI values (>7d) are superseded by the composite (self-healing).
+          const aiFreshMs=7*24*3600*1000;
+          const hasFreshAI=h.intrinsic>0
+            &&(h.intrinsicMethod==='web_consensus'||h.intrinsicMethod==='ai_search')
+            &&h.intrinsicUpdatedAt&&(Date.now()-new Date(h.intrinsicUpdatedAt).getTime())<aiFreshMs;
+          if(hasFreshAI) return h;
+          if(comp&&comp.iv>0) return{...h,intrinsic:comp.iv,intrinsicMethod:'composite',intrinsicUpdatedAt:now,
+            _ivLow:comp.low,_ivHigh:comp.high,_ivN:comp.n}; // range fields session-only (same pattern as _ivSource/_ivN)
+          // ── Legacy fallback chain (names the composite has no data for this pass) ──
           // Priority: REIT yield > analyst consensus > Graham Number > DCF (EPS)
           // CACHE GUARD: never overwrite a cached analyst consensus (web_consensus / analyst)
           // with a formula-derived Graham/DCF value. The cache holds real analyst targets
@@ -4192,6 +4211,7 @@ function App(){
               const etfYieldCount = activeHoldings.filter(h=>h.intrinsicMethod==='etf_yield').length;
               const etfNoIVCount  = activeHoldings.filter(h=>h.isEtf&&h.intrinsicMethod==='etf').length;
               const reitCount     = activeHoldings.filter(h=>!h.isEtf&&h.intrinsicMethod==='reit_yield').length;
+              const compositeCount= activeHoldings.filter(h=>h.intrinsicMethod==='composite').length;
               const analystCount  = activeHoldings.filter(h=>h.intrinsicMethod==='analyst').length;
               const grahamCount   = activeHoldings.filter(h=>h.intrinsicMethod==='graham').length;
               const dcfCount      = activeHoldings.filter(h=>h.intrinsicMethod==='dcf_eps').length;
@@ -4250,6 +4270,7 @@ function App(){
                   <div style={{display:"flex",gap:8,fontSize:11,flexWrap:"wrap",marginBottom:6}}>
                     {etfYieldCount>0&&<span style={{color:C.gold}}>💰 ETF Yield: <b>{etfYieldCount}</b></span>}
                     {etfNoIVCount>0 &&<span style={{color:C.muted}}>🚫 ETF (no IV): <b style={{color:C.text}}>{etfNoIVCount}</b></span>}
+                    {compositeCount>0&&<span style={{color:C.purple}}>{'\u25c6'} Median: <b>{compositeCount}</b></span>}
                     {analystCount>0 &&<span style={{color:C.green}}>📊 Analyst: <b>{analystCount}</b></span>}
                     {reitCount>0    &&<span style={{color:C.gold}}>🏢 REIT: <b>{reitCount}</b></span>}
                     {grahamCount>0  &&<span style={{color:C.accent}}>📐 Graham: <b>{grahamCount}</b></span>}
@@ -4259,7 +4280,7 @@ function App(){
                     {noMethod>0     &&<span style={{color:C.red}}>⚠ None: <b>{noMethod}</b></span>}
                   </div>
                   <div style={{fontSize:11,color:C.muted,lineHeight:1.6,borderTop:`1px solid ${C.border}`,paddingTop:6}}>
-                    <b>🔄 Formula</b>: REIT yield + FMP analyst targets + Graham/DCF ·{' '}
+                    <b>🔄 Formula</b>: Composite median (analyst + REIT DPS/NAV + Graham + DCF EPS/FCF) ·{' '}
                     <b>🌐 Web Search IV</b>: Searches analyst consensus for ANY stock still missing IV after 🔄 Formula (HK/CN·JP·SG banks·EU + gaps) ·{' '}
                     <b>🤖 AI All</b>: Claude web-searches all stocks (slower, ~2min) ·{' '}
                     <b style={{color:C.gold}}>💰 ETF Yield</b>: Income ETFs use yield÷cap-rate (PBDC 9%, O9P.SI 6%) ·{' '}
@@ -7247,6 +7268,7 @@ function App(){
                       Intrinsic {(()=>{
                         if(computedIV>0) return <span style={{color:C.purple,fontSize:11,fontWeight:700}}>●calc</span>;
                         const m=h.intrinsicMethod;
+                        if(m==='composite')    return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>{'\u25c6'} median{h._ivN?` (${h._ivN})`:''}</span>;
                         if(m==='analyst')      return <span style={{color:C.green,  fontSize:10,fontWeight:700,background:C.green+'15',padding:"1px 4px",borderRadius:3}}>analyst</span>;
                         if(m==='reit_yield')   return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'15', padding:"1px 4px",borderRadius:3}}>yield</span>;
                         if(m==='graham')       return <span style={{color:C.accent, fontSize:10,fontWeight:700,background:C.accent+'15',padding:"1px 4px",borderRadius:3}}>Graham</span>;
@@ -7491,6 +7513,7 @@ function App(){
             const storedIV=h.intrinsic||0;
             const storedMethod=h.intrinsicMethod||null;
             const MLABELS={
+              composite:     'Composite Median (multi-method)',
               analyst:       'Analyst Consensus (Yahoo)',
               graham:        'Graham Number (Yahoo)',
               dcf_eps:       'DCF·EPS (Yahoo)',
@@ -7527,7 +7550,7 @@ function App(){
               showYahooTgt?yahooTgt:0,
               computedAvg>0?computedAvg:0,   // DCF+Lynch avg
               // Include stored value if analyst, AI, or web consensus
-              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search'||storedMethod==='web_consensus'||storedMethod==='etf_yield')?storedIV:0,
+              hasStoredIV&&(storedMethod==='composite'||storedMethod==='analyst'||storedMethod==='ai_search'||storedMethod==='web_consensus'||storedMethod==='etf_yield')?storedIV:0,
             ].filter(v=>v>0);
             const bestAvg=allPts.length>0?allPts.reduce((s,v)=>s+v,0)/allPts.length:storedIV>0?storedIV:0;
             const bestAvgUpside=priceLive>0&&bestAvg>0?((bestAvg-priceLive)/priceLive*100):0;
@@ -7535,7 +7558,7 @@ function App(){
               finnhubAnalystTgt>0?`Analyst (${vals.numAnalysts||rec.totalAnalysts||0})`:null,
               showYahooTgt?'Yahoo analyst':null,
               computedAvg>0?'DCF+Lynch':null,
-              hasStoredIV&&(storedMethod==='analyst'||storedMethod==='ai_search'||storedMethod==='web_consensus'||storedMethod==='etf_yield')?storedLabel:null,
+              hasStoredIV&&(storedMethod==='composite'||storedMethod==='analyst'||storedMethod==='ai_search'||storedMethod==='web_consensus'||storedMethod==='etf_yield')?storedLabel:null,
             ].filter(Boolean);
             const bestAvgLabel=bestAvgSources.length>0?`avg of: ${bestAvgSources.join(' · ')}`
                               :storedIV>0?storedLabel:'—';
@@ -7615,14 +7638,15 @@ function App(){
                 {hasStoredIV&&(()=>{
                   const upside=priceLive>0?((storedIV-priceLive)/priceLive*100):0;
                   const col=upside>=15?C.green:upside>=0?C.gold:C.red;
-                  const srcColor=storedMethod==='analyst'?C.green:storedMethod==='ai_search'?C.purple:storedMethod==='web_consensus'?(C.gold||'#f59e0b'):storedMethod==='etf_yield'?C.gold:C.accent;
+                  const srcColor=storedMethod==='composite'?C.purple:storedMethod==='analyst'?C.green:storedMethod==='ai_search'?C.purple:storedMethod==='web_consensus'?(C.gold||'#f59e0b'):storedMethod==='etf_yield'?C.gold:C.accent;
                   return(
                     <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:14,marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${srcColor}30`,background:srcColor+"06",borderRadius:4,padding:"6px 4px"}}>
                       <div style={{fontWeight:700,color:srcColor}}>{storedLabel}</div>
                       <div style={{fontWeight:700,textAlign:"right"}}>${fmt(storedIV)}</div>
                       <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
                       <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>
-                        {storedMethod==='analyst'?'Yahoo quoteSummary'
+                        {storedMethod==='composite'?`Median of ${h._ivN||'?'} methods${h._ivLow>0&&h._ivHigh>0?` · ${fmt(h._ivLow)}–${fmt(h._ivHigh)}`:''}`
+                          :storedMethod==='analyst'?'Yahoo quoteSummary'
                           :storedMethod==='ai_search'?'🤖 AI web search'
                           :storedMethod==='web_consensus'?`🌐 Web consensus${h._ivSource?` · ${h._ivSource}`:''}`
                           :storedMethod==='etf_yield'?'💰 Income yield ÷ cap rate'
@@ -8124,7 +8148,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:13-23:10</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:15-01:20</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
