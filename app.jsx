@@ -7215,7 +7215,8 @@ function App(){
           headers:{"Content-Type":"application/json"},
           body:JSON.stringify({action:"business_health",ticker,mkt,price}),
         });
-        const d=await res.json();
+        const d=await res.json().catch(()=>({available:false,error:"HTTP "+res.status+" — non-JSON response"}));
+        if(!res.ok&&d&&d.available===undefined) d.available=false, d.error=d.error||("HTTP "+res.status);
         setBizHealth(prev=>({...prev,[ticker]:{loading:false,...d}}));
       }catch(e){
         setBizHealth(prev=>({...prev,[ticker]:{loading:false,available:false,error:e.message}}));
@@ -7918,7 +7919,18 @@ function App(){
                 <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:18}}>💪</span><div style={cardT}>Business Health</div></div>
                 <div style={{fontSize:12,color:C.muted,marginTop:6}}>Loading 5-year fundamentals…</div>
               </div>);
-            if(!bh.available||!Array.isArray(bh.components)) return null; // no data / error — hide panel, never guess
+            // v2026:07:16: failures are VISIBLE + retryable. Silent null hid real errors
+            // (looked identical to "feature not built"). Non-US/ETF still never reach here —
+            // the outer h.mkt==="US"&&!h.isEtf gate handles those.
+            if(!bh.available||!Array.isArray(bh.components)) return(
+              <div style={{...card,borderLeft:`3px solid ${C.muted}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:18}}>💪</span><div style={cardT}>Business Health</div>
+                  <button onClick={()=>setBizHealth(prev=>{const n={...prev};delete n[h.ticker];return n;})} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${C.border}`,color:C.accent,fontSize:12,padding:"4px 10px",borderRadius:8,cursor:"pointer",fontWeight:600}}>🔄 Retry</button>
+                </div>
+                <div style={{fontSize:12,color:C.muted,marginTop:6}}>Not available — {bh.error||"no data returned"}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:6,textAlign:"right"}}>Finnhub free tier is 60 calls/min — transient limits clear on Retry</div>
+              </div>);
             const vc=bh.verdict==="Excellent"?C.green:bh.verdict==="Good"?C.accent:bh.verdict==="Mixed"?C.gold:bh.verdict==="Weak"?C.red:C.muted;
             const pctTrend=a=>Array.isArray(a)&&a.length?a.map(x=>Math.round((x.v||0)*100)).join("→"):null;
             const roicT=pctTrend(bh.trends&&bh.trends.roic), gmT=pctTrend(bh.trends&&bh.trends.grossMargin);
@@ -8210,7 +8222,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:15-18:40</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:16-04:50</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
