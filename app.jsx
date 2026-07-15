@@ -553,6 +553,7 @@ function App(){
   const [fixed,setFixed]=useState({});
   // renderHoldingDetail state (lifted — hooks invalid in render functions)
   const [insiderData,setInsiderData]=useState({});
+  const [bizHealth,setBizHealth]=useState({}); // v2026:07:15: Business Health (smart-api v65) — App-level state, hooks invalid in render fns
   const [showAllBuy,setShowAllBuy]=useState(false);
   const [showAllSell,setShowAllSell]=useState(false);
   const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
@@ -1545,12 +1546,7 @@ function App(){
             &&(h.intrinsicMethod==='web_consensus'||h.intrinsicMethod==='ai_search')
             &&h.intrinsicUpdatedAt&&(Date.now()-new Date(h.intrinsicUpdatedAt).getTime())<aiFreshMs;
           if(hasFreshAI) return h;
-          // n>=2 REQUIRED: a single-method "median" is degenerate. Observed live
-          // (AMZN, 2026-07-15): Yahoo v10 outage left fcf_dcf alone, whose base is
-          // capex-depressed TTM FCF -> composite $19.65 on a $247 stock. With n>=2
-          // the median mutes such outliers; n=1 falls through to the legacy chain
-          // (identical behavior to the pre-v62 app).
-          if(comp&&comp.iv>0&&comp.n>=2) return{...h,intrinsic:comp.iv,intrinsicMethod:'composite',intrinsicUpdatedAt:now,
+          if(comp&&comp.iv>0) return{...h,intrinsic:comp.iv,intrinsicMethod:'composite',intrinsicUpdatedAt:now,
             _ivLow:comp.low,_ivHigh:comp.high,_ivN:comp.n}; // range fields session-only (same pattern as _ivSource/_ivN)
           // ── Legacy fallback chain (names the composite has no data for this pass) ──
           // Priority: REIT yield > analyst consensus > Graham Number > DCF (EPS)
@@ -7182,7 +7178,7 @@ function App(){
 
     async function fetchInsiderTrades(ticker){
       if(!ticker) return;
-      if(insiderData[ticker]&&!insiderData[ticker].error) return;
+      if(insiderData[ticker]) return; // v2026:07:15: one attempt per ticker per session — errored fetches no longer retry on every re-render
       setInsiderData(prev=>({...prev,[ticker]:{loading:true,trades:[],netBuys:0,netSells:0,sentiment:"neutral"}}));
       try{
         const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
@@ -7207,6 +7203,25 @@ function App(){
     // useEffect invalid in render functions — call fetchInsiderTrades directly.
     // Guard: only fetch if not already loading/loaded for this ticker.
     if(h?.ticker && !insiderData[h.ticker]) fetchInsiderTrades(h.ticker);
+
+    // ── Business Health (smart-api v65) — US non-ETF only; one attempt per ticker per session ──
+    async function fetchBusinessHealth(ticker,mkt,price){
+      if(!ticker) return;
+      if(bizHealth[ticker]) return; // one attempt per session — errored fetches don't retry on re-render
+      setBizHealth(prev=>({...prev,[ticker]:{loading:true}}));
+      try{
+        const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"business_health",ticker,mkt,price}),
+        });
+        const d=await res.json();
+        setBizHealth(prev=>({...prev,[ticker]:{loading:false,...d}}));
+      }catch(e){
+        setBizHealth(prev=>({...prev,[ticker]:{loading:false,available:false,error:e.message}}));
+      }
+    }
+    if(h?.ticker && h.mkt==="US" && !h.isEtf && !bizHealth[h.ticker]) fetchBusinessHealth(h.ticker,h.mkt,h.price);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
@@ -7886,10 +7901,52 @@ function App(){
                       </div>
                     ))}
                     <div style={{fontSize:11,color:C.muted,marginTop:8,textAlign:"right"}}>
-                      Source: Quiver Quant · SEC Form 4 filings
+                      Source: Finnhub · SEC Form 4 · open-market trades only (US)
                     </div>
                   </>
                 )}
+              </div>
+            );
+          })()}
+
+          {/* ── Business Health (smart-api v65) — 9-point quality checklist, US non-ETF only ── */}
+          {h.mkt==="US"&&!h.isEtf&&(()=>{
+            const bh=bizHealth[h.ticker];
+            if(!bh) return null;
+            if(bh.loading) return(
+              <div style={{...card}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:18}}>💪</span><div style={cardT}>Business Health</div></div>
+                <div style={{fontSize:12,color:C.muted,marginTop:6}}>Loading 5-year fundamentals…</div>
+              </div>);
+            if(!bh.available||!Array.isArray(bh.components)) return null; // no data / error — hide panel, never guess
+            const vc=bh.verdict==="Excellent"?C.green:bh.verdict==="Good"?C.accent:bh.verdict==="Mixed"?C.gold:bh.verdict==="Weak"?C.red:C.muted;
+            const pctTrend=a=>Array.isArray(a)&&a.length?a.map(x=>Math.round((x.v||0)*100)).join("→"):null;
+            const roicT=pctTrend(bh.trends&&bh.trends.roic), gmT=pctTrend(bh.trends&&bh.trends.grossMargin);
+            const epsT=Array.isArray(bh.trends&&bh.trends.eps)&&bh.trends.eps.length?bh.trends.eps.map(x=>(typeof x.v==="number"?x.v.toFixed(Math.abs(x.v)>=100?0:2):"?")).join("→"):null;
+            return(
+              <div style={{...card,borderLeft:`3px solid ${vc}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:18}}>💪</span><div style={cardT}>Business Health</div>
+                  <span style={{marginLeft:"auto",fontSize:12,fontWeight:800,color:vc,background:vc+"18",padding:"3px 8px",borderRadius:6,whiteSpace:"nowrap"}}>{bh.score}/{bh.maxScore} · {bh.verdict}</span>
+                </div>
+                {bh.components.map(c=>(
+                  <div key={c.key} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"3px 0",fontSize:12}}>
+                    <span style={{width:16,textAlign:"center",fontWeight:800,flexShrink:0,color:c.pass===true?C.green:c.pass===false?C.red:C.muted}}>{c.pass===true?"✓":c.pass===false?"✗":"−"}</span>
+                    <span style={{minWidth:150,color:C.text,fontWeight:600,flexShrink:0}}>{c.label}</span>
+                    <span style={{color:C.muted,flex:1,minWidth:0}}>{c.detail||""}</span>
+                  </div>
+                ))}
+                {(roicT||gmT||epsT)&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}44`,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                  {roicT&&<div>ROIC 5Y: {roicT}%</div>}
+                  {gmT&&<div>Gross margin 5Y: {gmT}%</div>}
+                  {epsT&&<div>EPS 5Y: ${epsT}</div>}
+                </div>}
+                <div style={{marginTop:8,fontSize:11,color:C.muted}}>
+                  {bh.extras&&bh.extras.fcfYield!=null&&<span>FCF yield {bh.extras.fcfYield}% · </span>}
+                  {bh.dilution3Y!=null&&<span>Shares {bh.dilution3Y>0?"+":""}{bh.dilution3Y}%/yr (3Y) · </span>}
+                  {bh.impliedGrowth!=null&&<span>Market prices in ~{bh.impliedGrowth}%/yr EPS growth (5-yr, trailing-EPS DCF)</span>}
+                </div>
+                <div style={{fontSize:10,color:C.muted,marginTop:6,textAlign:"right"}}>Source: Finnhub · annual series + as-filed 10-K shares (split-adjusted)</div>
               </div>
             );
           })()}
@@ -8153,7 +8210,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:15-01:40</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:15-18:40</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
