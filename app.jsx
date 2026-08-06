@@ -110,6 +110,12 @@ const buffettScore=h=>{
   const total=Math.round((moatPts+divPts+valuePts+qualPts+gainPts)*10)/10;
   let action,reason,col;
   if(upside===null){
+    // v71 PHASE 3: composite exists but grade C/D — models outside their validity zone.
+    // Never a sell verdict from an inapplicable model; state the honest coordinates.
+    if(h._ivGrade==='C'||h._ivGrade==='D'){
+      const ig=(typeof h._ivImplied==='number')?` — price implies ${(h._ivImplied*100).toFixed(0)}% growth vs 20% model cap`:'';
+      return{score:total,action:"MODEL LIMIT",col:C.gold,reason:`Valuation models out of range (grade ${h._ivGrade})${ig}`};
+    }
     // No IV: score on business quality only — no valuation deduction
     if(total>=65){action="BUY MORE";col=C.green;reason="Strong fundamentals — intrinsic value loading";}
     else if(total>=50){action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals — await intrinsic value confirmation";}
@@ -1503,6 +1509,12 @@ function App(){
       const grahamValues   = d.grahamValues   || {}; // Option C — Graham Number
       const dcfValues      = d.dcfValues      || {}; // Option C — DCF (EPS)
       const compositeMap   = d.composite      || {}; // v62 — multi-method median (server IV engine)
+      const ivConfidence   = d.confidence     || {}; // v71 P2 — per-method [conf, reason]
+      const ivMarketCase   = d.marketCase     || {}; // v71 — two-stage faded value (display only)
+      const ivMarketCaseG  = d.marketCaseG    || {}; // v71 — stage-1 growth used
+      const ivBaseCase     = d.baseCase       || {}; // v72 — mid-spectrum (30% cap, faded)
+      const ivBaseCaseG    = d.baseCaseG      || {}; // v72
+      const ivImpliedMap   = d.impliedGrowth  || {}; // v70 — reverse-DCF implied growth (fraction)
       if(Array.isArray(d.routingWarnings)&&d.routingWarnings.length) console.warn('[compute_intrinsic] routing warnings:',d.routingWarnings);
       if(d.grahamExcluded&&Object.keys(d.grahamExcluded).length) console.log(`[compute_intrinsic] Graham excluded from median (P/B>6): ${Object.entries(d.grahamExcluded).map(([t,pb])=>t+'@'+pb).join(', ')}`);
       const total = Object.keys(analystTargets).length + Object.keys(reitValues).length
@@ -1548,8 +1560,21 @@ function App(){
             &&(h.intrinsicMethod==='web_consensus'||h.intrinsicMethod==='ai_search')
             &&h.intrinsicUpdatedAt&&(Date.now()-new Date(h.intrinsicUpdatedAt).getTime())<aiFreshMs;
           if(hasFreshAI) return h;
-          if(comp&&comp.iv>0) return{...h,intrinsic:comp.iv,intrinsicMethod:'composite',intrinsicUpdatedAt:now,
-            _ivLow:comp.low,_ivHigh:comp.high,_ivN:comp.n}; // range fields session-only (same pattern as _ivSource/_ivN)
+          // v71 session-only meta (same _iv* pattern; stripped from DB by column whitelist)
+          const _meta={_ivGrade:comp?.grade||null,_ivGradeWhy:comp?.gradeWhy||'',
+            _ivConf:ivConfidence[h.ticker]||null,
+            _ivMktCase:ivMarketCase[h.ticker]||0,_ivMktCaseG:ivMarketCaseG[h.ticker]||0,
+            _ivBaseCase:ivBaseCase[h.ticker]||0,_ivBaseCaseG:ivBaseCaseG[h.ticker]||0,
+            _ivImplied:(typeof ivImpliedMap[h.ticker]==='number')?ivImpliedMap[h.ticker]:null};
+          // v71 PHASE 3 VERDICT GUARD: grade C (all methods Low-confidence) or D (single
+          // method) → composite is NOT trusted as IV. intrinsic stays null → all existing
+          // IV-null guards fire (getRec "—", buffettScore quality-only) + MODEL LIMIT badge.
+          if(comp&&comp.iv>0&&(comp.grade==='A'||comp.grade==='B'||!comp.grade))
+            return{...h,intrinsic:comp.iv,intrinsicMethod:'composite',intrinsicUpdatedAt:now,
+              _ivLow:comp.low,_ivHigh:comp.high,_ivN:comp.n,..._meta}; // range fields session-only (same pattern as _ivSource/_ivN)
+          if(comp&&comp.iv>0) // C/D: expose meta (incl. the untrusted median for display) without setting IV
+            return{...h,intrinsic:null,intrinsicMethod:null,intrinsicUpdatedAt:now,
+              _ivLow:comp.low,_ivHigh:comp.high,_ivN:comp.n,_ivUntrusted:comp.iv,..._meta};
           // ── Legacy fallback chain (names the composite has no data for this pass) ──
           // Priority: REIT yield > analyst consensus > Graham Number > DCF (EPS)
           // CACHE GUARD: never overwrite a cached analyst consensus (web_consensus / analyst)
@@ -7668,7 +7693,7 @@ function App(){
                       <div style={{fontWeight:700,textAlign:"right"}}>${fmt(storedIV)}</div>
                       <div style={{fontWeight:700,textAlign:"right",color:col}}>{upside>=0?"+":""}{fmt(upside,1)}%</div>
                       <div style={{fontSize:12,color:C.muted,textAlign:"right"}}>
-                        {storedMethod==='composite'?`Median of ${h._ivN||'?'} methods${h._ivLow>0&&h._ivHigh>0?` · ${fmt(h._ivLow)}–${fmt(h._ivHigh)}`:''}`
+                        {storedMethod==='composite'?`Median of ${h._ivN||'?'} methods${h._ivLow>0&&h._ivHigh>0?` · ${fmt(h._ivLow)}–${fmt(h._ivHigh)}`:''}${h._ivGrade?` · grade ${h._ivGrade}`:''}`
                           :storedMethod==='analyst'?'Yahoo quoteSummary'
                           :storedMethod==='ai_search'?'🤖 AI web search'
                           :storedMethod==='web_consensus'?`🌐 Web consensus${h._ivSource?` · ${h._ivSource}`:''}`
@@ -7681,6 +7706,20 @@ function App(){
                   );
                 })()}
 
+                {/* v71: honest coordinates — implied growth, market case, model-limit note */}
+                {(typeof h._ivImplied==='number'||h._ivMktCase>0)&&(
+                  <div style={{fontSize:12.5,color:C.muted,margin:"6px 0 4px",padding:"6px 8px",background:C.gold+"0d",border:`1px solid ${C.gold}30`,borderRadius:6,lineHeight:1.7}}>
+                    {typeof h._ivImplied==='number'&&(
+                      <div>📐 Market price implies <b style={{color:C.gold}}>{(h._ivImplied*100).toFixed(1)}%</b> sustained growth · models cap at 20%</div>
+                    )}
+                    {h._ivMktCase>0&&(
+                      <div>📊 Valuation spectrum (all 10% disc., faded 2-stage): <b style={{color:C.muted}}>${fmt(h._ivUntrusted||storedIV)}</b><span style={{opacity:0.6}}> @20% cap</span>{h._ivBaseCase>0&&<> · <b style={{color:C.gold}}>${fmt(h._ivBaseCase)}</b><span style={{opacity:0.6}}> @{fmt(h._ivBaseCaseG,0)}%</span></>} · <b style={{color:C.gold}}>${fmt(h._ivMktCase)}</b><span style={{opacity:0.6}}> @{fmt(h._ivMktCaseG,0)}% (market case)</span> <span style={{opacity:0.7}}>— context only, never in median</span></div>
+                    )}
+                    {(h._ivGrade==='C'||h._ivGrade==='D')&&(
+                      <div style={{color:C.gold,fontWeight:700}}>⚠ MODEL LIMIT — composite grade {h._ivGrade}: {h._ivGradeWhy}. Median ${fmt(h._ivUntrusted||0)} shown for reference, not used as IV.</div>
+                    )}
+                  </div>
+                )}
                 {/* Best available estimate row */}
                 {bestAvg>0?(
                   <div style={{display:"grid",gridTemplateColumns:"1.2fr 0.8fr 0.8fr 1.2fr",gap:6,fontSize:15,marginTop:8,paddingTop:8,borderTop:`2px solid ${C.purple}44`}}>
@@ -8224,7 +8263,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:07:17-10:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:06-14:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
