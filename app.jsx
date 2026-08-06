@@ -604,6 +604,18 @@ function App(){
   const [exactBenchmarkReturns,setExactBenchmarkReturns]=useState({}); // {US:45.2,SG:22.1} dollar-weighted same-date index returns // 'live'|'cached'|'fallback'
   const [indicesCachedAt,setIndicesCachedAt]=useState(null);  // ISO string of last successful live fetch
   const [valuations,setValuations]=useState({});   // {TICKER: {analystTarget, dcf, graham, peFair, average, recommendation}}
+  // v72.1: BEST-ESTIMATE display IV — mirrors the stock-detail BEST ESTIMATE row
+  // (analyst target + Yahoo target if distinct + modal DCF+Lynch avg + trusted stored IV).
+  // DISPLAY ONLY — Buffett scoring & verdicts keep using guarded h.intrinsic.
+  const bestEstIV=(h)=>{
+    const v=valuations[h.ticker]?.valuations||{};
+    const tgt=v.analystTarget>0?v.analystTarget:0;
+    const y=(v.yahooTarget>0&&(tgt===0||Math.abs(v.yahooTarget-tgt)/tgt>0.05))?v.yahooTarget:0;
+    const comp=v.average>0?v.average:0;
+    const stored=(h.intrinsic>0&&['composite','analyst','ai_search','web_consensus','etf_yield'].includes(h.intrinsicMethod))?h.intrinsic:0;
+    const pts=[tgt,y,comp,stored].filter(x=>x>0);
+    return pts.length?pts.reduce((s,x)=>s+x,0)/pts.length:(h.intrinsic||0);
+  };
   const [moatUpdatedAt,setMoatUpdatedAt]=useState(null);
   const [moatRefreshing,setMoatRefreshing]=useState(false);
   const [moatAiLoading,setMoatAiLoading]=useState({});
@@ -2732,8 +2744,11 @@ function App(){
   const buffettList=useMemo(()=>[...activeHoldings]
     .filter(h=>!h.isEtf) // ETFs have no intrinsic value — exclude from Buffett scoring
     .map(h=>{
+      // v72.1: respect the Phase 3 verdict guard — grade C/D must NOT be re-scored
+      // with modal-average IV (that would resurrect CONSIDER SELLING from an
+      // inapplicable model). Display tiles may blend; SCORING may not.
       const compIV=valuations[h.ticker]?.valuations?.average||0;
-      const effIV=compIV>0?compIV:(h.intrinsic||0);
+      const effIV=(h._ivGrade==='C'||h._ivGrade==='D')?null:(compIV>0?compIV:(h.intrinsic||0));
       const hScored={...h,intrinsic:effIV};
       return {...hScored,...buffettScore(hScored)};
     }).sort((a,b)=>b.score-a.score),[activeHoldings,valuations,refreshKey]);
@@ -3675,7 +3690,7 @@ function App(){
           const isSold=h.fullySold||h.shares===0;
           const tickerRealized=realizedPerTicker[h.ticker]||0;
           const compIV=valuations[h.ticker]?.valuations?.average||0;
-          const effIV=compIV>0?compIV:h.intrinsic;
+          const effIV=bestEstIV(h); // v72.1: tile shows BEST ESTIMATE blend (display only)
           const upside=effIV>0&&h.price>0?((effIV-h.price)/h.price)*100:0;
           const sgdVal=toSGDlive(localVal,h.mkt),sgdGain=toSGDlive(localGain,h.mkt);
           const hScored={...h,intrinsic:effIV};
@@ -4100,7 +4115,7 @@ function App(){
               {top10.map((h,i)=>{
                 const g=((h.price-h.avgCost)/h.avgCost)*100;
                 const lg=(h.price-h.avgCost)*h.shares;
-                const eIV=(valuations[h.ticker]?.valuations?.average)||h.intrinsic||0;
+                const eIV=bestEstIV(h); // v72.1
                 const up=eIV>0?((eIV-h.price)/h.price)*100:0;
                 return(
                   <div key={h.ticker} style={{marginBottom:10,paddingBottom:10,borderBottom:i<9?`1px solid ${C.border}`:"none",cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
@@ -4131,7 +4146,7 @@ function App(){
                 const g=((h.price-h.avgCost)/h.avgCost)*100;
                 const lg=(h.price-h.avgCost)*h.shares;
                 const pos=lg>=0;
-                const eIV2=(valuations[h.ticker]?.valuations?.average)||h.intrinsic||0;
+                const eIV2=bestEstIV(h); // v72.1
                 const up=eIV2>0?((eIV2-h.price)/h.price)*100:0; const lk=lotInfo(h).locked;
                 return(
                   <div key={h.ticker} style={{marginBottom:10,paddingBottom:10,borderBottom:i<9?`1px solid ${C.border}`:"none",cursor:"pointer",opacity:lk?0.5:1}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
@@ -4329,7 +4344,7 @@ function App(){
                   {list.length===0&&<div style={{fontSize:15,color:C.muted,padding:"8px 0"}}>{emptyMsg}</div>}
                   {list.map((h,i)=>{
                     const g=((h.price-h.avgCost)/h.avgCost)*100;
-                    const bIV=(valuations[h.ticker]?.valuations?.average)||h.intrinsic||0;
+                    const bIV=bestEstIV(h); // v72.1
                     const up=bIV>0?((bIV-h.price)/h.price)*100:0;
                     return(
                       <div key={h.ticker} style={{marginBottom:11,paddingBottom:11,borderBottom:i<list.length-1?`1px solid ${C.border}`:"none",cursor:"pointer"}} onClick={()=>{setSel(h);setDetailPeriod("6m");}}>
@@ -8263,7 +8278,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:06-14:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:06-15:00</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
