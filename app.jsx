@@ -562,7 +562,7 @@ function App(){
   const [bizHealth,setBizHealth]=useState({}); // v2026:07:15: Business Health (smart-api v65) — App-level state, hooks invalid in render fns
   const [showAllBuy,setShowAllBuy]=useState(false);
   const [showAllSell,setShowAllSell]=useState(false);
-  const [showValue,setShowValue]=useState(true);   // toggle portfolio value visibility
+  const [showValue,setShowValue]=useState(false);  // v72.2: hidden by default — toggle to reveal
   const [holdingSort,setHoldingSort]=useState("default"); // default|best|worst|value|div
   const [tradeType,setTradeType]=useState("ALL");
   const [tradeSearch,setTradeSearch]=useState(""); // lifted to App so it survives TradesView remounts
@@ -7202,9 +7202,13 @@ function App(){
     const valData=valuations[h.ticker];
     const computedIV=valData?.valuations?.average||0;
     const finnhubAnalystIV=valData?.valuations?.analystTarget||0;
-    // effectiveIV priority: Finnhub avg > Finnhub analyst target > stored Option A/B/C
-    const effectiveIV=computedIV>0?computedIV:finnhubAnalystIV>0?finnhubAnalystIV:(h.intrinsic||0);
-    const hScored={...h,intrinsic:effectiveIV};
+    // v72.2: tile displays the BEST-ESTIMATE blend (mirrors list tiles & panel BEST row);
+    // legacy chain retained as fallback when no blend inputs exist this session.
+    const bestIV=bestEstIV(h);
+    const effectiveIV=bestIV>0?bestIV:computedIV>0?computedIV:finnhubAnalystIV>0?finnhubAnalystIV:(h.intrinsic||0);
+    // v72.2: scoring mirrors buffettList exactly — grade C/D => null (MODEL LIMIT);
+    // otherwise modal/composite IV. Display blends; SCORING does not.
+    const hScored={...h,intrinsic:(h._ivGrade==='C'||h._ivGrade==='D')?null:(computedIV>0?computedIV:(h.intrinsic||0))};
     const sc=scoreH(hScored),r=getRec(hScored),bs=buffettScore(hScored);
     const gainPct=h.avgCost>0?((h.price-h.avgCost)/h.avgCost)*100:0;
     const upside=effectiveIV>0&&h.price>0?((effectiveIV-h.price)/h.price)*100:0;
@@ -7329,6 +7333,7 @@ function App(){
                   return(<>
                     <div style={{fontSize:13,color:C.muted,marginBottom:2}}>
                       Intrinsic {(()=>{
+                        if(effectiveIV>0&&Math.abs(effectiveIV-computedIV)>0.01) return <span style={{color:C.purple,fontSize:11,fontWeight:700}}>◈ best est</span>;
                         if(computedIV>0) return <span style={{color:C.purple,fontSize:11,fontWeight:700}}>●calc</span>;
                         const m=h.intrinsicMethod;
                         if(m==='composite')    return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>{'\u25c6'} median{h._ivN?` (${h._ivN})`:''}</span>;
@@ -8278,7 +8283,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:06-15:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:06-23:45</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
