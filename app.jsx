@@ -7219,7 +7219,15 @@ function App(){
   }
 
   function renderHoldingDetail(){
-    const h=sel;if(!h)return null;
+    /* v2026:08:11-17:20 — sel is a SNAPSHOT captured at click time (setSel(h) from
+       every list row); it is never re-synced when `holdings` updates. So anything
+       written into holdings after selection — intrinsic, intrinsicMethod, peRatio
+       from fetchValuation, live prices — never reached this view. That is why CATL
+       kept showing "source unknown" even after intrinsicMethod was being set
+       correctly: the write landed in holdings, the tile read the stale sel object.
+       Re-resolve from live holdings each render, falling back to sel if the ticker
+       is absent (e.g. an exited row opened from a sold-stocks list). */
+    const h=(sel?holdings.find(x=>x.ticker===sel.ticker):null)||sel;if(!h)return null;
     const m=MKT[h.mkt]||MKT.US;
     const valData=valuations[h.ticker];
     const computedIV=valData?.valuations?.average||0;
@@ -8339,7 +8347,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-16:40</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-17:20</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
