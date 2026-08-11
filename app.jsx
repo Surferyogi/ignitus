@@ -1596,7 +1596,13 @@ function App(){
           const hasCachedConsensus=h.intrinsic>0&&(h.intrinsicMethod==='web_consensus'||h.intrinsicMethod==='analyst');
           if(reit    > 0) return{...h,intrinsic:reit,           intrinsicMethod:'reit_yield', intrinsicUpdatedAt:now};
           if(analyst?.target > 0) return{...h,intrinsic:analyst.target,intrinsicMethod:'analyst',    intrinsicUpdatedAt:now};
-          if(graham  > 0){if(hasCachedConsensus) return h; return{...h,intrinsic:graham,         intrinsicMethod:'graham',     intrinsicUpdatedAt:now};}
+          /* v2026:08:11-14:30 — Graham REMOVED as a standalone IV source (CK decision).
+             This fallback assigned sqrt(22.5*EPS*BVPS) as the intrinsic value whenever a
+             holding had no composite/analyst/REIT value — i.e. precisely where nothing
+             else could cross-check it. Graham encodes a deep-value screen (max P/E 15,
+             max P/B 1.5) and systematically under-values growth compounders, so this was
+             the least-scrutinised path for the least-reliable method. Removing it from
+             the edge composite alone would have left this path live. */
           if(dcf     > 0){if(hasCachedConsensus) return h; return{...h,intrinsic:dcf,            intrinsicMethod:'dcf_eps',    intrinsicUpdatedAt:now};}
           return h; // no data from this pass — keep existing value
         });
@@ -7339,7 +7345,7 @@ function App(){
                         if(m==='composite')    return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>{'\u25c6'} median{h._ivN?` (${h._ivN})`:''}</span>;
                         if(m==='analyst')      return <span style={{color:C.green,  fontSize:10,fontWeight:700,background:C.green+'15',padding:"1px 4px",borderRadius:3}}>analyst</span>;
                         if(m==='reit_yield')   return <span style={{color:C.gold,   fontSize:10,fontWeight:700,background:C.gold+'15', padding:"1px 4px",borderRadius:3}}>yield</span>;
-                        if(m==='graham')       return <span style={{color:C.accent, fontSize:10,fontWeight:700,background:C.accent+'15',padding:"1px 4px",borderRadius:3}}>Graham</span>;
+                        if(m==='graham')       return <span style={{color:C.muted, fontSize:10,fontWeight:700,background:C.muted+'15',padding:"1px 4px",borderRadius:3}}>Graham (legacy)</span>;
                         if(m==='dcf_eps')      return <span style={{color:C.accentDim,fontSize:10,fontWeight:700,background:C.accentDim+'20',padding:"1px 4px",borderRadius:3}}>DCF</span>;
                         if(m==='ai_search')    return <span style={{color:C.purple, fontSize:10,fontWeight:700,background:C.purple+'15',padding:"1px 4px",borderRadius:3}}>🤖AI</span>;
                         if(m==='web_consensus')return <span style={{color:C.gold||'#f59e0b',fontSize:10,fontWeight:700,background:(C.gold||'#f59e0b')+'20',padding:"1px 4px",borderRadius:3}}>🌐Web</span>;
@@ -8317,7 +8323,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-13:40</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-14:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
