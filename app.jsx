@@ -1266,11 +1266,23 @@ function App(){
         const liveIntrinsic = d.valuations?.average || d.valuations?.analystTarget
                             || d.valuations?.yahooTarget || 0;
         const livePE        = d.inputs?.pe          || 0;
+        /* v2026:08:11-16:40 — record WHICH source produced liveIntrinsic.
+           This was never set, so h.intrinsicMethod stayed undefined and the tile
+           fell through to ivNoMethod ("Stored estimate — source unknown"). It was
+           masked while `average` was always populated, because ivNoMethod also
+           requires !computedIV. smart-api v80 suppresses `average` when only a
+           1-year growth figure exists (non-US), which un-masked it — CATL showed
+           a correct HK$782.02 from 18 analysts labelled "source unknown".
+           The value was right; only its provenance was missing. */
+        const liveMethod = (d.valuations?.average > 0) ? 'dcf_eps'
+                         : (d.valuations?.analystTarget > 0 || d.valuations?.yahooTarget > 0) ? 'analyst'
+                         : null;
         if(liveIntrinsic > 0){
           setHoldings(prev=>{
             const upd=prev.map(h=>{
               if(h.ticker!==ticker) return h;
               const ch={intrinsic:liveIntrinsic};
+              if(liveMethod) ch.intrinsicMethod=liveMethod;
               if(livePE>0) ch.peRatio=livePE;
               return {...h,...ch};
             });
@@ -8327,7 +8339,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-15:10</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-16:40</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
