@@ -7350,12 +7350,46 @@ function App(){
                     </div>
                     {ivMissing?(
                       <div style={{marginTop:4}}>
-                        <div style={{display:"inline-flex",alignItems:"center",gap:4,
-                          background:C.red+"18",border:`1px solid ${C.red}40`,
-                          borderRadius:5,padding:"3px 7px",marginBottom:4}}>
-                          <span style={{fontSize:12,fontWeight:700,color:C.red}}>⚠ IV not available</span>
-                        </div>
-                        {!h.intrinsicMethod&&!h.isEtf?(
+                        {/* v2026:08:11 — distinguish WITHHELD from ABSENT.
+                            Grade C/D with a computed median means the engine DID
+                            value the holding but the methods disagree too widely
+                            to trust (REIT dispersion gate, smart-api v75+). Showing
+                            a bare "IV not available" made that identical to a name
+                            with no data at all (Tencent, CATL) — two states that
+                            call for completely different responses. Median/low/high
+                            are REFERENCE ONLY and are never applied: effectiveIV
+                            stays 0, so getRec, buffettScore and MODEL LIMIT are
+                            all untouched by this block. */}
+                        {(h._ivUntrusted>0)?(()=>{
+                          const lo=h._ivLow||0, hi=h._ivHigh||0, md=h._ivUntrusted;
+                          const spread=(md>0&&hi>0&&lo>0)?((hi-lo)/md*100):0;
+                          return (
+                            <div style={{background:C.gold+"14",border:`1px solid ${C.gold}45`,
+                              borderRadius:6,padding:"6px 8px",marginBottom:4}}>
+                              <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:3}}>
+                                ⚠ MODEL LIMIT · grade {h._ivGrade||'C'} — reference only
+                              </div>
+                              <div style={{fontSize:15,fontWeight:800,color:C.text}}>
+                                {fmtL(md,h.mkt)} <span style={{fontSize:10,fontWeight:700,color:C.muted}}>median{h._ivN?` of ${h._ivN}`:''}</span>
+                              </div>
+                              {(lo>0&&hi>0)&&(
+                                <div style={{fontSize:11,color:C.muted,marginTop:2,lineHeight:1.45}}>
+                                  Range {fmtL(lo,h.mkt)} – {fmtL(hi,h.mkt)} · spread <b style={{color:C.gold}}>{spread.toFixed(0)}%</b>
+                                </div>
+                              )}
+                              <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4,opacity:0.9}}>
+                                Methods disagree beyond the confidence threshold — not applied to verdicts.
+                              </div>
+                            </div>
+                          );
+                        })():(
+                          <div style={{display:"inline-flex",alignItems:"center",gap:4,
+                            background:C.red+"18",border:`1px solid ${C.red}40`,
+                            borderRadius:5,padding:"3px 7px",marginBottom:4}}>
+                            <span style={{fontSize:12,fontWeight:700,color:C.red}}>⚠ IV not available</span>
+                          </div>
+                        )}
+                        {!h.intrinsicMethod&&!h.isEtf&&!(h._ivUntrusted>0)?(
                           <div style={{marginTop:6}}>
                             <button
                               onClick={()=>refreshSingleNonUSIV(h.ticker)}
@@ -8283,7 +8317,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:06-23:45</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-13:40</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
