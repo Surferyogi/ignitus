@@ -560,6 +560,7 @@ function App(){
   // renderHoldingDetail state (lifted — hooks invalid in render functions)
   const [insiderData,setInsiderData]=useState({});
   const [bizHealth,setBizHealth]=useState({}); // v2026:07:15: Business Health (smart-api v65) — App-level state, hooks invalid in render fns
+  const [reitHealth,setReitHealth]=useState({}); // v2026:08:11-22:30: REIT Health (smart-api v81) — SG/HK/CN REITs. App-level for the same reason.
   const [showAllBuy,setShowAllBuy]=useState(false);
   const [showAllSell,setShowAllSell]=useState(false);
   const [showValue,setShowValue]=useState(false);  // v72.2: hidden by default — toggle to reveal
@@ -7305,6 +7306,30 @@ function App(){
       }
     }
     if(h?.ticker && h.mkt==="US" && !h.isEtf && !bizHealth[h.ticker]) fetchBusinessHealth(h.ticker,h.mkt,h.price);
+
+    // ── REIT Health (smart-api v81) — SG/HK/CN REITs only; one attempt per ticker per session ──
+    // Mutually exclusive with Business Health by market, so the two cards can
+    // never both render. Same one-attempt-per-session guard: an errored fetch
+    // must not retry on every re-render.
+    const isReit=!!h && !h.isEtf && h.sector==="Real Estate" && (h.mkt==="SG"||h.mkt==="HK"||h.mkt==="CN");
+    async function fetchReitHealth(ticker,mkt,name){
+      if(!ticker) return;
+      if(reitHealth[ticker]) return;
+      setReitHealth(prev=>({...prev,[ticker]:{loading:true}}));
+      try{
+        const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"reit_health",ticker,mkt,name}),
+        });
+        const d=await res.json().catch(()=>({available:false,error:"HTTP "+res.status+" — non-JSON response"}));
+        if(!res.ok&&d&&d.available===undefined) d.available=false, d.error=d.error||("HTTP "+res.status);
+        setReitHealth(prev=>({...prev,[ticker]:{loading:false,...d}}));
+      }catch(e){
+        setReitHealth(prev=>({...prev,[ticker]:{loading:false,available:false,error:e.message}}));
+      }
+    }
+    if(isReit && !reitHealth[h.ticker]) fetchReitHealth(h.ticker,h.mkt,h.name);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
@@ -8100,6 +8125,58 @@ function App(){
             );
           })()}
 
+          {/* ── REIT Health (smart-api v81) — 5-point S-REIT checklist, SG/HK/CN REITs ── */}
+          {/* Business Health's ROIC/EPS/current-ratio tests misread a REIT (fair-value */}
+          {/* revaluations detonate net income; REITs run current ratio < 1 by design), */}
+          {/* so this is a separate checklist, not a re-skin. Informational only — it */}
+          {/* never touches intrinsic value, grades or the Buffett verdict. */}
+          {isReit&&(()=>{
+            const rh=reitHealth[h.ticker];
+            if(!rh) return null;
+            if(rh.loading) return(
+              <div style={{...card}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:18}}>🏢</span><div style={cardT}>REIT Health</div></div>
+                <div style={{fontSize:12,color:C.muted,marginTop:6}}>Loading REIT fundamentals…</div>
+              </div>);
+            if(!rh.available||!Array.isArray(rh.components)) return(
+              <div style={{...card,borderLeft:`3px solid ${C.muted}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:18}}>🏢</span><div style={cardT}>REIT Health</div>
+                  <button onClick={()=>setReitHealth(prev=>{const n={...prev};delete n[h.ticker];return n;})} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${C.border}`,color:C.accent,fontSize:12,padding:"4px 10px",borderRadius:8,cursor:"pointer",fontWeight:600}}>🔄 Retry</button>
+                </div>
+                <div style={{fontSize:12,color:C.muted,marginTop:6}}>Not available — {rh.error||"no data returned"}</div>
+              </div>);
+            const rc=rh.verdict==="Excellent"?C.green:rh.verdict==="Good"?C.accent:rh.verdict==="Mixed"?C.gold:rh.verdict==="Weak"?C.red:C.muted;
+            const ref=rh.reference||{};
+            return(
+              <div style={{...card,borderLeft:`3px solid ${rc}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:18}}>🏢</span><div style={cardT}>REIT Health</div>
+                  <span style={{marginLeft:"auto",fontSize:12,fontWeight:800,color:rc,background:rc+"18",padding:"3px 8px",borderRadius:6,whiteSpace:"nowrap"}}>{rh.score}/{rh.maxScore} · {rh.verdict}</span>
+                </div>
+                {rh.components.map(c=>(
+                  <div key={c.key} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"3px 0",fontSize:12}}>
+                    <span style={{width:16,textAlign:"center",fontWeight:800,flexShrink:0,color:c.pass===true?C.green:c.pass===false?C.red:C.muted}}>{c.pass===true?"✓":c.pass===false?"✗":"−"}</span>
+                    <span style={{minWidth:150,color:C.text,fontWeight:600,flexShrink:0}}>{c.label}</span>
+                    <span style={{color:C.muted,flex:1,minWidth:0}}>{c.detail||""}</span>
+                  </div>
+                ))}
+                {/* Reference block — shown, never scored. WALE has no single right */}
+                {/* target (retail 2-3 yrs vs industrial 5+), and sponsor is a fact. */}
+                {(ref.sponsor||ref.waleYears!=null)&&<div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}44`,fontSize:11,color:C.muted,lineHeight:1.8}}>
+                  <div style={{fontWeight:700,color:C.mutedLight,marginBottom:2}}>Reference — not scored</div>
+                  {ref.sponsor&&<div>Sponsor: <span style={{color:C.text}}>{ref.sponsor}</span>{ref.sponsorTier&&<span style={{color:ref.sponsorTier==="Tier 1"?C.green:C.gold,fontWeight:700}}> · {ref.sponsorTier}</span>}</div>}
+                  {ref.waleYears!=null&&<div>WALE: <span style={{color:C.text}}>{ref.waleYears} yrs</span> <span style={{fontSize:10}}>(no single target — retail 2–3 yrs, industrial 5+)</span></div>}
+                  {ref.dpuNote&&<div style={{marginTop:4}}>{ref.dpuNote}</div>}
+                  {ref.notes&&<div style={{marginTop:4}}>{ref.notes}</div>}
+                </div>}
+                <div style={{fontSize:10,color:C.muted,marginTop:8,textAlign:"right"}}>
+                  Revenue: Yahoo · “reported” rows: {ref.sponsor?"REIT’s own disclosure":"—"}{ref.asOf?` as at ${ref.asOf}`:""} · refreshed manually
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}30`}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:18}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
             {(()=>{
@@ -8359,7 +8436,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-19:00</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-22:30</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
