@@ -561,6 +561,7 @@ function App(){
   const [insiderData,setInsiderData]=useState({});
   const [bizHealth,setBizHealth]=useState({}); // v2026:07:15: Business Health (smart-api v65) — App-level state, hooks invalid in render fns
   const [reitHealth,setReitHealth]=useState({}); // v2026:08:11-22:30: REIT Health (smart-api v81) — SG/HK/CN REITs. App-level for the same reason.
+  const [etfHealth,setEtfHealth]=useState({}); // v2026:08:13-00:45: ETF Health (smart-api v82) — isEtf holdings. App-level, hooks invalid in render fns.
   const [showAllBuy,setShowAllBuy]=useState(false);
   const [showAllSell,setShowAllSell]=useState(false);
   const [showValue,setShowValue]=useState(false);  // v72.2: hidden by default — toggle to reveal
@@ -7330,6 +7331,34 @@ function App(){
       }
     }
     if(isReit && !reitHealth[h.ticker]) fetchReitHealth(h.ticker,h.mkt,h.name);
+
+    // ── ETF Health (smart-api v82) — fund holdings only; one attempt per ticker per session ──
+    // Mutually exclusive with BOTH the above: Business Health is US non-fund,
+    // REIT Health is Real Estate in SG/HK/CN, this is isEtf. An ETF has no cash
+    // flows of its own, so compute_intrinsic already skips it (methods="etf")
+    // and the detail tile read a bare "N/A — ETF / Fund". This fills that gap
+    // with the E-T-F framework (Efficiency / Tradability / Fit) instead of
+    // forcing a valuation model onto a basket. Informational only — it never
+    // touches intrinsic value, grades or the Buffett verdict.
+    const isEtfHolding=!!h && h.isEtf===true;
+    async function fetchEtfHealth(ticker,mkt,name,isEtf){
+      if(!ticker) return;
+      if(etfHealth[ticker]) return;
+      setEtfHealth(prev=>({...prev,[ticker]:{loading:true}}));
+      try{
+        const res=await fetch("https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"etf_health",ticker,mkt,name,isEtf}),
+        });
+        const d=await res.json().catch(()=>({available:false,error:"HTTP "+res.status+" — non-JSON response"}));
+        if(!res.ok&&d&&d.available===undefined) d.available=false, d.error=d.error||("HTTP "+res.status);
+        setEtfHealth(prev=>({...prev,[ticker]:{loading:false,...d}}));
+      }catch(e){
+        setEtfHealth(prev=>({...prev,[ticker]:{loading:false,available:false,error:e.message}}));
+      }
+    }
+    if(isEtfHolding && !etfHealth[h.ticker]) fetchEtfHealth(h.ticker,h.mkt,h.name,true);
     const buyHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="BUY").sort((a,b)=>b.date.localeCompare(a.date)); // newest first
     const sellHist=trades.filter(t=>t.ticker===h.ticker&&t.type==="SELL").sort((a,b)=>b.date.localeCompare(a.date));
     return(
@@ -8177,6 +8206,74 @@ function App(){
             );
           })()}
 
+          {/* ── ETF Health (smart-api v82) — E-T-F due diligence for fund holdings ── */}
+          {/* Efficiency + Tradability are SCORED (objective cost and liquidity). */}
+          {/* Fit is SHOWN BUT NEVER SCORED — the framework notes a fit lapse can */}
+          {/* cost far more than any fee, but the right answer depends on intent, */}
+          {/* so a number there would be false precision. Informational only. */}
+          {isEtfHolding&&(()=>{
+            const eh=etfHealth[h.ticker];
+            if(!eh) return null;
+            if(eh.loading) return(
+              <div style={{...card}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:18}}>📊</span><div style={cardT}>ETF Health</div></div>
+                <div style={{fontSize:12,color:C.muted,marginTop:6}}>Loading fund data…</div>
+              </div>);
+            if(!eh.available||!Array.isArray(eh.components)) return(
+              <div style={{...card,borderLeft:`3px solid ${C.muted}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:18}}>📊</span><div style={cardT}>ETF Health</div>
+                  <button onClick={()=>setEtfHealth(prev=>{const n={...prev};delete n[h.ticker];return n;})} style={{marginLeft:"auto",background:"transparent",border:`1px solid ${C.border}`,color:C.accent,fontSize:12,padding:"4px 10px",borderRadius:8,cursor:"pointer",fontWeight:600}}>🔄 Retry</button>
+                </div>
+                <div style={{fontSize:12,color:C.muted,marginTop:6}}>Not available — {eh.error||"no data returned"}</div>
+              </div>);
+            const ec=eh.verdict==="Excellent"?C.green:eh.verdict==="Good"?C.accent:eh.verdict==="Mixed"?C.gold:eh.verdict==="Weak"?C.red:C.muted;
+            const ref=eh.reference||{};
+            const fit=eh.fit||{};
+            const eff=eh.components.filter(c=>c.pillar==="efficiency");
+            const trd=eh.components.filter(c=>c.pillar==="tradability");
+            const row=(c)=>(
+              <div key={c.key} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"3px 0",fontSize:12}}>
+                <span style={{width:16,textAlign:"center",fontWeight:800,flexShrink:0,color:c.pass===true?C.green:c.pass===false?C.red:C.muted}}>{c.pass===true?"✓":c.pass===false?"✗":"−"}</span>
+                <span style={{minWidth:150,color:C.text,fontWeight:600,flexShrink:0}}>{c.label}</span>
+                <span style={{color:C.muted,flex:1,minWidth:0}}>{c.detail||""}</span>
+              </div>);
+            const sub={fontSize:11,fontWeight:800,color:C.mutedLight,letterSpacing:"0.06em",marginTop:8,marginBottom:2};
+            return(
+              <div style={{...card,borderLeft:`3px solid ${ec}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+                  <span style={{fontSize:18}}>📊</span><div style={cardT}>ETF Health</div>
+                  <span style={{marginLeft:"auto",fontSize:12,fontWeight:800,color:ec,background:ec+"18",padding:"3px 8px",borderRadius:6,whiteSpace:"nowrap"}}>{eh.score}/{eh.maxScore} · {eh.verdict}</span>
+                </div>
+                {eff.length>0&&<><div style={sub}>EFFICIENCY — cost you bear</div>{eff.map(row)}</>}
+                {ref.feeConflict&&<div style={{fontSize:11,color:C.red,background:C.red+"12",border:`1px solid ${C.red}33`,borderRadius:6,padding:"5px 8px",marginTop:4}}>⚠ Fee sources disagree — prospectus vs Yahoo. Shown figure is the prospectus management fee.</div>}
+                {trd.length>0&&<><div style={sub}>TRADABILITY — cost to get in and out</div>{trd.map(row)}</>}
+
+                {/* FIT — displayed, never scored. */}
+                <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}44`}}>
+                  <div style={{...sub,marginTop:0}}>FIT — what you actually own (not scored)</div>
+                  {fit.top10WeightPct!=null&&<div style={{fontSize:12,color:C.muted,padding:"2px 0"}}>Top 10 holdings: <span style={{color:C.text,fontWeight:700}}>{fit.top10WeightPct.toFixed(1)}%</span> of fund{fit.largestHolding&&<> · largest <span style={{color:C.text,fontWeight:700}}>{fit.largestHolding.symbol} {fit.largestHolding.weightPct.toFixed(2)}%</span></>}</div>}
+                  {fit.category&&fit.ret1yPct!=null&&fit.cat1yPct!=null&&fit.cat1yPct!==0&&<div style={{fontSize:12,color:C.muted,padding:"2px 0"}}>1y vs “{fit.category}” peers: <span style={{color:(fit.ret1yPct-fit.cat1yPct)>=0?C.green:C.red,fontWeight:700}}>{(fit.ret1yPct-fit.cat1yPct)>=0?"+":""}{(fit.ret1yPct-fit.cat1yPct).toFixed(1)} pts</span> <span style={{fontSize:10}}>({fit.ret1yPct.toFixed(1)}% vs {fit.cat1yPct.toFixed(1)}%)</span></div>}
+                  {fit.peer&&fit.peer.passed&&fit.peer.best&&<div style={{fontSize:12,color:C.muted,padding:"2px 0"}}>Closest listed peer <span style={{color:C.text,fontWeight:700}}>{fit.peer.best.peer}</span> · R² {fit.peer.best.r2.toFixed(3)} · beta {fit.peer.best.beta.toFixed(2)} · tracking error {fit.peer.best.tePct.toFixed(2)}%</div>}
+                  {fit.peer&&!fit.peer.passed&&<div style={{fontSize:12,color:C.gold,padding:"2px 0"}}>⚑ Idiosyncratic — no listed peer cleared R²≥{fit.peer.gate}. This exposure can’t be benchmarked.</div>}
+                  {fit.realisedCost&&<div style={{fontSize:12,color:C.muted,padding:"4px 0",marginTop:2}}>Realised cost vs twin <span style={{color:C.text,fontWeight:700}}>{fit.realisedCost.twin}</span>: <span style={{color:fit.realisedCost.gapPctPerYr>=0?C.green:C.red,fontWeight:800}}>{fit.realisedCost.gapPctPerYr>=0?"+":""}{fit.realisedCost.gapPctPerYr.toFixed(3)}%/yr</span> <span style={{fontSize:10}}>over {fit.realisedCost.years.toFixed(1)}y — measured all-in, not the stated fee</span></div>}
+                  {!fit.holdingsAvailable&&<div style={{fontSize:11,color:C.muted,padding:"2px 0"}}>Holdings not published for this structure{ref.fundClass?` (${ref.fundClass.replace(/_/g," ")})`:""}.</div>}
+                </div>
+
+                {(ref.notes||ref.yahooTotalErPct!=null)&&<div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}44`,fontSize:11,color:C.muted,lineHeight:1.8}}>
+                  <div style={{fontWeight:700,color:C.mutedLight,marginBottom:2}}>Reference — not scored</div>
+                  {ref.mgmtFeePct!=null&&<div>Prospectus management fee: <span style={{color:C.text}}>{ref.mgmtFeePct.toFixed(2)}%</span>{ref.affePct!=null&&ref.affePct>0.01&&<span> · AFFE {ref.affePct.toFixed(2)}% <span style={{fontSize:10}}>(underlying funds’ own fees — already netted in their distributions)</span></span>}</div>}
+                  {ref.yahooTotalErPct!=null&&<div>Yahoo reported total ER: <span style={{color:C.text}}>{ref.yahooTotalErPct.toFixed(2)}%</span></div>}
+                  {ref.yieldPct!=null&&ref.yieldPct>0&&<div>Distribution yield: <span style={{color:C.text}}>{ref.yieldPct.toFixed(2)}%</span></div>}
+                  {ref.notes&&<div style={{marginTop:4}}>{ref.notes}</div>}
+                </div>}
+                <div style={{fontSize:10,color:C.muted,marginTop:8,textAlign:"right"}}>
+                  Fee: {ref.feeSource==="prospectus"?"SEC filing":ref.feeSource==="yahoo"?"Yahoo (not prospectus-verified)":"—"}{ref.asOf?` as at ${ref.asOf}`:""} · spread is a live snapshot, not the SEC 30-day median
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{...card,background:C.accent+"08",border:`1px solid ${C.accentDim}30`}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><span style={{fontSize:18}}>🤖</span><div style={cardT}>Buffett-Style Analysis</div></div>
             {(()=>{
@@ -8436,7 +8533,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:11-22:30</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:13-00:45</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
