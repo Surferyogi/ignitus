@@ -102,7 +102,29 @@ const buffettScore=h=>{
   const iv=h.intrinsic||0;
   const upside=iv>0?((iv-h.price)/h.price)*100:null; // null = no IV loaded
   const moatPts=h.moat==="Wide"?30:h.moat==="Narrow"?15:0;
-  const divPts=Math.min(20,h.divYield*4);
+  // ── v2026:08:13-02:10 (B): dividend term rebuilt ──────────────────────────
+  // WAS: Math.min(20,h.divYield*4) — capped at 5% yield, so every income name
+  // maxed it automatically, and it was PERVERSE: yield = DPS/price, so a
+  // falling price RAISED the score. Measured on live data: all 8 holdings whose
+  // dividend points were maxed are underwater. ME8U cut its DPU 6.3% and still
+  // collected the full 20/20 because the 21.5% price fall lifted its yield.
+  //
+  // It was also DOUBLE-COUNTING valuation — a price fall raises both yield and
+  // upside, so the same event scored twice. In a quality score the dividend
+  // term should measure SUSTAINABILITY, not cheapness; cheapness is valuePts.
+  //
+  // NOW: weight cut (max 15, needs 6% not 5%) and gated on distribution trend
+  // where a curated figure exists. h.dpuYoyPct is joined from reit_metrics —
+  // REPORTED DPU, never derived from Yahoo dividend events (those are provably
+  // incomplete for S-REITs; see reit_health). null => multiplier 1.0, never
+  // fabricated. NOTE: the perversity is only REDUCED for non-REITs, where no
+  // payout-sustainability figure exists. Yield-at-cost was tested as an
+  // alternative and REJECTED — it removes the perversity but makes the score
+  // depend on YOUR entry price, so two identical businesses would score
+  // differently. Do not "fix" it that way.
+  const _dpu=(typeof h.dpuYoyPct==="number")?h.dpuYoyPct:null;
+  const _sustain=_dpu===null?1.0:_dpu<-5?0.4:_dpu<-0.5?0.7:1.0;
+  const divPts=Math.min(15,h.divYield*2.5)*_sustain;
   const valuePts=upside===null?0:upside>20?25:upside>10?15:upside>0?8:0;
   const pe=h.peRatio;
   const qualPts=(pe>0&&pe<25)?15:(pe>0&&pe<35)?8:0;
@@ -119,14 +141,20 @@ const buffettScore=h=>{
     // No IV: score on business quality only — no valuation deduction
     if(total>=65){action="BUY MORE";col=C.green;reason="Strong fundamentals — intrinsic value loading";}
     else if(total>=50){action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals — await intrinsic value confirmation";}
-    else if(total>=35){action="HOLD";col=C.gold;reason="Solid business — intrinsic value not yet available";}
+    else if(total>=50){action="HOLD";col=C.gold;reason="Sound on the metrics scored — intrinsic value not yet available";}
+    else if(total>=35){action="HOLD";col=C.gold;reason="Middling score — intrinsic value not yet available";}
     else{action="WATCH";col=C.mutedLight;reason="Monitor — limited basis for conviction without IV";}
   } else if(total>=65&&upside>10){
     action="BUY MORE";col=C.green;reason="Wide moat + undervalued";
   } else if(total>=50&&upside>0){
     action="ADD GRADUALLY";col="#72E5A0";reason="Good fundamentals, fair value";
+  } else if(total>=50&&upside>-10){
+    action="HOLD";col=C.gold;reason="Sound on the metrics scored, fairly priced";
   } else if(total>=35&&upside>-10){
-    action="HOLD";col=C.gold;reason="Solid business, fairly priced";
+    // v2026:08:13-02:10 (A+D): 35-49 previously read "Solid business, fairly
+    // priced" — indefensible at 43/100. The band is retained (an abrupt cliff
+    // would flip verdicts wholesale) but the WORDING now matches the score.
+    action="HOLD";col=C.gold;reason="Middling score — held on moat and income rather than conviction";
   } else if(h.moat==="Wide"&&upside>-50){
     action="HOLD";col=C.gold;reason="Quality moat — hold, price above intrinsic value";
   } else if(h.moat==="Narrow"&&upside>-25){
@@ -635,7 +663,10 @@ function App(){
   // All DB writes go through saveHoldings which strips IV fields from payload.
   const saveHoldings=(arr,label='[db]')=>{
     if(!window.portfolioDB) return;
-    const stripped=arr.map(({intrinsic:_i,intrinsicMethod:_m,intrinsicUpdatedAt:_u,...h})=>h);
+    // v2026:08:13-02:10 (B): dpuYoyPct is joined from reit_metrics at load and is
+    // SESSION-ONLY, exactly like the intrinsic fields — holdings has no such
+    // column, so letting it through would push an unknown column on every save.
+    const stripped=arr.map(({intrinsic:_i,intrinsicMethod:_m,intrinsicUpdatedAt:_u,dpuYoyPct:_d,...h})=>h);
     return window.portfolioDB.updateHoldings(stripped).catch(e=>console.warn(label,e));
   };
   const [isLoading,setIsLoading]=useState(true);
@@ -725,6 +756,29 @@ function App(){
           window.portfolioDB.updateTrades(tradesMktFixed).catch(e=>console.warn('[mkt-fix] trades DB:',e));
         }
         setHoldings(mktCorrected);
+        // ── v2026:08:13-02:10 (B): join curated REIT distribution trend ──────
+        // buffettScore gates dividend points on whether the distribution was
+        // CUT, and needs that synchronously — the score is computed portfolio-
+        // wide, long before any per-ticker health call fires. Non-blocking: on
+        // failure dpuYoyPct stays undefined and _sustain falls back to 1.0, so
+        // the score degrades to the weight-only change rather than breaking.
+        // Values are REPORTED DPU from each trust's own release (curated in
+        // reit_metrics) — never derived from Yahoo dividend events, which are
+        // provably incomplete for S-REITs.
+        fetch('https://ckyshjxznltdkxfvhfdy.supabase.co/rest/v1/reit_metrics?select=ticker,dpu_yoy_pct',{headers:sbH()})
+          .then(r=>r.ok?r.json():[])
+          .then(rows=>{
+            const map={};
+            (rows||[]).forEach(r=>{
+              const v=r&&r.dpu_yoy_pct;
+              if(r&&r.ticker&&v!==null&&v!==undefined&&isFinite(Number(v))) map[r.ticker]=Number(v);
+            });
+            const n=Object.keys(map).length;
+            if(!n) return;
+            console.log('[reit-dpu] joined '+n+' distribution-trend rows');
+            setHoldings(prev=>prev.map(h=>(h&&(h.ticker in map))?{...h,dpuYoyPct:map[h.ticker]}:h));
+          })
+          .catch(e=>console.warn('[reit-dpu] join skipped:',e&&e.message));
         setTrades(tradeMktFixCount>0?tradesMktFixed:tradesWithProfit);
         const fb={};
         // Real trade dates (excludes Opening Balance synthetic date 2000-01-01)
@@ -7676,7 +7730,7 @@ function App(){
             <div style={{...row}}>
               <div><div style={{fontSize:13,color:C.gold,fontWeight:700,marginBottom:3}}>BUFFETT SCORE</div><div style={{fontSize:15,color:C.mutedLight}}>{bs.reason}</div></div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontSize:26,fontWeight:800,color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>{fmt(bs.score,1)}<span style={{fontSize:15,color:C.muted}}>/100</span></div>
+                <div style={{fontSize:26,fontWeight:800,color:bs.score>=65?C.green:bs.score>=50?C.gold:C.red}}>{fmt(bs.score,1)}<span style={{fontSize:15,color:C.muted}}>/100</span></div>
                 <Bdg label={bs.action} bg={bs.col+"22"} color={bs.col}/>
               </div>
             </div>
@@ -8282,6 +8336,27 @@ function App(){
               const hasIV=(h.intrinsic||0)>0;
               const upsideAI=hasIV?((h.intrinsic-h.price)/h.price)*100:null;
               const moatStr=h.moat==="Wide"?"a wide economic moat — strong competitive advantages":h.moat==="Narrow"?"a narrow moat — some competitive advantages":"no significant moat";
+              // ── v2026:08:13-02:10 (C4): health-aware verdict ──────────────
+              // buffettScore scores moat, yield, valuation, P/E band and
+              // unrealised gain. It has NO input for a deteriorating business,
+              // so it called ME8U "solid" directly beneath a REIT Health card
+              // reading 2/4 — distribution cut 6.3%, occupancy 90.7%.
+              //
+              // The fix is deliberately in the NARRATIVE, not the number.
+              // Feeding health into buffettScore was considered and rejected:
+              // bizHealth/reitHealth are fetched lazily per ticker on THIS
+              // view, so a holding you had opened would score differently from
+              // one you had not, and only the 8 REITs would carry a penalty
+              // while 47 US names escaped it — punishing REITs for data
+              // availability, not quality. Here both health types are already
+              // loaded, so the wording is consistent and symmetric, and the
+              // score stays identical everywhere it is displayed.
+              const _hh=reitHealth[h.ticker]||bizHealth[h.ticker];
+              const _hOk=_hh&&_hh.available&&typeof _hh.score==="number"&&_hh.maxScore>0;
+              const _hRatio=_hOk?_hh.score/_hh.maxScore:null;
+              const _hWeak=_hRatio!==null&&_hRatio<0.6;
+              const _hFlags=_hOk&&Array.isArray(_hh.components)
+                ?_hh.components.filter(c=>c.pass===false).map(c=>c.label).slice(0,3):[];
               const rec=bs.action==="BUY MORE"?"a strong buy"
                 :bs.action==="ADD GRADUALLY"?"a gradual accumulation candidate"
                 :bs.action==="HOLD"?"worth holding at current levels"
@@ -8324,7 +8399,12 @@ function App(){
                 <div style={{fontSize:15,color:C.mutedLight,lineHeight:1.8}}>
                   <p style={{marginBottom:8}}>{para1}</p>
                   <p style={{marginBottom:8}}>Your position is {perfText}. The stock {divText}. {peText}</p>
-                  <p><b style={{color:bs.score>=65?C.green:bs.score>=35?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
+                  <p><b style={{color:bs.score>=65?C.green:bs.score>=50?C.gold:C.red}}>Buffett verdict ({fmt(bs.score,1)}/100):</b> {h.name} is {rec}. {bs.reason}.</p>
+                  {_hWeak&&(
+                    <p style={{marginTop:8,padding:"8px 10px",borderRadius:8,background:C.gold+"12",border:`1px solid ${C.gold}33`,fontSize:14,color:C.mutedLight}}>
+                      <b style={{color:C.gold}}>⚠ Health check disagrees ({_hh.score}/{_hh.maxScore}).</b> The verdict above scores moat, income, valuation and P/E — it has no view on whether the business is deteriorating.{_hFlags.length>0&&<> Currently failing: {_hFlags.join(", ")}.</>} Weigh the health card above before treating this as a hold.
+                    </p>
+                  )}
                 </div>
               );
             })()}
@@ -8533,7 +8613,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:13-00:45</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:13-02:10</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
