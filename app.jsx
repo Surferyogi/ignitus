@@ -293,6 +293,134 @@ function MiniSparkline({data,color=C.accent}){
   );
 }
 
+// ── Technical Analysis (v2026:08:20-05:07) ────────────────────────────────────────
+// Two independent trend reads off ONE 5y DAILY series (smart-api v83 ta_history):
+//   mid-term  = MA50 vs MA150 separation,      deadband ±2.0%
+//   long-term = MA200 slope over 21 trading days, deadband ±1.0%
+//
+// Bands are CK's decision (Option B, no confirmation filter), chosen from a
+// 33-holding / 4.3-year backtest of verdict stability:
+//   mid  ±0.5% -> 40.0% of trend regimes lasted <10 days (heavy whipsaw)
+//   mid  ±2.0% ->  9.0% short regimes, 21.8% of days FLAT   <- selected
+//   long ±0.5% -> 13.1% short regimes
+//   long ±1.0% ->  8.6% short regimes, 33.5% of days FLAT   <- selected
+// Widening the band trades sensitivity for stability; it does NOT reduce raw
+// flip COUNT (a wider FLAT zone converts one UP->DOWN flip into two), which is
+// why "% of regimes under 10 days" is the metric these were tuned on.
+//
+// MAs are SIMPLE (SMA), computed on Yahoo v8 `quote.close` — split-adjusted but
+// NOT dividend-adjusted (verified: adjclose differs historically, identical at
+// the latest bar). That is the standard charting convention for MAs.
+const TA_MID_BAND=2.0;       // % |MA50-MA150|/MA150 below this reads FLAT
+const TA_LONG_BAND=1.0;      // % |MA200 slope| below this reads FLAT
+const TA_SLOPE_LOOKBACK=21;  // trading days for the MA200 slope
+
+// Same length as input; first n-1 entries null so window slicing stays aligned.
+function taSMA(arr,n){
+  if(!arr||!arr.length) return [];
+  if(arr.length<n) return arr.map(()=>null);
+  const out=new Array(arr.length).fill(null);
+  let s=0;
+  for(let i=0;i<arr.length;i++){
+    s+=arr[i];
+    if(i>=n) s-=arr[i-n];
+    if(i>=n-1) out[i]=s/n;
+  }
+  return out;
+}
+
+// NEVER fabricates a verdict. Gates on the ACTUAL received bar count, never on
+// the requested range — Yahoo's bar count does not reliably track the range for
+// short-history listings (MBGL returns 19 bars at range=5y; SHLD 734 at 5y but
+// 155 at max). Insufficient history returns state "n/a" plus the shortfall.
+function taTrends(closes){
+  const n=closes?closes.length:0;
+  const m50=taSMA(closes,50),m150=taSMA(closes,150),m200=taSMA(closes,200);
+  let mid={state:"n/a",value:null,reason:"no data"};
+  if(n<150){ mid.reason="needs 150 bars, have "+n; }
+  else{
+    const a=m50[n-1],b=m150[n-1];
+    if(a==null||b==null||!b) mid.reason="MA unavailable";
+    else{
+      const sep=(a-b)/b*100;
+      mid={state:sep>TA_MID_BAND?"UP":sep<-TA_MID_BAND?"DOWN":"FLAT",value:sep,reason:""};
+    }
+  }
+  let lng={state:"n/a",value:null,reason:"no data"};
+  const need=200+TA_SLOPE_LOOKBACK;
+  if(n<need){ lng.reason="needs "+need+" bars, have "+n; }
+  else{
+    const cur=m200[n-1],prev=m200[n-1-TA_SLOPE_LOOKBACK];
+    if(cur==null||prev==null||!prev) lng.reason="MA200 unavailable";
+    else{
+      const sl=(cur-prev)/prev*100;
+      lng={state:sl>TA_LONG_BAND?"UP":sl<-TA_LONG_BAND?"DOWN":"FLAT",value:sl,reason:""};
+    }
+  }
+  return {mid,lng,m50,m150,m200,n};
+}
+
+// 1Y view = trailing 252 bars with MA50/MA150/MA200 (all three span the FULL
+// window because they are computed on the whole 5y series, not the slice).
+// 5Y view = everything, MA200 only — that is the view the long-term read owns.
+function TAChart({closes,timestamps,m50,m150,m200,view,height=140}){
+  if(!closes||closes.length<2) return null;
+  const n=closes.length;
+  const win=view==="1y"?Math.min(n,252):n;
+  const st=n-win;
+  const px=closes.slice(st);
+  const ts=(timestamps||[]).slice(st);
+  const lines=view==="1y"
+    ?[{d:m50.slice(st),c:C.gold,w:1.1},{d:m150.slice(st),c:C.purple,w:1.1},{d:m200.slice(st),c:C.accent,w:1.4}]
+    :[{d:m200.slice(st),c:C.accent,w:1.4}];
+  const vals=px.slice();
+  lines.forEach(L=>L.d.forEach(v=>{if(v!=null)vals.push(v);}));
+  const mn=Math.min(...vals),mx=Math.max(...vals),range=(mx-mn)||1;
+  const W=320,H=height,AXIS=16,TH=H+AXIS;
+  const X=i=>(i/(win-1||1))*W;
+  const Y=v=>H-((v-mn)/range)*(H-8)-4;
+  const pathOf=arr=>{
+    let d="",pen=false;
+    for(let i=0;i<arr.length;i++){
+      const v=arr[i];
+      if(v==null){pen=false;continue;}
+      d+=(pen?"L":"M")+X(i).toFixed(1)+","+Y(v).toFixed(1)+" ";
+      pen=true;
+    }
+    return d.trim();
+  };
+  // Axis ticks derived from REAL Yahoo timestamps — never from assumed density.
+  let marks=[];
+  if(ts.length===win&&win>1){
+    let last=null;
+    for(let i=0;i<win;i++){
+      const dt=new Date(ts[i]*1000);
+      const key=view==="1y"?dt.getMonth():dt.getFullYear();
+      if(last===null){last=key;continue;}
+      if(key!==last){
+        last=key;
+        marks.push({i,lbl:view==="1y"?dt.toLocaleString("default",{month:"short"}):String(dt.getFullYear())});
+      }
+    }
+    if(view==="1y") marks=marks.filter((_,k)=>k%2===0);
+  }
+  return(
+    <svg width="100%" viewBox={`0 0 ${W} ${TH}`} style={{display:"block",pointerEvents:"none"}}>
+      <path d={pathOf(px)} fill="none" stroke={C.mutedLight} strokeWidth="1" opacity="0.75" strokeLinejoin="round"/>
+      {lines.map((L,k)=><path key={k} d={pathOf(L.d)} fill="none" stroke={L.c} strokeWidth={L.w} strokeLinecap="round" strokeLinejoin="round"/>)}
+      <line x1="0" y1={H} x2={W} y2={H} stroke={C.border} strokeWidth="0.5"/>
+      {marks.map((m,k)=>{
+        const x=X(m.i);
+        const anchor=k===0?"start":k===marks.length-1?"end":"middle";
+        return(<g key={k}>
+          <line x1={x} y1={H} x2={x} y2={H+4} stroke={C.border} strokeWidth="0.6"/>
+          <text x={x} y={H+13} textAnchor={anchor} fontSize="9" fill={C.muted}>{m.lbl}</text>
+        </g>);
+      })}
+    </svg>
+  );
+}
+
 function PerfChart({mktFilter,period,holdings,perfChartData,perfChartLoading,fetchPerfChartData}){
   const m=MKT[mktFilter];
   const idxName=mktFilter==="ALL"?"S&P 500":(m?.index||"Index");
@@ -590,6 +718,9 @@ function App(){
   const [bizHealth,setBizHealth]=useState({}); // v2026:07:15: Business Health (smart-api v65) — App-level state, hooks invalid in render fns
   const [reitHealth,setReitHealth]=useState({}); // v2026:08:11-22:30: REIT Health (smart-api v81) — SG/HK/CN REITs. App-level for the same reason.
   const [etfHealth,setEtfHealth]=useState({}); // v2026:08:13-00:45: ETF Health (smart-api v82) — isEtf holdings. App-level, hooks invalid in render fns.
+  const [taHist,setTaHist]=useState({});      // v2026:08:20-05:07: {TICKER:{closes,timestamps}} — 5y daily, smart-api v83. App-level, hooks invalid in render fns.
+  const [taLoading,setTaLoading]=useState({});
+  const [taView,setTaView]=useState("1y");    // TA chart window: "1y" (mid-term) | "5y" (long-term)
   const [showAllBuy,setShowAllBuy]=useState(false);
   const [showAllSell,setShowAllSell]=useState(false);
   const [showValue,setShowValue]=useState(false);  // v72.2: hidden by default — toggle to reveal
@@ -2524,6 +2655,42 @@ function App(){
     }
   }
 
+  /* v2026:08:20-05:07 — TA series fetch. Separate action + separate cache from
+     fetchRealHistory on purpose: the History card's periods 5y/all return WEEKLY
+     bars, and a 200-period MA on weekly data is a 200-WEEK (~3.8yr) average, not
+     the 200-DAY MA this card needs. Cached per ticker (not per period) because
+     one 5y daily series serves both the 1Y and 5Y views. */
+  async function fetchTAHistory(ticker){
+    if(!ticker) return;
+    if(taHist[ticker]) return;
+    if(taLoading[ticker]) return;
+    setTaLoading(prev=>({...prev,[ticker]:true}));
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),20000);
+    try{
+      const res=await fetch('https://ckyshjxznltdkxfvhfdy.supabase.co/functions/v1/smart-api',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'ta_history',ticker}),
+        signal:controller.signal,
+      });
+      clearTimeout(timer);
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const d=await res.json();
+      if(d.closes&&d.closes.length>1){
+        setTaHist(prev=>({...prev,[ticker]:{closes:d.closes,timestamps:d.timestamps||[]}}));
+        console.log('TA history loaded:',ticker,d.closes.length,'daily bars');
+      } else {
+        console.warn('No TA closes for',ticker,JSON.stringify(d).slice(0,120));
+      }
+    }catch(e){
+      clearTimeout(timer);
+      console.warn('TA history failed:',ticker,e.message);
+    } finally {
+      setTaLoading(prev=>({...prev,[ticker]:false}));
+    }
+  }
+
   useEffect(()=>{
     if(!window.portfolioDB)return;
     setDbStatus('saving');
@@ -2554,6 +2721,7 @@ function App(){
     setShowAllBuy(false);
     setShowAllSell(false);
     fetchRealHistory(sel.ticker,sel.mkt,detailPeriod);
+    fetchTAHistory(sel.ticker); // v2026:08:20-05:07: 5y daily series for the TA card
     /* v2026:08:11-15:10 — was US-only, so non-US holdings never called the
        valuation action at all and could never populate a BEST ESTIMATE. smart-api
        v79 fills price/eps/analyst target from Yahoo v10 (crumb) for non-US, so the
@@ -7616,6 +7784,72 @@ function App(){
             </div>
           </div>
 
+          {/* ── Technical Analysis (v2026:08:20-05:07) ─────────────────────────── */}
+          <div style={{...card,padding:12,marginBottom:10}}>
+            <div style={{...row,marginBottom:8,alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700}}>Technical Analysis</div>
+                <span style={{
+                  fontSize:8,fontWeight:800,color:C.accent,letterSpacing:"0.08em",
+                  background:C.accent+"18",border:`1px solid ${C.accent}35`,
+                  borderRadius:8,padding:"1px 5px",lineHeight:"14px"
+                }}>5Y DAILY</span>
+              </div>
+              <div style={{display:"flex",gap:3}}>
+                {["1y","5y"].map(v=><button key={v} style={smPill(taView===v)} onClick={()=>setTaView(v)}>{v==="1y"?"1Y":"5Y"}</button>)}
+              </div>
+            </div>
+            {(()=>{
+              const td=taHist[h.ticker];
+              if(taLoading[h.ticker]) return(
+                <div style={{height:100,display:"flex",alignItems:"center",justifyContent:"center",background:C.surface,borderRadius:8}}>
+                  <div style={{fontSize:14,color:C.gold,animation:"pulse 1s ease-in-out infinite"}}>↻ Loading price history...</div>
+                </div>
+              );
+              if(!td||!td.closes||td.closes.length<2) return(
+                <div style={{height:100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:C.surface,borderRadius:8,gap:6}}>
+                  <div style={{fontSize:14,color:C.muted}}>No price history</div>
+                  <button onClick={()=>fetchTAHistory(h.ticker)} style={{fontSize:14,padding:"3px 10px",borderRadius:5,border:`1px solid ${C.accent}`,background:"transparent",color:C.accent,cursor:"pointer"}}>Load</button>
+                </div>
+              );
+              const T=taTrends(td.closes);
+              const legend=taView==="1y"
+                ?[["MA50",C.gold],["MA150",C.purple],["MA200",C.accent],["Price",C.mutedLight]]
+                :[["MA200",C.accent],["Price",C.mutedLight]];
+              return(<>
+                <TAChart closes={td.closes} timestamps={td.timestamps} m50={T.m50} m150={T.m150} m200={T.m200} view={taView}/>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4,marginBottom:2}}>
+                  {legend.map(([lbl,col])=>(
+                    <div key={lbl} style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{width:10,height:2,background:col,borderRadius:1,display:"inline-block"}}/>
+                      <span style={{fontSize:11,color:C.muted}}>{lbl}</span>
+                    </div>
+                  ))}
+                  <div style={{marginLeft:"auto",fontSize:11,color:C.muted}}>{T.n} daily bars</div>
+                </div>
+                {[["Mid-term trend",T.mid,"MA50 vs MA150","\u00b1"+TA_MID_BAND.toFixed(1)+"% flat band"],
+                  ["Long-term trend",T.lng,"MA200 slope, "+TA_SLOPE_LOOKBACK+"d","\u00b1"+TA_LONG_BAND.toFixed(1)+"% flat band"]].map(([lbl,tr,sub,band])=>{
+                  const col=tr.state==="UP"?C.green:tr.state==="DOWN"?C.red:tr.state==="FLAT"?C.gold:C.muted;
+                  const arrow=tr.state==="UP"?"\u25b2":tr.state==="DOWN"?"\u25bc":tr.state==="FLAT"?"\u25ac":"\u2014";
+                  return(
+                    <div key={lbl} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderTop:`1px solid ${C.border}`}}>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.text}}>{lbl}</div>
+                        <div style={{fontSize:11,color:C.muted}}>{sub} \u00b7 {band}</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:15,fontWeight:800,color:col}}>{arrow} {tr.state}</div>
+                        <div style={{fontSize:11,color:C.muted}}>
+                          {tr.value!=null?((tr.value>=0?"+":"")+tr.value.toFixed(2)+"%"):tr.reason}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>);
+            })()}
+          </div>
+
           {/* Position */}
           <div style={{background:C.accent+"0D",border:`1px solid ${C.accentDim}30`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
             <div style={{fontSize:13,color:C.accent,fontWeight:700,letterSpacing:"0.08em",marginBottom:8}}>POSITION</div>
@@ -8613,7 +8847,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:13-02:10</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:20-05:07</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
