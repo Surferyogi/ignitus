@@ -315,6 +315,23 @@ const TA_MID_BAND=2.0;       // % |MA50-MA150|/MA150 below this reads FLAT
 const TA_LONG_BAND=1.0;      // % |MA200 slope| below this reads FLAT
 const TA_SLOPE_LOOKBACK=21;  // trading days for the MA200 slope
 
+// v2026:08:20-08:18: indices shown per market selection. Symbols match smart-api's
+// live_indices INDICES map exactly; all 10 verified against ta_history (v83)
+// returning 1,220-1,281 daily bars each. ALL is deliberately absent — index
+// trends render only when a specific market is selected.
+// GB/AU are mapped for completeness (both exist in MKT and in live_indices);
+// they simply never render today because no GB/AU holdings exist, so the market
+// pill is not shown. A missing key renders nothing rather than an empty block.
+const IDX_TA={
+  US:[["S&P 500","^GSPC"],["Nasdaq","^IXIC"],["Dow Jones","^DJI"]],
+  SG:[["STI","^STI"]],
+  JP:[["Nikkei 225","^N225"]],
+  CN:[["HSI","^HSI"]],
+  EU:[["CAC 40","^FCHI"]],
+  GB:[["FTSE 100","^FTSE"]],
+  AU:[["ASX 200","^AXJO"]],
+};
+
 // Same length as input; first n-1 entries null so window slicing stays aligned.
 function taSMA(arr,n){
   if(!arr||!arr.length) return [];
@@ -2729,6 +2746,19 @@ function App(){
     if(!sel.isEtf) fetchValuation(sel.ticker);
   },[sel?.ticker,detailPeriod]);
 
+  /* v2026:08:20-08:18 — index TA series for the selected market only.
+     Reuses fetchTAHistory + taTrends so the trend RULE has exactly one
+     implementation. live_indices already pulls the same 5y daily series and
+     discards the closes, so trends could be computed server-side with no extra
+     Yahoo call — deliberately NOT done: that would be a second copy of the rule
+     in TypeScript, and a band change would silently drift between the two.
+     Cost of this choice is 1-3 un-gated Yahoo calls per market switch. */
+  useEffect(()=>{
+    const list=IDX_TA[mktFilter];
+    if(!list)return;
+    list.forEach(([,sym])=>fetchTAHistory(sym));
+  },[mktFilter]);
+
   const markDirty=()=>setPendingChanges(n=>n+1);
 
   function doRefresh(){
@@ -3838,6 +3868,46 @@ function App(){
             </div>
           </div>
           <PerfChart mktFilter={mktFilter} period={chartPeriod} holdings={holdings} perfChartData={perfChartData} perfChartLoading={perfChartLoading} fetchPerfChartData={fetchPerfChartData}/>
+
+          {/* ── Index trends, selected market only (v2026:08:20-08:18) ──────────── */}
+          {mktFilter!=="ALL"&&(()=>{
+            const list=IDX_TA[mktFilter];
+            if(!list||!list.length)return null;
+            const hdr={fontSize:10,color:C.muted,fontWeight:700,letterSpacing:"0.04em",textAlign:"right"};
+            return(
+              <div style={{marginTop:10,paddingTop:9,borderTop:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",alignItems:"center",marginBottom:4}}>
+                  <div style={{flex:1,fontSize:11,color:C.muted,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>Index trend</div>
+                  <div style={{...hdr,width:84}}>MID-TERM</div>
+                  <div style={{...hdr,width:84}}>LONG-TERM</div>
+                </div>
+                {list.map(([nm,sym])=>{
+                  const td=taHist[sym];
+                  const busy=taLoading[sym];
+                  const T=(td&&td.closes&&td.closes.length>1)?taTrends(td.closes):null;
+                  const cell=(tr)=>{
+                    if(!T)return <div style={{fontSize:12,color:busy?C.gold:C.muted}}>{busy?"\u21bb":"n/a"}</div>;
+                    const col=tr.state==="UP"?C.green:tr.state==="DOWN"?C.red:tr.state==="FLAT"?C.gold:C.muted;
+                    const ar=tr.state==="UP"?"\u25b2":tr.state==="DOWN"?"\u25bc":tr.state==="FLAT"?"\u25ac":"\u2014";
+                    return(<>
+                      <div style={{fontSize:13,fontWeight:800,color:col}}>{ar} {tr.state}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{tr.value!=null?((tr.value>=0?"+":"")+tr.value.toFixed(2)+"%"):tr.reason}</div>
+                    </>);
+                  };
+                  return(
+                    <div key={sym} style={{display:"flex",alignItems:"center",padding:"5px 0",borderTop:`1px solid ${C.border}66`}}>
+                      <div style={{flex:1,fontSize:13,fontWeight:700,color:C.text}}>{nm}</div>
+                      <div style={{width:84,textAlign:"right"}}>{cell(T?T.mid:null)}</div>
+                      <div style={{width:84,textAlign:"right"}}>{cell(T?T.lng:null)}</div>
+                    </div>
+                  );
+                })}
+                <div style={{fontSize:10,color:C.muted,marginTop:5,lineHeight:1.45}}>
+                  Mid = MA50 vs MA150, flat band ±{TA_MID_BAND.toFixed(1)}%. Long = MA200 slope over {TA_SLOPE_LOOKBACK} trading days, flat band ±{TA_LONG_BAND.toFixed(1)}%. Simple MAs on 5y daily closes.
+                </div>
+              </div>
+            );
+          })()}
 
         </div>
         <div style={card}>
@@ -8847,7 +8917,7 @@ function App(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:20-07:36</span></div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:700,letterSpacing:"0.1em"}}>IGNITUS PORTFOLIO{mktFilter!=="ALL"&&<span style={{color:C.accent,fontWeight:700,background:C.accent+"18",padding:"2px 6px",borderRadius:4,marginLeft:4}}>{mktFilter==="CN"?"HK":mktFilter}</span>} <span style={{color:C.green,fontWeight:900,background:C.green+"22",padding:"2px 6px",borderRadius:4,marginLeft:4}}>v2026:08:20-08:18</span></div>
                 <button title="Sign out" onClick={()=>{if(window.portfolioDB?.signOut)window.portfolioDB.signOut();else{localStorage.removeItem('ign_jwt');localStorage.removeItem('ign_refresh');location.reload();}}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px",borderRadius:4,lineHeight:1}} onMouseEnter={e=>e.target.style.color="#FF5577"} onMouseLeave={e=>e.target.style.color=C.muted}>⏏</button>
               </div>
               <div title={dbStatus==="error"?"DB save failed":dbStatus==="saving"?"Saving...":dbStatus==="saved"?"Saved to DB":"DB ready"} style={{width:6,height:6,borderRadius:3,background:dbStatus==="error"?C.red:dbStatus==="saving"?C.gold:dbStatus==="saved"?C.green:C.border,transition:"background 0.4s"}}/>
